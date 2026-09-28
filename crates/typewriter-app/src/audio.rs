@@ -108,7 +108,10 @@ fn gain(volume_percent: u8) -> f32 {
 
 impl Audio {
     pub fn new(machine: Sounds, settings: settings::Sound) -> anyhow::Result<Self> {
-        let device = DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
+        let mut device =
+            DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
+        // Dropped on quit, when stopping the sound is what should happen.
+        device.log_on_drop(false);
         Ok(Self {
             device,
             keys: decode_all(&KEYS)?,
