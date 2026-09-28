@@ -37,7 +37,7 @@ impl LineSpacing {
 /// How far from the carriage, in columns, clearing a tab stop reaches.
 pub const TAB_CLEAR_VICINITY: u16 = 3;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Carriage {
     /// Column the next strike lands on. May equal the page width, which means
     /// the carriage has run off the right edge of the paper.
@@ -53,6 +53,15 @@ pub struct Carriage {
 }
 
 impl Carriage {
+    /// Fits a sheet `columns` wide and `half_lines` tall, e.g. after loading.
+    pub fn fits(&self, columns: u16, half_lines: u16) -> bool {
+        self.column <= columns
+            && self.half_line < half_lines
+            && self.left_margin < self.right_margin
+            && self.right_margin <= columns
+            && self.tab_stops.iter().all(|&stop| stop < columns)
+    }
+
     pub fn new(left_margin: u16, right_margin: u16, top_half_line: u16) -> Self {
         Self {
             column: left_margin,

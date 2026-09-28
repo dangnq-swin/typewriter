@@ -2,7 +2,7 @@
 
 use crate::carriage::{Carriage, LineSpacing};
 use crate::constraints::{Constraints, EraseMode};
-use crate::document::Document;
+use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
 use crate::page::{Correction, Page};
 use crate::profile::{Profile, ProfileError};
 
@@ -25,6 +25,9 @@ pub enum Command {
     /// Turning the platen knob: the paper rolls on by the line spacing and
     /// the carriage stays where it is.
     LineFeed,
+    /// Turning the platen knob one notch: the paper rolls on by a half-line,
+    /// e.g. winding a sheet back to where typing stopped.
+    PlatenNotch,
     Tab,
     SetTabStop,
     /// Clears the tab stop nearest the carriage, within a few columns.
@@ -109,6 +112,55 @@ impl Typewriter {
         })
     }
 
+    /// The folder file for this document, as RON text.
+    pub fn to_folder_ron(&self) -> Result<String, FolderError> {
+        FolderFile {
+            version: FORMAT_VERSION,
+            profile: self.profile.name.clone(),
+            constraints: self.constraints.clone(),
+            carriage: self.carriage.clone(),
+            document: self.document.clone(),
+        }
+        .to_ron()
+    }
+
+    /// Puts a saved document back into the machine, where typing stopped.
+    /// The correction slip, being held by hand, is out.
+    pub fn from_folder_ron(profile: Profile, text: &str) -> Result<Self, FolderError> {
+        let file = FolderFile::from_ron(text)?;
+        if file.profile != profile.name {
+            return Err(FolderError::UnknownMachine(file.profile));
+        }
+        let mut machine = Self::new(profile, file.constraints)
+            .map_err(|err| FolderError::DoesNotFit(err.to_string()))?;
+        let (columns, half_lines) = (machine.profile.columns(), machine.profile.half_lines());
+        let document = &file.document;
+        let fits = document.current().fits(columns, half_lines)
+            && document
+                .finished()
+                .iter()
+                .all(|p| p.fits(columns, half_lines))
+            && file.carriage.fits(columns, half_lines);
+        if !fits {
+            return Err(FolderError::DoesNotFit(machine.profile.name));
+        }
+        machine.carriage = file.carriage;
+        machine.document = file.document;
+        Ok(machine)
+    }
+
+    /// Puts the sheet back in the way a typist resumes: carriage at the left
+    /// margin, paper at the top margin, ready to be wound down line by line.
+    /// Returns the half-line typing stopped at, where winding should end.
+    pub fn reinsert(&mut self) -> u16 {
+        let c = &mut self.carriage;
+        let stopped_at = c.half_line;
+        c.half_line = stopped_at.min(self.profile.margins.top_lines * 2);
+        c.column = c.left_margin;
+        c.margin_released = false;
+        stopped_at
+    }
+
     pub fn profile(&self) -> &Profile {
         &self.profile
     }
@@ -147,6 +199,15 @@ impl Typewriter {
             Command::Return => self.carriage_return(),
             Command::LineFeed => {
                 if self.roll_one_line() {
+                    vec![Event::LineFeed]
+                } else {
+                    vec![Event::PageEnd]
+                }
+            }
+            Command::PlatenNotch => {
+                let c = &mut self.carriage;
+                if c.half_line + 1 < self.document.current().half_lines() {
+                    c.half_line += 1;
                     vec![Event::LineFeed]
                 } else {
                     vec![Event::PageEnd]
@@ -490,6 +551,76 @@ mod tests {
                 Mark::Glyph('u')
             ]
         );
+    }
+
+    #[test]
+    fn a_folder_file_puts_everything_back_where_it_was() {
+        let mut tw = sm9();
+        tw.constraints.erase = EraseMode::Fluid;
+        type_str(&mut tw, "first sheet");
+        tw.apply(Command::FeedSheet);
+        tw.apply(Command::SetLineSpacing(LineSpacing::Double));
+        type_str(&mut tw, "ab");
+        tw.apply(Command::Erase);
+        tw.apply(Command::Tab);
+        let text = tw.to_folder_ron().unwrap();
+        let back = Typewriter::from_folder_ron(tw.profile().clone(), &text).unwrap();
+        assert_eq!(back.document(), tw.document());
+        assert_eq!(back.carriage(), tw.carriage());
+        assert_eq!(back.constraints, tw.constraints);
+    }
+
+    #[test]
+    fn a_reinserted_sheet_winds_back_notch_by_notch() {
+        let mut tw = sm9();
+        tw.apply(Command::SetLineSpacing(LineSpacing::OneAndHalf));
+        type_str(&mut tw, "one");
+        tw.apply(Command::Return);
+        type_str(&mut tw, "two");
+        let stopped_at = tw.reinsert();
+        assert_eq!(stopped_at, 15);
+        assert_eq!((tw.carriage().half_line, tw.carriage().column), (12, 10));
+        let notches: Vec<Event> = (12..stopped_at)
+            .flat_map(|_| tw.apply(Command::PlatenNotch))
+            .collect();
+        assert_eq!(notches, [Event::LineFeed; 3]);
+        assert_eq!((tw.carriage().half_line, tw.carriage().column), (15, 10));
+    }
+
+    #[test]
+    fn the_platen_stops_at_the_bottom_of_the_sheet() {
+        let mut tw = sm9();
+        for _ in 0..200 {
+            tw.apply(Command::PlatenNotch);
+        }
+        assert_eq!(tw.carriage().half_line, 139);
+        assert_eq!(tw.apply(Command::PlatenNotch), [Event::PageEnd]);
+    }
+
+    #[test]
+    fn folder_files_from_elsewhere_are_refused() {
+        let tw = sm9();
+        let text = tw.to_folder_ron().unwrap();
+        let profile = tw.profile().clone();
+        let newer = text.replacen("version: 1", "version: 99", 1);
+        assert!(matches!(
+            Typewriter::from_folder_ron(profile.clone(), &newer),
+            Err(FolderError::NewerVersion(99))
+        ));
+        let other = text.replacen("Olympia SM9", "Hermes 3000", 1);
+        assert!(matches!(
+            Typewriter::from_folder_ron(profile.clone(), &other),
+            Err(FolderError::UnknownMachine(_))
+        ));
+        let off_the_sheet = text.replacen("column: 10", "column: 900", 1);
+        assert!(matches!(
+            Typewriter::from_folder_ron(profile.clone(), &off_the_sheet),
+            Err(FolderError::DoesNotFit(_))
+        ));
+        assert!(matches!(
+            Typewriter::from_folder_ron(profile, "a shopping list"),
+            Err(FolderError::Unreadable(_))
+        ));
     }
 
     #[test]

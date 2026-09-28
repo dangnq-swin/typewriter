@@ -15,7 +15,11 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"
+ron = "0.12"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+rfd = "0.17"
+# Without its HTML layout engine: pages are drawn op by op.
+printpdf = { version = "0.12", default-features = false }
 rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
 
 # Decoding and resizing the paper texture is painfully slow unoptimised,

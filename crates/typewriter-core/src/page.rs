@@ -3,8 +3,10 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 /// Something applied to a cell, in order. Later marks sit on top.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mark {
     Glyph(char),
     /// Struck onto correction fluid that had not dried: the ink ran.
@@ -13,7 +15,7 @@ pub enum Mark {
 }
 
 /// Covers everything struck before it, which stays in the stack.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Correction {
     /// Rubbed out with a typewriter eraser. A faint ghost of the ink stays.
     Eraser,
@@ -24,7 +26,8 @@ pub enum Correction {
     Fluid { wet: bool },
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Cell {
     marks: Vec<Mark>,
 }
@@ -74,7 +77,7 @@ impl Cell {
 }
 
 /// Rows are addressed in half-line steps, matching the platen ratchet.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
     columns: u16,
     half_lines: u16,
@@ -96,6 +99,15 @@ impl Page {
 
     pub fn half_lines(&self) -> u16 {
         self.half_lines
+    }
+
+    /// Has this size and nothing outside it, e.g. after loading.
+    pub fn fits(&self, columns: u16, half_lines: u16) -> bool {
+        self.columns == columns
+            && self.half_lines == half_lines
+            && self.cells.iter().all(|(&(half_line, column), cell)| {
+                half_line < half_lines && column < columns && !cell.marks.is_empty()
+            })
     }
 
     /// Nothing was ever struck on it (or everything was erased).

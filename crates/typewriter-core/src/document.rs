@@ -1,9 +1,18 @@
 //! The sheets typed so far: a folder of finished ones and the one in the
-//! machine.
+//! machine, and the folder file they are saved in.
 
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use crate::carriage::Carriage;
+use crate::constraints::Constraints;
 use crate::page::Page;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Bumped whenever the folder file changes in a way older versions cannot
+/// read.
+pub const FORMAT_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     finished: Vec<Page>,
     current: Page,
@@ -38,6 +47,55 @@ impl Document {
             self.finished
                 .push(std::mem::replace(&mut self.current, fresh));
         }
+    }
+}
+
+/// A folder file (`*.folder.ron`): the document and the state of the
+/// machine it is in, so typing carries on where it stopped.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FolderFile {
+    pub version: u32,
+    /// The profile's name. Only the built-in machines exist for now.
+    pub profile: String,
+    pub constraints: Constraints,
+    pub carriage: Carriage,
+    pub document: Document,
+}
+
+#[derive(Debug, Error)]
+pub enum FolderError {
+    #[error("not a typewriter folder: {0}")]
+    Unreadable(#[from] ron::error::SpannedError),
+    #[error("the folder could not be written: {0}")]
+    Unwritable(#[from] ron::Error),
+    #[error("made by a newer version of typewriter (folder format {0})")]
+    NewerVersion(u32),
+    #[error("typed on a machine this version does not have: {0}")]
+    UnknownMachine(String),
+    #[error("its sheets do not fit the {0}")]
+    DoesNotFit(String),
+}
+
+impl FolderFile {
+    pub fn to_ron(&self) -> Result<String, FolderError> {
+        let pretty = ron::ser::PrettyConfig::new()
+            .struct_names(false)
+            .compact_arrays(true);
+        Ok(ron::ser::to_string_pretty(self, pretty)?)
+    }
+
+    pub fn from_ron(text: &str) -> Result<Self, FolderError> {
+        /// Read first, so a newer file gets a clear error instead of a
+        /// confusing one about a field this version does not know.
+        #[derive(Deserialize)]
+        struct Version {
+            version: u32,
+        }
+        let Version { version } = ron::from_str(text)?;
+        if version > FORMAT_VERSION {
+            return Err(FolderError::NewerVersion(version));
+        }
+        Ok(ron::from_str(text)?)
     }
 }
 
