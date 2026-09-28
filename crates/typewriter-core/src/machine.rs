@@ -129,13 +129,17 @@ impl Typewriter {
         .to_ron()
     }
 
-    /// Puts a saved document back into the machine, where typing stopped.
-    /// The correction slip, being held by hand, is out.
-    pub fn from_folder_ron(profile: Profile, text: &str) -> Result<Self, FolderError> {
+    /// Puts a saved document back into the machine it was typed on, found
+    /// by name with `machine`, where typing stopped. The correction slip,
+    /// being held by hand, is out.
+    pub fn from_folder_ron(
+        text: &str,
+        machine: impl FnOnce(&str) -> Option<Profile>,
+    ) -> Result<Self, FolderError> {
         let file = FolderFile::from_ron(text)?;
-        if file.profile != profile.name {
+        let Some(profile) = machine(&file.profile) else {
             return Err(FolderError::UnknownMachine(file.profile));
-        }
+        };
         let mut machine = Self::new(profile, file.constraints)
             .map_err(|err| FolderError::DoesNotFit(err.to_string()))?;
         let (columns, half_lines) = (machine.profile.columns(), machine.profile.half_lines());
@@ -481,6 +485,11 @@ mod tests {
         Typewriter::new(profile, Constraints::default()).unwrap()
     }
 
+    /// Finds only `profile`, as if it were the one machine there is.
+    fn by_name(profile: &Profile) -> impl FnOnce(&str) -> Option<Profile> + '_ {
+        move |name| (name == profile.name).then(|| profile.clone())
+    }
+
     fn type_str(tw: &mut Typewriter, s: &str) -> Vec<Event> {
         s.chars().flat_map(|c| tw.apply(Command::Type(c))).collect()
     }
@@ -591,7 +600,7 @@ mod tests {
         tw.record_session(session(100, 7));
         tw.record_session(session(200, 1));
         let text = tw.to_folder_ron().unwrap();
-        let back = Typewriter::from_folder_ron(tw.profile().clone(), &text).unwrap();
+        let back = Typewriter::from_folder_ron(&text, by_name(tw.profile())).unwrap();
         assert_eq!(back.sessions(), [session(100, 7), session(200, 1)]);
         assert_eq!(back.document(), tw.document());
         assert_eq!(back.carriage(), tw.carriage());
@@ -635,7 +644,7 @@ mod tests {
             .trim_end()
             .replacen("version: 2", "version: 1", 1)
             + "\n)";
-        let back = Typewriter::from_folder_ron(tw.profile().clone(), &old).unwrap();
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
         assert_eq!(back.document(), tw.document());
         assert!(back.sessions().is_empty());
     }
@@ -647,21 +656,21 @@ mod tests {
         let profile = tw.profile().clone();
         let newer = text.replacen("version: 2", "version: 99", 1);
         assert!(matches!(
-            Typewriter::from_folder_ron(profile.clone(), &newer),
+            Typewriter::from_folder_ron(&newer, by_name(&profile)),
             Err(FolderError::NewerVersion(99))
         ));
         let other = text.replacen("Olympia SM9", "Hermes 3000", 1);
         assert!(matches!(
-            Typewriter::from_folder_ron(profile.clone(), &other),
+            Typewriter::from_folder_ron(&other, by_name(&profile)),
             Err(FolderError::UnknownMachine(_))
         ));
         let off_the_sheet = text.replacen("column: 10", "column: 900", 1);
         assert!(matches!(
-            Typewriter::from_folder_ron(profile.clone(), &off_the_sheet),
+            Typewriter::from_folder_ron(&off_the_sheet, by_name(&profile)),
             Err(FolderError::DoesNotFit(_))
         ));
         assert!(matches!(
-            Typewriter::from_folder_ron(profile, "a shopping list"),
+            Typewriter::from_folder_ron("a shopping list", by_name(&profile)),
             Err(FolderError::Unreadable(_))
         ));
     }

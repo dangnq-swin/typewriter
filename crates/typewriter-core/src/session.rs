@@ -14,31 +14,52 @@ use crate::page::Page;
 pub const IDLE_SECONDS: f64 = 60.0;
 
 /// What a session aims for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum Goal {
     Words(u32),
     Minutes(u32),
+    /// Reached by whichever comes first.
+    WordsOrMinutes {
+        words: u32,
+        minutes: u32,
+    },
 }
 
 impl Goal {
-    /// The next preset, as the Goal plate cycles: off, then word goals, then
-    /// time goals, then off again.
-    pub fn next(goal: Option<Goal>) -> Option<Goal> {
-        const PRESETS: [Goal; 6] = [
-            Goal::Words(250),
-            Goal::Words(500),
-            Goal::Words(1000),
-            Goal::Minutes(15),
-            Goal::Minutes(25),
-            Goal::Minutes(50),
-        ];
+    /// The user's own goal from its two targets, each `None` when turned off.
+    pub fn custom(words: Option<u32>, minutes: Option<u32>) -> Option<Goal> {
+        match (words, minutes) {
+            (Some(words), Some(minutes)) => Some(Goal::WordsOrMinutes { words, minutes }),
+            (Some(words), None) => Some(Goal::Words(words)),
+            (None, Some(minutes)) => Some(Goal::Minutes(minutes)),
+            (None, None) => None,
+        }
+    }
+
+    /// The goals the Goal plate cycles through after off: the word presets,
+    /// the time presets, then the user's own goal unless it is a preset.
+    pub fn cycle(custom: Option<Goal>) -> Vec<Goal> {
+        let mut goals: Vec<Goal> = [250, 500, 1000]
+            .map(Goal::Words)
+            .into_iter()
+            .chain([15, 25, 50].map(Goal::Minutes))
+            .collect();
+        if let Some(custom) = custom.filter(|c| !goals.contains(c)) {
+            goals.push(custom);
+        }
+        goals
+    }
+
+    /// The goal after `goal` in `cycle`, with off before the first and after
+    /// the last. A goal no longer in the cycle is followed by the first.
+    pub fn next(goal: Option<Goal>, cycle: &[Goal]) -> Option<Goal> {
         match goal {
-            None => Some(PRESETS[0]),
-            Some(goal) => PRESETS
-                .iter()
-                .position(|&p| p == goal)
-                .and_then(|i| PRESETS.get(i + 1))
-                .copied(),
+            None => cycle.first().copied(),
+            Some(goal) => match cycle.iter().position(|&g| g == goal) {
+                Some(i) => cycle.get(i + 1).copied(),
+                None => cycle.first().copied(),
+            },
         }
     }
 }
@@ -77,8 +98,10 @@ impl Totals {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Progress {
     pub goal: Goal,
-    /// Words written or whole minutes typed so far, never below zero.
-    pub done: u32,
+    /// Words written so far, never below zero.
+    pub words: u32,
+    /// Whole minutes typed so far.
+    pub minutes: u32,
     pub reached: bool,
 }
 
@@ -142,14 +165,10 @@ impl Session {
     }
 
     pub fn progress(&self) -> Option<Progress> {
-        let goal = self.goal?;
-        let done = match goal {
-            Goal::Words(_) => u32::try_from(self.net_words().max(0)).unwrap_or(u32::MAX),
-            Goal::Minutes(_) => self.whole_seconds() / 60,
-        };
         Some(Progress {
-            goal,
-            done,
+            goal: self.goal?,
+            words: u32::try_from(self.net_words().max(0)).unwrap_or(u32::MAX),
+            minutes: self.whole_seconds() / 60,
             reached: self.reached,
         })
     }
@@ -165,10 +184,16 @@ impl Session {
     }
 
     fn is_met(&self) -> bool {
+        let words = |target| self.net_words() >= i64::from(target);
+        let minutes = |target: u32| self.whole_seconds() >= target.saturating_mul(60);
         match self.goal {
             None => false,
-            Some(Goal::Words(target)) => self.net_words() >= i64::from(target),
-            Some(Goal::Minutes(target)) => self.whole_seconds() >= target * 60,
+            Some(Goal::Words(target)) => words(target),
+            Some(Goal::Minutes(target)) => minutes(target),
+            Some(Goal::WordsOrMinutes {
+                words: w,
+                minutes: m,
+            }) => words(w) || minutes(m),
         }
     }
 
@@ -289,7 +314,7 @@ mod tests {
         assert!(session.typed(&document, 2.0));
         assert!(!session.typed(&document, 3.0));
         let progress = session.progress().unwrap();
-        assert_eq!((progress.done, progress.reached), (2, true));
+        assert_eq!((progress.words, progress.reached), (2, true));
 
         session.set_goal(Some(Goal::Minutes(1)));
         assert!(!session.progress().unwrap().reached);
@@ -310,10 +335,11 @@ mod tests {
 
     #[test]
     fn the_goal_plate_cycles_through_the_presets() {
+        let cycle = Goal::cycle(None);
         let mut goal = None;
         let mut seen = Vec::new();
         loop {
-            goal = Goal::next(goal);
+            goal = Goal::next(goal, &cycle);
             match goal {
                 Some(g) => seen.push(g),
                 None => break,
@@ -322,6 +348,42 @@ mod tests {
         assert_eq!(seen.len(), 6);
         assert_eq!(seen[1], Goal::Words(500));
         assert_eq!(seen[4], Goal::Minutes(25));
+    }
+
+    #[test]
+    fn the_custom_goal_ends_the_cycle_unless_it_is_a_preset() {
+        let words = Goal::custom(Some(2000), None);
+        assert_eq!(Goal::cycle(words)[6], Goal::Words(2000));
+        assert_eq!(Goal::cycle(Goal::custom(None, Some(25))).len(), 6);
+        let both = Goal::custom(Some(2000), Some(25));
+        assert_eq!(
+            Goal::cycle(both).last(),
+            Some(&Goal::WordsOrMinutes {
+                words: 2000,
+                minutes: 25
+            })
+        );
+        // A custom goal since turned off moves on to the first.
+        assert_eq!(
+            Goal::next(words, &Goal::cycle(None)),
+            Some(Goal::Words(250))
+        );
+    }
+
+    #[test]
+    fn words_or_minutes_is_reached_by_whichever_comes_first() {
+        let mut document = Document::new(Page::new(40, 10));
+        let mut session = Session::start(&document, 0);
+        session.set_goal(Goal::custom(Some(3), Some(1)));
+        typed(document.current_mut(), 0, "one two");
+        assert!(!session.typed(&document, 0.0));
+        assert!(!session.typed(&document, 50.0));
+        assert!(
+            session.typed(&document, 61.0),
+            "a minute before three words"
+        );
+        let progress = session.progress().unwrap();
+        assert_eq!((progress.words, progress.minutes), (2, 1));
     }
 
     #[test]
