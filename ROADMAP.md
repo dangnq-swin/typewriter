@@ -68,13 +68,13 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Sheet feed animation: old sheet rolls out, new sheet rises with the knob turns (curled
       edge, shadow), typing pointer fades in at the end
 - [x] Sound source: CC0 samples (mostly a Hermes Precisa 305), cut by `scripts/prepare-sounds.sh`
-- Master volume, per-sound toggles and mute move to settings (M8)
+- Master volume, per-sound toggles and mute: in the settings (M8)
 
 ## M5: Calm mode
 
 - [x] Toggle for distraction-free mode (Esc, or the icon next to the folder icon, which stays shown)
 - [x] Lines dim progressively with distance from the current line (falloff and minimum opacity
-      are constants; configurable with settings in M8)
+      set in the settings since M8)
 - [x] Hide the chrome (scale, plates, folder icon) in calm mode, fading over 250 ms.
       Fullscreen on F11
 
@@ -99,15 +99,17 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Progress on the Goal plate (hidden in calm mode), margin bell once when reached
 - [x] Session stats stored with the project (start, time typed, net words; format version 2),
       totals shown in the folder view
-- Choosing custom goals and remembering the goal move to settings (M8)
+- Custom goals and remembering the goal: in the settings (M8)
 
 ## M8: Settings & profiles
 
-- [ ] Settings window: constraints, sounds (master volume, per-sound toggles, mute), calm mode, goals
-      (custom targets, remembered between runs)
-- [ ] Config persisted to `$XDG_CONFIG_HOME/typewriter/config.toml`
-- [ ] Profile selection. User profiles loaded from `$XDG_DATA_HOME/typewriter/profiles/`
-- [ ] Documented profile schema so new machines can be added as data only
+- [x] Settings card (gear icon): sound (master volume, mute, six sound groups), look & calm
+      (ink realism, carriage travel, calm dimming falloff and minimum), goals (custom word
+      and minute targets), machine for new projects; Reset to defaults
+- [x] Config persisted to `$XDG_CONFIG_HOME/typewriter/config.toml` (also the zoom and the
+      chosen goal)
+- [x] Profile selection. User profiles loaded from `$XDG_DATA_HOME/typewriter/profiles/`
+- [x] Documented profile schema so new machines can be added as data only (`docs/profiles.md`)
 
 ## M9: Release (Linux)
 
@@ -125,6 +127,10 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## Later / ideas
 
+- Machine rules in the settings: backspace, margin lock, free movement, correction Off in
+  the cycle (defaults for new projects, also applied to the project in the machine)
+- Key rebinding
+- Profiles with their own sounds and typeface
 - Verify and support X11 (Wayland is the current target)
 - Configurable background: own texture path or a flat colour instead of the bundled paper photo
 - Margin controls: key bindings for margin release and setting the left/right margin at the

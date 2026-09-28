@@ -2,7 +2,9 @@ mod app;
 mod audio;
 mod filing;
 mod input;
+mod machines;
 mod render;
+mod settings;
 mod storage;
 
 fn main() -> anyhow::Result<()> {

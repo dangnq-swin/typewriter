@@ -18,6 +18,8 @@ image.workspace = true
 rodio.workspace = true
 rfd.workspace = true
 printpdf.workspace = true
+serde.workspace = true
+toml.workspace = true
 
 [build-dependencies]
 image.workspace = true

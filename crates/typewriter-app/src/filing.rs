@@ -10,8 +10,9 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use anyhow::Context as _;
 use eframe::egui::{self, Color32, CornerRadius, FontId, Id, LayerId, Order, Rect, vec2};
-use typewriter_core::{Profile, Typewriter, export};
+use typewriter_core::{Typewriter, export};
 
+use crate::machines::Machines;
 use crate::render::pdf;
 use crate::storage;
 
@@ -338,10 +339,12 @@ impl Filing {
     }
 }
 
-/// Reads a project file into a machine of the given profile.
-pub fn open(profile: Profile, path: &Path) -> anyhow::Result<Typewriter> {
+/// Reads a project file into the machine it was typed on.
+pub fn open(machines: &Machines, path: &Path) -> anyhow::Result<Typewriter> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    Ok(Typewriter::from_folder_ron(profile, &text)?)
+    Ok(Typewriter::from_folder_ron(&text, |name| {
+        machines.find(name)
+    })?)
 }
 
 fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {

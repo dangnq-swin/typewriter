@@ -201,18 +201,23 @@ pub fn paint_goal_plate(painter: &Painter, progress: Option<Progress>, after: Re
 fn goal_text(progress: Option<Progress>) -> String {
     let Some(Progress {
         goal,
-        done,
+        words,
+        minutes,
         reached,
     }) = progress
     else {
         return "Goal: Off".to_owned();
     };
-    let (target, unit) = match goal {
-        Goal::Words(n) => (n, "words"),
-        Goal::Minutes(n) => (n, "min"),
+    let target = match goal {
+        Goal::Words(n) => format!("{words} / {n} words"),
+        Goal::Minutes(n) => format!("{minutes} / {n} min"),
+        Goal::WordsOrMinutes {
+            words: w,
+            minutes: m,
+        } => format!("{words} / {w} words or {minutes} / {m} min"),
     };
     let check = if reached { " \u{2714}" } else { "" };
-    format!("Goal: {done} / {target} {unit}{check}")
+    format!("Goal: {target}{check}")
 }
 
 fn paint_text_plate(painter: &Painter, text: String, after: Rect) -> Rect {
@@ -255,20 +260,29 @@ mod tests {
     #[test]
     fn the_goal_plate_reads_progress() {
         assert_eq!(goal_text(None), "Goal: Off");
-        let progress = |goal, done, reached| {
+        let progress = |goal, reached| {
             Some(Progress {
                 goal,
-                done,
+                words: 312,
+                minutes: 12,
                 reached,
             })
         };
         assert_eq!(
-            goal_text(progress(Goal::Words(500), 312, false)),
+            goal_text(progress(Goal::Words(500), false)),
             "Goal: 312 / 500 words"
         );
         assert_eq!(
-            goal_text(progress(Goal::Minutes(25), 25, true)),
-            "Goal: 25 / 25 min \u{2714}"
+            goal_text(progress(Goal::Minutes(12), true)),
+            "Goal: 12 / 12 min \u{2714}"
+        );
+        let either = Goal::WordsOrMinutes {
+            words: 750,
+            minutes: 30,
+        };
+        assert_eq!(
+            goal_text(progress(either, false)),
+            "Goal: 312 / 750 words or 12 / 30 min"
         );
     }
 

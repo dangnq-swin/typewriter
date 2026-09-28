@@ -8,6 +8,7 @@ pub mod paper;
 pub mod pdf;
 pub mod platen;
 pub mod ruler;
+pub mod settings;
 
 use eframe::egui::{FontFamily, FontId, Vec2, vec2};
 use typewriter_core::Profile;

@@ -24,6 +24,20 @@ fn data_dir() -> Option<PathBuf> {
     Some(base.join("typewriter"))
 }
 
+/// `$XDG_CONFIG_HOME/typewriter/config.toml`, or under `~/.config`.
+pub fn config_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    Some(base.join("typewriter").join("config.toml"))
+}
+
+/// Where the user's own machine profiles are.
+pub fn profiles_dir() -> Option<PathBuf> {
+    data_dir().map(|dir| dir.join("profiles"))
+}
+
 fn drafts_dir() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("drafts"))
 }

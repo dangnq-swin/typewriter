@@ -7,28 +7,24 @@ use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, R
 use typewriter_core::page::Page;
 use typewriter_core::session::Totals;
 use typewriter_core::{
-    Command, Constraints, Direction, EraseMode, Event, Goal, Profile, Session, Typewriter,
+    Command, Constraints, Direction, EraseMode, Event, Goal, Session, Typewriter,
 };
 
 use crate::audio::{self, Audio};
 use crate::filing::{self, Filing, Picked};
 use crate::input::{Action, Input};
+use crate::machines::Machines;
 use crate::render::background::Background;
 use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
 use crate::render::platen::{self, PlatenView};
 use crate::render::{COURIER_PRIME, FONT_FAMILY, Metrics, folder, paper, ruler};
-use crate::storage;
+use crate::settings::{SettingsFile, ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
+use crate::{render, settings, storage};
 
-// Built-in until user profiles are loaded from disk (M8).
-const SM9_PROFILE: &str = include_str!("../../../profiles/olympia-sm9.toml");
 /// Screen points per inch at 100% zoom.
 const POINTS_PER_INCH: f32 = 96.0;
-const ZOOM_MIN: u16 = 50;
-const ZOOM_MAX: u16 = 200;
-const ZOOM_STEP: u16 = 10;
-const ZOOM_DEFAULT: u16 = 100;
 /// Scrolled distance that counts as one zoom step: about one wheel notch.
 const SCROLL_POINTS_PER_STEP: f32 = 40.0;
 
@@ -49,6 +45,7 @@ enum View {
     Folder,
     /// A finished sheet taken out of the folder, by index.
     Sheet(usize),
+    Settings,
 }
 
 /// A reopened sheet being wound back down to the line typing stopped at.
@@ -108,8 +105,10 @@ pub struct TypewriterApp {
     selected: usize,
     zoom_percent: u16,
     scroll_zoom: f32,
-    // Toggle comes with settings (M8).
-    ink_realism: bool,
+    settings: settings::Settings,
+    settings_file: SettingsFile,
+    /// The machines a project can be typed on.
+    machines: Machines,
 }
 
 impl TypewriterApp {
@@ -117,26 +116,29 @@ impl TypewriterApp {
         install_fonts(&cc.egui_ctx);
         // No Ctrl shortcuts on a typewriter, egui's interface zoom included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        let profile = Profile::from_toml_str(SM9_PROFILE)?;
-        let metrics = Metrics::new(&profile, POINTS_PER_INCH);
-        let audio = Audio::new(&profile)
+        let (settings, settings_file, settings_trouble) = SettingsFile::load();
+        let machines = Machines::load()?;
+        let (mut machine, filing, trouble) = first_project(&machines, &settings.machine.profile)?;
+        let zoom_percent = settings.look.zoom_percent;
+        let metrics = Metrics::new(machine.profile(), points_per_inch(zoom_percent));
+        let audio = Audio::new(machine.profile().sounds.clone(), settings.sound.clone())
             .inspect_err(|err| eprintln!("sound unavailable, typing silently: {err:#}"))
             .ok();
-        let (mut machine, filing, trouble) = first_project(profile)?;
         let wind_back = filing.is_saved_somewhere().then(|| machine.reinsert());
         let mut filing = filing;
-        if let Some(trouble) = trouble {
+        if let Some(trouble) = trouble.or(settings_trouble) {
             filing.notify(trouble, 0.0);
         }
         filing.remember();
-        let session = Session::start(machine.document(), unix_now());
+        let mut session = Session::start(machine.document(), unix_now());
+        session.set_goal(settings.goals.goal);
         Ok(Self {
             machine,
             filing,
             session,
             renaming: None,
             metrics,
-            platen: PlatenView::new(true),
+            platen: PlatenView::new(settings.look.carriage_travel),
             input: Input::default(),
             background: Background::load(&cc.egui_ctx),
             audio,
@@ -148,9 +150,11 @@ impl TypewriterApp {
             view: View::Typing,
             calm: false,
             selected: 0,
-            zoom_percent: ZOOM_DEFAULT,
+            zoom_percent,
             scroll_zoom: 0.0,
-            ink_realism: true,
+            settings,
+            settings_file,
+            machines,
         })
     }
 
@@ -165,6 +169,19 @@ impl TypewriterApp {
             return;
         }
         let actions = self.input.actions(&events, shift_down);
+        if self.view == View::Settings {
+            // Keys are for the card's fields. Esc closes it unless a field
+            // is being edited (Esc leaves the field first).
+            let editing = ctx.memory(|m| m.focused().is_some());
+            for action in actions {
+                match action {
+                    Action::Fullscreen => toggle_fullscreen(ctx),
+                    Action::Escape if !editing => self.escape(),
+                    _ => {}
+                }
+            }
+            return;
+        }
         let feeding = self.is_busy(now);
         for action in actions {
             match action {
@@ -251,7 +268,40 @@ impl TypewriterApp {
     }
 
     fn next_goal(&mut self) {
-        self.session.set_goal(Goal::next(self.session.goal()));
+        let goal = Goal::next(self.session.goal(), &self.settings.goals.cycle());
+        self.session.set_goal(goal);
+        self.settings.goals.goal = goal;
+    }
+
+    /// A custom goal being aimed for changes as it is edited.
+    fn follow_custom_goal(&mut self, before: &settings::Goals) {
+        let goals = &mut self.settings.goals;
+        let (old, new) = (before.custom(), goals.custom());
+        let is_preset = old.is_some_and(|old| Goal::cycle(None).contains(&old));
+        if old != new && goals.goal == old && !is_preset {
+            goals.goal = new;
+        }
+    }
+
+    /// Puts changed settings into effect.
+    fn apply_settings(&mut self) {
+        self.platen.carriage_travel = self.settings.look.carriage_travel;
+        if let Some(audio) = &mut self.audio {
+            audio.set_settings(self.settings.sound.clone());
+        }
+        self.set_zoom(self.settings.look.zoom_percent);
+        if self.session.goal() != self.settings.goals.goal {
+            self.session.set_goal(self.settings.goals.goal);
+        }
+    }
+
+    fn open_settings(&mut self) {
+        // Profiles added since are listed too.
+        match Machines::load() {
+            Ok(machines) => self.machines = machines,
+            Err(err) => eprintln!("could not reload the machines: {err:#}"),
+        }
+        self.view = View::Settings;
     }
 
     fn next_correction(&mut self, now: f64) {
@@ -293,6 +343,12 @@ impl TypewriterApp {
         self.view = View::Typing;
         self.selected = 0;
         self.renaming = None;
+        // Another machine may type at another pitch, on other paper.
+        self.metrics = Metrics::new(self.machine.profile(), self.points_per_inch());
+        self.platen.snap();
+        if let Some(audio) = &mut self.audio {
+            audio.set_machine(self.machine.profile().sounds.clone());
+        }
     }
 
     fn folder_action(&mut self, action: FolderAction, ctx: &egui::Context, now: f64) {
@@ -306,7 +362,7 @@ impl TypewriterApp {
             }
             FolderAction::CancelRename => self.renaming = None,
             FolderAction::New => {
-                let profile = self.machine.profile().clone();
+                let profile = self.machines.for_new(&self.settings.machine.profile);
                 let constraints = self.machine.constraints.clone();
                 match Typewriter::new(profile, constraints) {
                     Ok(machine) => self.put_in(machine, Filing::draft(), false, now),
@@ -315,8 +371,8 @@ impl TypewriterApp {
             }
             FolderAction::Open => self.filing.ask_open(ctx),
             FolderAction::Export(format) => {
-                self.filing
-                    .export(&self.machine, format, self.ink_realism, now);
+                let ink_realism = self.settings.look.ink_realism;
+                self.filing.export(&self.machine, format, ink_realism, now);
             }
         }
     }
@@ -324,7 +380,7 @@ impl TypewriterApp {
     fn take_picked(&mut self, now: f64) {
         match self.filing.picked() {
             Some(Picked::SaveAs(path)) => self.filing.save_as(&self.machine, path, now),
-            Some(Picked::Open(path)) => match filing::open(self.machine.profile().clone(), &path) {
+            Some(Picked::Open(path)) => match filing::open(&self.machines, &path) {
                 Ok(machine) => self.put_in(machine, Filing::at(path), true, now),
                 Err(err) => self
                     .filing
@@ -393,6 +449,7 @@ impl TypewriterApp {
     }
 
     fn set_zoom(&mut self, percent: u16) {
+        self.settings.look.zoom_percent = percent;
         if percent != self.zoom_percent {
             self.zoom_percent = percent;
             self.metrics = Metrics::new(self.machine.profile(), self.points_per_inch());
@@ -401,7 +458,18 @@ impl TypewriterApp {
     }
 
     fn points_per_inch(&self) -> f32 {
-        POINTS_PER_INCH * f32::from(self.zoom_percent) / 100.0
+        points_per_inch(self.zoom_percent)
+    }
+
+    /// Calm mode's dimming around `half_line`, `amount` of the way on.
+    fn dimming(&self, half_line: u16, amount: f32) -> Dimming {
+        let look = &self.settings.look;
+        Dimming::calm(
+            half_line,
+            amount,
+            look.calm_falloff_lines,
+            look.calm_minimum_percent,
+        )
     }
 
     /// Opens the folder with the newest sheet chosen.
@@ -414,7 +482,7 @@ impl TypewriterApp {
     fn browse(&mut self, step: isize) {
         let count = self.machine.document().finished().len();
         match self.view {
-            View::Typing => {}
+            View::Typing | View::Settings => {}
             View::Folder => self.selected = stepped(self.selected, step, count),
             View::Sheet(i) => self.view = View::Sheet(stepped(i, step, count)),
         }
@@ -445,6 +513,8 @@ impl TypewriterApp {
         match self.view {
             View::Typing => self.open_folder(),
             View::Folder | View::Sheet(_) => self.browse(-1),
+            // Keys do not reach here from the card.
+            View::Settings => {}
         }
     }
 
@@ -458,7 +528,7 @@ impl TypewriterApp {
                 self.calm = !self.calm;
                 View::Typing
             }
-            View::Folder => View::Typing,
+            View::Folder | View::Settings => View::Typing,
             View::Sheet(i) => {
                 self.selected = i;
                 View::Folder
@@ -492,10 +562,7 @@ impl TypewriterApp {
                 let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
                 let old_origin = pos2(paper_origin.x, old_y - rolled * exit);
                 self.paint_lifted(&painter, view, old_origin, 0.0, 1.0);
-                let dimming = Dimming {
-                    half_line: *old_half_line,
-                    amount: calm,
-                };
+                let dimming = self.dimming(*old_half_line, calm);
                 self.paint_page(&painter, old_page, old_origin, dimming, &paper::dry);
             }
             // Rises from below the window until its top margin reaches the
@@ -506,10 +573,7 @@ impl TypewriterApp {
             self.paint_lifted(&painter, view, paper_origin, motion.curl(t), motion.lift(t));
             pointer_opacity = motion.pointer_opacity(t);
         }
-        let dimming = Dimming {
-            half_line: carriage.half_line,
-            amount: calm,
-        };
+        let dimming = self.dimming(carriage.half_line, calm);
         let wetness = |half_line, column| self.wetness(now, half_line, column);
         self.paint_page(
             &painter,
@@ -535,6 +599,9 @@ impl TypewriterApp {
         }
         if calm::calm_icon(ui, view) && !feeding {
             self.calm = !self.calm;
+        }
+        if render::settings::gear_icon(ui, view, chrome) && !feeding {
+            self.open_settings();
         }
         if chrome <= 0.0 {
             return;
@@ -631,7 +698,7 @@ impl TypewriterApp {
             &self.metrics,
             page,
             origin,
-            self.ink_realism,
+            self.settings.look.ink_realism,
             dimming,
             wetness,
         );
@@ -710,15 +777,34 @@ impl eframe::App for TypewriterApp {
                             i + 1,
                             sheets.len(),
                             self.points_per_inch(),
-                            self.ink_realism,
+                            self.settings.look.ink_realism,
                         ),
                         None => self.view = View::Folder,
                     },
+                    View::Settings => {
+                        let before = self.settings.clone();
+                        let response = render::settings::show_settings(
+                            ui,
+                            view,
+                            &mut self.settings,
+                            &self.machines,
+                        );
+                        if render::settings::gear_icon(ui, view, 1.0) || response.close {
+                            self.view = View::Typing;
+                        }
+                        if self.settings != before {
+                            self.follow_custom_goal(&before.goals);
+                            self.apply_settings();
+                        }
+                    }
                 }
                 self.filing.paint_notice(ui.ctx(), view, now);
             });
         if let Some(action) = folder_action {
             self.folder_action(action, &ctx, now);
+        }
+        if let Err(err) = self.settings_file.keep(&self.settings, now, false) {
+            self.filing.notify(err, now);
         }
 
         if self.platen.is_animating(now)
@@ -726,6 +812,7 @@ impl eframe::App for TypewriterApp {
             || self.wind_back.is_some()
             || !self.wet.is_empty()
             || self.filing.is_animating(now)
+            || self.settings_file.is_pending()
         {
             ctx.request_repaint();
         }
@@ -735,23 +822,33 @@ impl eframe::App for TypewriterApp {
         // Saved whatever the pause, so nothing typed is lost.
         self.filing.changed(0.0);
         self.filing.save(&self.machine, 0.0);
+        if let Err(err) = self.settings_file.keep(&self.settings, 0.0, true) {
+            eprintln!("{err}");
+        }
     }
 }
 
 /// The project to start with: the one named on the command line, else the
-/// one open last time, else a new one. Also says why a project could not be
-/// opened.
-fn first_project(profile: Profile) -> anyhow::Result<(Typewriter, Filing, Option<String>)> {
+/// one open last time, else a new one on the `new_machine`. Also says why a
+/// project could not be opened.
+fn first_project(
+    machines: &Machines,
+    new_machine: &str,
+) -> anyhow::Result<(Typewriter, Filing, Option<String>)> {
     let asked = std::env::args_os().nth(1).map(PathBuf::from);
     let mut trouble = None;
     if let Some(path) = asked.or_else(storage::last_project) {
-        match filing::open(profile.clone(), &path) {
+        match filing::open(machines, &path) {
             Ok(machine) => return Ok((machine, Filing::at(path), None)),
             Err(err) => trouble = Some(format!("Could not open {}: {err:#}", path.display())),
         }
     }
-    let machine = Typewriter::new(profile, Constraints::default())?;
+    let machine = Typewriter::new(machines.for_new(new_machine), Constraints::default())?;
     Ok((machine, Filing::draft(), trouble))
+}
+
+fn points_per_inch(zoom_percent: u16) -> f32 {
+    POINTS_PER_INCH * f32::from(zoom_percent) / 100.0
 }
 
 fn unix_now() -> u64 {

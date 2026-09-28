@@ -8,9 +8,10 @@ use super::paper::INK;
 /// Chrome and dimming fade in and out together over this, like the pointer
 /// after a sheet feed.
 pub const FADE_SECONDS: f32 = 0.25;
-/// Strong falloff: only the line or two around the typing line stay legible.
-const FALLOFF_LINES: f32 = 4.0;
-const MIN_OPACITY: f32 = 0.1;
+/// Strong falloff by default: only the line or two around the typing line
+/// stay legible.
+pub const DEFAULT_FALLOFF_LINES: u8 = 4;
+pub const DEFAULT_MINIMUM_PERCENT: u8 = 10;
 
 const ICON_SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
 const ICON_EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
@@ -23,13 +24,29 @@ pub struct Dimming {
     pub half_line: u16,
     /// 0 with calm mode off, 1 with it on, in between while it fades.
     pub amount: f32,
+    /// Lines away at which the ink is faintest.
+    pub falloff_lines: f32,
+    /// The faintest ink, 0 to 1.
+    pub minimum: f32,
 }
 
 impl Dimming {
     pub const NONE: Self = Self {
         half_line: 0,
         amount: 0.0,
+        falloff_lines: 1.0,
+        minimum: 1.0,
     };
+
+    /// Calm mode's dimming around `half_line`, `amount` of the way on.
+    pub fn calm(half_line: u16, amount: f32, falloff_lines: u8, minimum_percent: u8) -> Self {
+        Self {
+            half_line,
+            amount,
+            falloff_lines: f32::from(falloff_lines.max(1)),
+            minimum: f32::from(minimum_percent.min(100)) / 100.0,
+        }
+    }
 
     /// Distance is measured on the sheet, so wider line spacing dims the
     /// previous line more.
@@ -38,9 +55,9 @@ impl Dimming {
             return 1.0;
         }
         let lines = f32::from(half_line.abs_diff(self.half_line)) / 2.0;
-        let t = (lines / FALLOFF_LINES).min(1.0);
+        let t = (lines / self.falloff_lines).min(1.0);
         let eased = t * t * (3.0 - 2.0 * t);
-        1.0 - self.amount * (1.0 - MIN_OPACITY) * eased
+        1.0 - self.amount * (1.0 - self.minimum) * eased
     }
 }
 
@@ -61,10 +78,7 @@ pub fn calm_icon(ui: &mut Ui, view: Rect) -> bool {
         Stroke::new(1.0, if hovered { ICON_HIGHLIGHT } else { ICON_EDGE }),
         egui::StrokeKind::Inside,
     );
-    let lines = Dimming {
-        half_line: 4,
-        amount: 1.0,
-    };
+    let lines = Dimming::calm(4, 1.0, DEFAULT_FALLOFF_LINES, DEFAULT_MINIMUM_PERCENT);
     for line in 0..5_u16 {
         let y = sheet.top() + 7.0 + f32::from(line) * 4.0;
         painter.hline(
@@ -90,15 +104,23 @@ mod tests {
         }
     }
 
+    const MIN_OPACITY: f32 = DEFAULT_MINIMUM_PERCENT as f32 / 100.0;
+
+    fn calm(half_line: u16, amount: f32) -> Dimming {
+        Dimming::calm(
+            half_line,
+            amount,
+            DEFAULT_FALLOFF_LINES,
+            DEFAULT_MINIMUM_PERCENT,
+        )
+    }
+
     #[test]
     fn lines_fade_strongly_with_distance() {
-        let d = Dimming {
-            half_line: 20,
-            amount: 1.0,
-        };
+        let d = calm(20, 1.0);
         assert_eq!(d.opacity(20), 1.0);
         // Equal on both sides, fading steadily, down to the minimum by
-        // FALLOFF_LINES.
+        // the falloff.
         assert_eq!(d.opacity(18), d.opacity(22));
         let fading: Vec<f32> = (0..=4).map(|lines| d.opacity(20 - lines * 2)).collect();
         assert!(fading.windows(2).all(|w| w[1] < w[0]), "{fading:?}");
@@ -109,10 +131,14 @@ mod tests {
 
     #[test]
     fn fading_calm_mode_dims_part_way() {
-        let half = Dimming {
-            half_line: 20,
-            amount: 0.5,
-        };
+        let half = calm(20, 0.5);
         assert!((half.opacity(0) - (1.0 + MIN_OPACITY) / 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_gentler_setting_keeps_more_ink() {
+        let gentle = Dimming::calm(20, 1.0, 8, 40);
+        assert!(gentle.opacity(12) > calm(20, 1.0).opacity(12));
+        assert!((gentle.opacity(0) - 0.4).abs() < 1e-6);
     }
 }

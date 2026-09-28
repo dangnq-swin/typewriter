@@ -3963,6 +3963,8 @@ dependencies = [
  "printpdf",
  "rfd",
  "rodio",
+ "serde",
+ "toml",
  "typewriter-core",
 ]
 

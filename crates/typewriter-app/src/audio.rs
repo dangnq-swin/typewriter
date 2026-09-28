@@ -6,11 +6,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Source};
-use typewriter_core::{EraseMode, Event, Profile};
+use typewriter_core::profile::Sounds;
+use typewriter_core::{EraseMode, Event};
 
 use crate::render::feed::FeedMotion;
 #[cfg(test)]
 use crate::render::feed::SETTLE_SECONDS;
+use crate::settings;
 
 /// Cut from their CC0 sources by `scripts/prepare-sounds.sh`.
 macro_rules! clip {
@@ -48,8 +50,7 @@ pub struct Audio {
     tab: SamplesBuffer,
     erase: SamplesBuffer,
     fluid: SamplesBuffer,
-    carriage_return: Option<SamplesBuffer>,
-    /// Empty when the profile rolls its paper silently.
+    carriage_return: SamplesBuffer,
     rolls: Vec<SamplesBuffer>,
     wind_out: SamplesBuffer,
     wind_in: SamplesBuffer,
@@ -57,10 +58,56 @@ pub struct Audio {
     key_variety: Variety,
     bell_variety: Variety,
     roll_variety: Variety,
+    /// Which mechanisms the machine in use sounds at all.
+    machine: Sounds,
+    settings: settings::Sound,
+}
+
+/// Sounds that can be turned off together in the settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Group {
+    Keys,
+    Bell,
+    Platen,
+    SheetFeed,
+    Corrections,
+    Blocked,
+}
+
+impl Group {
+    fn of(event: Event) -> Option<Self> {
+        Some(match event {
+            Event::KeyStrike(_) | Event::Space | Event::Backspace | Event::Tab => Self::Keys,
+            Event::Bell => Self::Bell,
+            Event::CarriageReturn | Event::LineFeed => Self::Platen,
+            Event::SheetFed => Self::SheetFeed,
+            Event::Erase(_) => Self::Corrections,
+            Event::Blocked(_) => Self::Blocked,
+            Event::SlipIn | Event::SlipOut | Event::PageEnd => return None,
+        })
+    }
+
+    fn is_on(self, sound: &settings::Sound) -> bool {
+        match self {
+            Self::Keys => sound.keys,
+            Self::Bell => sound.bell,
+            Self::Platen => sound.platen,
+            Self::SheetFeed => sound.sheet_feed,
+            Self::Corrections => sound.corrections,
+            Self::Blocked => sound.blocked,
+        }
+    }
+}
+
+/// Loudness follows the square of the slider, which sounds more even than
+/// a straight line.
+fn gain(volume_percent: u8) -> f32 {
+    let v = f32::from(volume_percent.min(settings::VOLUME_MAX)) / f32::from(settings::VOLUME_MAX);
+    v * v
 }
 
 impl Audio {
-    pub fn new(profile: &Profile) -> anyhow::Result<Self> {
+    pub fn new(machine: Sounds, settings: settings::Sound) -> anyhow::Result<Self> {
         let device = DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
         Ok(Self {
             device,
@@ -71,26 +118,42 @@ impl Audio {
             tab: decode(clip!("tab"))?,
             erase: decode(clip!("erase"))?,
             fluid: decode(clip!("fluid"))?,
-            carriage_return: if profile.sounds.carriage_return {
-                Some(decode(clip!("return"))?)
-            } else {
-                None
-            },
-            rolls: if profile.sounds.line_feed {
-                decode_all(&ROLLS)?
-            } else {
-                Vec::new()
-            },
+            carriage_return: decode(clip!("return"))?,
+            rolls: decode_all(&ROLLS)?,
             wind_out: decode(clip!("feed-out"))?,
             wind_in: decode(clip!("feed-in"))?,
             blocked: decode(clip!("blocked"))?,
             key_variety: Variety::new(seed()),
             bell_variety: Variety::new(seed().rotate_left(32)),
             roll_variety: Variety::new(seed().rotate_left(16)),
+            machine,
+            settings,
         })
     }
 
+    /// The machine in use changed: its silent mechanisms stay silent.
+    pub fn set_machine(&mut self, machine: Sounds) {
+        self.machine = machine;
+    }
+
+    pub fn set_settings(&mut self, settings: settings::Sound) {
+        self.settings = settings;
+    }
+
+    fn is_on(&self, group: Group) -> bool {
+        !self.settings.mute && self.settings.volume > 0 && group.is_on(&self.settings)
+    }
+
+    fn add(&self, sound: impl Source + Send + 'static) {
+        self.device
+            .mixer()
+            .add(sound.amplify(gain(self.settings.volume)));
+    }
+
     pub fn play(&mut self, event: Event) {
+        if !Group::of(event).is_some_and(|group| self.is_on(group)) {
+            return;
+        }
         let sound = match event {
             Event::KeyStrike(_) => self.key_variety.pick(&self.keys),
             Event::Bell => self.bell_variety.pick(&self.bells),
@@ -101,22 +164,22 @@ impl Audio {
             Event::Erase(_) => Some(&self.erase),
             // Strikes through the slip sound like any other.
             Event::SlipIn | Event::SlipOut => None,
-            Event::CarriageReturn => self.carriage_return.as_ref(),
-            Event::LineFeed => self.roll_variety.pick(&self.rolls),
+            Event::CarriageReturn if self.machine.carriage_return => Some(&self.carriage_return),
+            Event::LineFeed if self.machine.line_feed => self.roll_variety.pick(&self.rolls),
+            Event::CarriageReturn | Event::LineFeed => None,
             Event::SheetFed => {
                 // Mixed together, so the new sheet's sound follows the
                 // clicks without a gap however the frames fall.
                 let after = self.wind_out.total_duration().unwrap_or_default();
-                let mixer = self.device.mixer();
-                mixer.add(self.wind_out.clone());
-                mixer.add(self.wind_in.clone().delay(after));
+                self.add(self.wind_out.clone());
+                self.add(self.wind_in.clone().delay(after));
                 None
             }
             Event::Blocked(_) => Some(&self.blocked),
             Event::PageEnd => None,
         };
         if let Some(sound) = sound {
-            self.device.mixer().add(sound.clone());
+            self.add(sound.clone());
         }
     }
 }
@@ -124,7 +187,9 @@ impl Audio {
 impl Audio {
     /// Only the new sheet winding in, for the first sheet of a document.
     pub fn play_wind_in(&self) {
-        self.device.mixer().add(self.wind_in.clone());
+        if self.is_on(Group::SheetFeed) {
+            self.add(self.wind_in.clone());
+        }
     }
 }
 
@@ -228,6 +293,30 @@ mod tests {
             last = Some(i);
         }
         assert!(seen.iter().all(|&s| s));
+    }
+
+    #[test]
+    fn every_sounding_event_belongs_to_a_group() {
+        let mut sound = settings::Sound {
+            keys: false,
+            ..settings::Sound::default()
+        };
+        assert!(!Group::of(Event::Space).unwrap().is_on(&sound));
+        assert!(Group::of(Event::Bell).unwrap().is_on(&sound));
+        sound.corrections = false;
+        assert!(
+            !Group::of(Event::Erase(EraseMode::Fluid))
+                .unwrap()
+                .is_on(&sound)
+        );
+        assert_eq!(Group::of(Event::SlipIn), None);
+    }
+
+    #[test]
+    fn volume_is_quieter_than_its_slider() {
+        assert_eq!(gain(100), 1.0);
+        assert_eq!(gain(0), 0.0);
+        assert!((gain(50) - 0.25).abs() < 1e-6);
     }
 
     #[test]
