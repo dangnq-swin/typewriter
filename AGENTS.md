@@ -55,6 +55,7 @@ typos) do not need a question round.
 | Session stats | Kept in the project file (`sessions`, format version 2; version 1 files load with none): per session its start (Unix seconds), seconds typed and net words, recorded only once something was typed. The folder view shows the totals below the path, e.g. "4 sessions · 2 h 10 min · 1,840 words" |
 | Font | **Courier Prime** (SIL OFL), vendored in `assets/fonts/`. Closest free match to the SM9's slab-serif Modern Pica; no libre font reproduces it exactly |
 | CI/CD | None for now |
+| Release | **`scripts/install.sh`** builds (release, `--locked`) and installs for the current user under **`PREFIX`** (default `~/.local`, no sudo): `bin/typewriter`, `share/applications/typewriter.desktop` (named after the window's app id; `Exec` is the full path, since `~/.local/bin` is not always on the desktop's PATH; opens a file given to it) and the icon `share/icons/hicolor/scalable/apps/typewriter.svg`. It refreshes the desktop database, and GTK's icon cache only if one already exists. `--uninstall` removes those three files, never projects, drafts or settings. No MIME type for `*.folder.ron`. Also installable with **`cargo install`** (`--path crates/typewriter-app` or `--git`, binary only). Every asset is embedded, so the binary stands alone. Building needs the ALSA headers (`alsa-lib`) and `pkg-config`. **No packaging** for now (Flatpak, AppImage, distro packages are Later). The **icon** (`assets/icons/typewriter.svg`) was drawn for the project: a sheet with typed lines in a platen, on a manila folder. The README's Controls section is kept up to date with the key bindings; the rest of the README is the maintainer's |
 | Storage | Own native document format (keeps strikeouts, overtyping and session stats) with **export** to Markdown, plain text and PDF. **RON** (`ron` crate, in the core: it (de)serialises strings, the app does the file I/O), versioned (`version` field). One document = one **project**, saved as a file `<name>.folder.ron` and shown as the manila folder: its sheets, the sheet in the machine and the carriage (position, margins, tab stops, spacing, correction method), the session stats, plus the profile name |
 | Projects | The UI says **project** (not folder or document). The user names and places project files themselves, through the desktop's own dialogs (**`rfd`**, XDG portal backend). A new project is an **unsaved draft** ("Untitled"), autosaved to `$XDG_DATA_HOME/typewriter/drafts/` until **Save As…** moves it to the chosen name and place. Autosave is crash-safe (temp file + rename): after 2 s without a change, on every sheet feed and on quit. On launch the **last project** is reopened (its path is kept in `$XDG_DATA_HOME/typewriter/last-folder`); a path on the command line opens that project instead. The **folder view** shows the project's path above the folder and its name on the tab, and three menu plates below it: **Current project…** (Save: writes now and says so, or Save As for a draft; Save As…; Rename), **Other projects…** (New project, Open project…) and **Export…** (To Markdown, To Text file, To PDF). **Rename** is inline: the tab becomes a text field (Enter renames the file where it is, Esc cancels; keys do not reach the machine meanwhile); clicking the tab renames too, or saves a draft as. Rename and Export are disabled for a draft |
 | Export | Markdown (`.md`), plain text (`.txt`) and **PDF** (`.pdf`), written **next to the project file** with the same name (a draft must be saved first). Text exports keep only visible glyphs: corrected letters are left out, and an overstruck cell exports its top glyph, except `'` over `.`, which exports as `!`. Sheets are separated by a form feed in plain text and by `---` in Markdown; blank lines follow the vertical space on the sheet; the left margin is trimmed. The **PDF** is the sheets **as typed, on white**: one page per sheet at paper size, Courier Prime embedded (subset), with ink realism, overstrikes and corrections drawn exactly as on screen (the same drawing list), no margin frame. Made with **`printpdf`** (default features off) |
@@ -104,6 +105,7 @@ typewriter/
 ├── Cargo.toml                  # workspace manifest (shared deps, lints, profiles)
 ├── rust-toolchain.toml         # rustup toolchain: stable + rustfmt, clippy
 ├── AGENTS.md
+├── README.md                   # the maintainer's; keep its Controls section current
 ├── ROADMAP.md
 ├── LICENSE                     # GPL-3.0
 ├── crates/
@@ -133,10 +135,12 @@ typewriter/
 ├── assets/
 │   ├── paper/                  # paper textures (default provided by maintainer)
 │   ├── fonts/                  # typewriter fonts (license must be GPL-compatible)
+│   ├── icons/                  # the app icon (SVG)
 │   └── sounds/                 # key, return, bell samples (license must be recorded)
 ├── profiles/
 │   └── olympia-sm9.toml        # data-driven machine profile
 ├── scripts/
+│   ├── install.sh              # builds and installs the command, desktop entry and icon
 │   └── prepare-sounds.sh       # cuts assets/sounds/ from their CC0 sources (curl, ffmpeg)
 └── docs/
     ├── profiles.md             # machine profile schema, adding a machine

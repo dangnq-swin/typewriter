@@ -5,6 +5,7 @@ Every file under `assets/` must be listed here with its source and license.
 | Path | Source | License |
 |---|---|---|
 | `fonts/courier-prime/CourierPrime-Regular.ttf` | [google/fonts `ofl/courierprime`](https://github.com/google/fonts/tree/main/ofl/courierprime), upstream [quoteunquoteapps/CourierPrime](https://github.com/quoteunquoteapps/CourierPrime) | SIL OFL 1.1 (`fonts/courier-prime/OFL.txt`) |
+| `icons/typewriter.svg` | Drawn for this project | GPL-3.0-or-later |
 | `paper/ivory-off-white-paper-texture.jpg` | [Ivory Off White Paper Texture](https://www.photos-public-domain.com/2012/05/24/ivory-off-white-paper-texture/), photos-public-domain.com | Public domain |
 | `sounds/key-1.wav`, `sounds/backspace.wav`, `sounds/blocked.wav` | [Typewriter, Key](https://bigsoundbank.com/typewriter-key-s2842.html) (Hermes Precisa 305), Joseph Sardin, BigSoundBank | CC0 |
 | `sounds/key-2.wav` … `sounds/key-6.wav` | [Typewriter #6](https://bigsoundbank.com/typewriter-6-s2839.html) (Hermes Precisa 305), Joseph Sardin, BigSoundBank | CC0 |

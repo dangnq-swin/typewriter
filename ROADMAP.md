@@ -113,10 +113,12 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M9: Release (Linux)
 
+- [x] README: controls (the rest written by the maintainer)
 - [ ] README with screenshots and usage
-- [ ] `cargo install` support
-- [ ] ❓ Packaging: Flatpak, AppImage, distro package (e.g. Gentoo ebuild), or none?
-- [ ] `.desktop` file and icon
+- [x] `cargo install` support (`cargo install --locked --path crates/typewriter-app`, or `--git`)
+- [x] `scripts/install.sh`: builds and installs the command, a `.desktop` file and the icon
+      for the current user (`PREFIX`, `--uninstall`); Install section in the README
+- Packaging: none for now (Flatpak, AppImage, distro package move to Later)
 
 ## M10: Scratchpad
 
@@ -127,6 +129,8 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## Later / ideas
 
+- Packaging (Flatpak, AppImage or a distro package such as a Gentoo ebuild)
+- Opening `*.folder.ron` files from the file manager (a MIME type)
 - Machine rules in the settings: backspace, margin lock, free movement, correction Off in
   the cycle (defaults for new projects, also applied to the project in the machine)
 - Key rebinding
