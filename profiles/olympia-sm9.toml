@@ -16,3 +16,7 @@ height_mm = 297.0
 left_column = 10
 right_column = 72
 top_lines = 6
+
+[sounds]
+# The SM9's carriage return glides back without a sound.
+carriage_return = false

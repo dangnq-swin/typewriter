@@ -23,6 +23,15 @@ impl LineSpacing {
             Self::Double => 4,
         }
     }
+
+    /// The next notch of the line-space lever, wrapping from 2 back to 1.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Single => Self::OneAndHalf,
+            Self::OneAndHalf => Self::Double,
+            Self::Double => Self::Single,
+        }
+    }
 }
 
 /// How far from the carriage, in columns, clearing a tab stop reaches.
@@ -106,6 +115,17 @@ mod tests {
         assert_eq!(LineSpacing::Single.half_lines(), 2);
         assert_eq!(LineSpacing::OneAndHalf.half_lines(), 3);
         assert_eq!(LineSpacing::Double.half_lines(), 4);
+    }
+
+    #[test]
+    fn line_spacing_lever_cycles() {
+        let mut spacing = LineSpacing::Single;
+        let mut seen = vec![];
+        for _ in 0..4 {
+            spacing = spacing.next();
+            seen.push(spacing.half_lines());
+        }
+        assert_eq!(seen, [3, 4, 2, 3]);
     }
 
     #[test]

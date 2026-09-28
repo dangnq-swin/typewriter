@@ -14,6 +14,9 @@ pub enum Command {
     Erase,
     /// Carriage return and line feed in one throw of the lever.
     Return,
+    /// Turning the platen knob: the paper rolls on by the line spacing and
+    /// the carriage stays where it is.
+    LineFeed,
     Tab,
     SetTabStop,
     /// Clears the tab stop nearest the carriage, within a few columns.
@@ -47,6 +50,8 @@ pub enum Event {
     Erase(EraseMode),
     Bell,
     CarriageReturn,
+    /// The platen rolled on a line without a carriage return.
+    LineFeed,
     /// A line feed would roll the paper past its bottom edge.
     PageEnd,
     SheetFed,
@@ -112,6 +117,13 @@ impl Typewriter {
             Command::Backspace => self.backspace(),
             Command::Erase => self.erase(),
             Command::Return => self.carriage_return(),
+            Command::LineFeed => {
+                if self.roll_one_line() {
+                    vec![Event::LineFeed]
+                } else {
+                    vec![Event::PageEnd]
+                }
+            }
             Command::Tab => self.tab(),
             Command::SetTabStop => self.set_tab_stop(),
             Command::ClearTabStop => match self.carriage.clear_nearest_tab_stop() {
@@ -232,13 +244,23 @@ impl Typewriter {
         let c = &mut self.carriage;
         c.column = c.left_margin;
         c.margin_released = false;
-        let next = c.half_line + c.line_spacing.half_lines();
-        if next < self.document.current().half_lines() {
-            c.half_line = next;
+        if self.roll_one_line() {
             vec![Event::CarriageReturn]
         } else {
             vec![Event::CarriageReturn, Event::PageEnd]
         }
+    }
+
+    /// Rolls the paper on by the line spacing. False, without moving, when
+    /// the next line would be past the bottom of the sheet.
+    fn roll_one_line(&mut self) -> bool {
+        let c = &mut self.carriage;
+        let next = c.half_line + c.line_spacing.half_lines();
+        let fits = next < self.document.current().half_lines();
+        if fits {
+            c.half_line = next;
+        }
+        fits
     }
 
     fn tab(&mut self) -> Vec<Event> {
@@ -442,6 +464,27 @@ mod tests {
         tw.apply(Command::SetLineSpacing(LineSpacing::Double));
         tw.apply(Command::Return);
         assert_eq!(tw.carriage().half_line, 21);
+    }
+
+    #[test]
+    fn line_feed_rolls_the_paper_but_not_the_carriage() {
+        let mut tw = sm9();
+        type_str(&mut tw, "abc");
+        assert_eq!(tw.apply(Command::LineFeed), [Event::LineFeed]);
+        assert_eq!((tw.carriage().column, tw.carriage().half_line), (13, 14));
+        tw.apply(Command::SetLineSpacing(LineSpacing::Double));
+        tw.apply(Command::LineFeed);
+        assert_eq!(tw.carriage().half_line, 18);
+    }
+
+    #[test]
+    fn line_feed_stops_at_the_bottom_of_the_sheet() {
+        let mut tw = sm9();
+        while tw.apply(Command::LineFeed) == [Event::LineFeed] {}
+        let last = tw.carriage().half_line;
+        assert!(last + 2 >= tw.page().half_lines());
+        assert_eq!(tw.apply(Command::LineFeed), [Event::PageEnd]);
+        assert_eq!(tw.carriage().half_line, last);
     }
 
     #[test]

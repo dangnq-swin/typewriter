@@ -18,6 +18,8 @@ pub struct Profile {
     pub tab_stops: Vec<u16>,
     pub paper: Paper,
     pub margins: Margins,
+    #[serde(default)]
+    pub sounds: Sounds,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +37,31 @@ pub struct Margins {
     pub right_column: u16,
     /// Blank lines above the first typed line when a sheet is inserted.
     pub top_lines: u16,
+}
+
+/// Which of the machine's actions make a sound. Some machines have silent
+/// mechanisms, such as the SM9's carriage return.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sounds {
+    #[serde(default = "audible")]
+    pub carriage_return: bool,
+    /// The platen ratchet when the paper is rolled on by hand.
+    #[serde(default = "audible")]
+    pub line_feed: bool,
+}
+
+impl Default for Sounds {
+    fn default() -> Self {
+        Self {
+            carriage_return: audible(),
+            line_feed: audible(),
+        }
+    }
+}
+
+fn audible() -> bool {
+    true
 }
 
 #[derive(Debug, Error)]
@@ -120,6 +147,20 @@ mod tests {
         assert_eq!(p.name, "Olympia SM9");
         assert_eq!(p.columns(), 82);
         assert_eq!(p.half_lines(), 140);
+        assert!(!p.sounds.carriage_return);
+        assert!(p.sounds.line_feed);
+    }
+
+    #[test]
+    fn sounds_default_to_audible() {
+        let s: String = SM9
+            .lines()
+            .take_while(|l| !l.starts_with("[sounds]"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let p = Profile::from_toml_str(&s).unwrap();
+        assert!(p.sounds.carriage_return);
+        assert!(p.sounds.line_feed);
     }
 
     #[test]
