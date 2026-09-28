@@ -1,0 +1,18 @@
+# Olympia SM9 (West Germany, 1960s–70s), Pica type.
+
+name = "Olympia SM9"
+pitch_cpi = 10
+lines_per_inch = 6
+bell_columns_before_margin = 8
+tab_stops = []
+
+# A4
+[paper]
+width_mm = 210.0
+height_mm = 297.0
+
+# Roughly 1 inch on each side and at the top.
+[margins]
+left_column = 10
+right_column = 72
+top_lines = 6

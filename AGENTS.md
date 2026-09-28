@@ -48,6 +48,12 @@ typos) do not need a question round.
 | Font | **Courier Prime** (SIL OFL), vendored in `assets/fonts/`. Closest free match to the SM9's slab-serif Modern Pica; no libre font reproduces it exactly |
 | CI/CD | None for now |
 | Storage | Own native document format (keeps strikeouts, overtyping and session stats) with **export** to plain text and Markdown |
+| Core dependencies | `serde` (derive), `thiserror`, `toml` in `typewriter-core`. Core parses TOML from a string; the app does the file reads |
+| Vertical position | Tracked in **half-line** steps (1/12 in at 6 lpi), like the platen ratchet. Line spacing 1 / 1.5 / 2 = 2 / 3 / 4 half-lines |
+| Default strictness | Authentic: Backspace moves the carriage back without erasing (overtyping), right margin locks until the one-shot margin release (cleared on return), free cursor movement off |
+| Erasing | Separate **Erase** action, on by default. Modes: `digital` (default, removes the glyph), `white-out` and `correction-tape` (cover the glyphs, which stay in the cell's stack and can be typed over), `off` |
+| SM9 defaults | A4 at Pica = 82 columns x 70 lines. Left margin col 10, right margin col 72 (locks before it), bell 8 columns before the right margin, top margin 6 lines |
+| Page end | A return on the last line emits `PageEnd` and does not feed; the carriage stays on that line until a new sheet is fed |
 
 ## Repository layout
 
@@ -69,6 +75,7 @@ typewriter/
 │   │       ├── carriage.rs     # carriage position, margins, bell zone, line feed
 │   │       ├── profile.rs      # machine profiles (SM9 first), pitch, paper size
 │   │       ├── constraints.rs  # strictness settings (backspace, margins, ...)
+│   │       ├── machine.rs      # Typewriter: commands in, events out
 │   │       ├── document.rs     # multi-page document + native format (serde)
 │   │       ├── export.rs       # plain text / Markdown export
 │   │       └── session.rs      # focus goals, word count, timers, stats

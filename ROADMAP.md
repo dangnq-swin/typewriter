@@ -18,18 +18,19 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M1: Core typewriter model (no GUI)
 
-- [ ] Page model: fixed grid of cells derived from paper size + pitch + line spacing
-- [ ] Cells hold a **stack of glyphs** (overtyping and strikeouts are preserved)
-- [ ] Carriage: column position, left/right margin stops, margin release
-- [ ] Margin bell event a configurable number of columns before the right margin
-- [ ] Carriage return + line feed as one action. Line spacing 1 / 1.5 / 2
-- [ ] Tab stops (set / clear / tab)
-- [ ] Constraint settings (each toggleable): backspace allowed?, delete allowed?,
-      typing past right margin blocked?, cursor movement allowed?
-- [ ] Olympia SM9 profile loaded from `profiles/olympia-sm9.toml`:
+- [x] Page model: fixed grid of cells derived from paper size + pitch + line spacing
+- [x] Cells hold a **stack of glyphs** (overtyping and strikeouts are preserved)
+- [x] Carriage: column position, left/right margin stops, margin release
+- [x] Margin bell event a configurable number of columns before the right margin
+- [x] Carriage return + line feed as one action. Line spacing 1 / 1.5 / 2
+- [x] Tab stops (set / clear / tab)
+- [x] Constraint settings (each toggleable): backspace allowed?, erase mode (off / digital /
+      white-out / correction tape), typing past right margin blocked?, cursor movement allowed?
+- [x] Olympia SM9 profile loaded from `profiles/olympia-sm9.toml`:
       Pica 10 cpi, 6 lpi, A4, default margins, bell offset
-- [ ] Event stream (`KeyStrike`, `Space`, `Bell`, `CarriageReturn`, `PageEnd`, `Blocked`)
-- [ ] Unit + scenario tests for all of the above
+- [x] Event stream (`KeyStrike`, `Space`, `Backspace`, `Tab`, `Erase`, `Bell`, `CarriageReturn`,
+      `PageEnd`, `Blocked`)
+- [x] Unit + scenario tests for all of the above
 
 ## M2: Minimal typing GUI
 
