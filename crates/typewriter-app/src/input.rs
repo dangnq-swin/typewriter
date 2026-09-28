@@ -1,7 +1,7 @@
 //! Keyboard events to typewriter commands.
 //!
 //! A typewriter has no Control key, so no binding uses one. Default bindings:
-//! - printable keys: type
+//! - printable keys: type, except 1 and ! (no such key on a typewriter)
 //! - Enter: carriage return; held, it rolls the paper on line by line
 //!   (at the keyboard's repeat rate)
 //! - Insert: feed a new sheet
@@ -24,6 +24,11 @@
 
 use eframe::egui::{Event, Key, Modifiers};
 use typewriter_core::{Command, Direction, LineSpacing};
+
+/// Typewriters have no 1 or ! key: 1 is typed as a lowercase l, and ! as
+/// ' and . struck over each other (with Backspace between). The key is kept
+/// free for the scratchpad.
+const RESERVED: [char; 2] = ['1', '!'];
 
 /// What a key asks for: a machine command, or something for the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +112,7 @@ fn action_for(event: &Event) -> Vec<Action> {
     match event {
         Event::Text(text) => text
             .chars()
-            .filter(|c| !c.is_control())
+            .filter(|c| !c.is_control() && !RESERVED.contains(c))
             .map(|c| Action::Machine(Command::Type(c)))
             .collect(),
         Event::Key {
@@ -209,6 +214,14 @@ mod tests {
         assert_eq!(
             one_frame(&[Event::Text("a b\r".into())]),
             [Command::Type('a'), Command::Type(' '), Command::Type('b')]
+        );
+    }
+
+    #[test]
+    fn there_is_no_one_or_exclamation_key() {
+        assert_eq!(
+            one_frame(&[Event::Text("1!l'".into())]),
+            [Command::Type('l'), Command::Type('\'')]
         );
     }
 

@@ -108,6 +108,11 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [ ] ❓ Packaging: Flatpak, AppImage, distro package (e.g. Gentoo ebuild), or none?
 - [ ] `.desktop` file and icon
 
+## M10: Scratchpad
+
+- [ ] ❓ A scratchpad opened with the 1 / ! key (typewriters have no such key, so it types
+      nothing on the machine). Details to be decided
+
 ---
 
 ## Later / ideas
