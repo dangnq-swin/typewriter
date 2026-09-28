@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, Rect, pos2};
 use typewriter_core::page::Page;
-use typewriter_core::{Command, Constraints, Direction, EraseMode, Event, Profile, Typewriter};
+use typewriter_core::session::Totals;
+use typewriter_core::{
+    Command, Constraints, Direction, EraseMode, Event, Goal, Profile, Session, Typewriter,
+};
 
 use crate::audio::{self, Audio};
 use crate::filing::{self, Filing, Picked};
@@ -75,6 +79,8 @@ pub struct TypewriterApp {
     machine: Typewriter,
     /// Where the project in the machine is saved.
     filing: Filing,
+    /// Words and typing time since the project was put in, and the goal.
+    session: Session,
     /// The new name being typed on the folder's tab.
     renaming: Option<String>,
     metrics: Metrics,
@@ -123,9 +129,11 @@ impl TypewriterApp {
             filing.notify(trouble, 0.0);
         }
         filing.remember();
+        let session = Session::start(machine.document(), unix_now());
         Ok(Self {
             machine,
             filing,
+            session,
             renaming: None,
             metrics,
             platen: PlatenView::new(true),
@@ -166,6 +174,7 @@ impl TypewriterApp {
                 Action::Machine(command) => {
                     if !self.browse_command(command) {
                         self.apply(command, now);
+                        self.typed(now);
                     }
                 }
                 Action::PageUp => self.page_up(),
@@ -228,6 +237,23 @@ impl TypewriterApp {
         }
     }
 
+    /// Counts a key towards the session, ringing the bell once its goal is
+    /// reached, and keeps the session's stats with the project.
+    fn typed(&mut self, now: f64) {
+        if self.session.typed(self.machine.document(), now)
+            && let Some(audio) = &mut self.audio
+        {
+            audio.play(Event::Bell);
+        }
+        if let Some(stats) = self.session.stats() {
+            self.machine.record_session(stats);
+        }
+    }
+
+    fn next_goal(&mut self) {
+        self.session.set_goal(Goal::next(self.session.goal()));
+    }
+
     fn next_correction(&mut self, now: f64) {
         let next = self.machine.constraints.erase.next();
         self.apply(Command::SetEraseMode(next), now);
@@ -254,6 +280,10 @@ impl TypewriterApp {
     fn put_in(&mut self, mut machine: Typewriter, filing: Filing, reopened: bool, now: f64) {
         self.filing.save(&self.machine, now);
         self.wind_back = reopened.then(|| WindBack::to(machine.reinsert()));
+        // A new session, still aiming for the same goal.
+        let goal = self.session.goal();
+        self.session = Session::start(machine.document(), unix_now());
+        self.session.set_goal(goal);
         self.machine = machine;
         self.filing = filing;
         self.filing.remember();
@@ -534,6 +564,8 @@ impl TypewriterApp {
             self.machine.slip_in(),
             zoom_plate,
         );
+        let goal_plate =
+            ruler::paint_goal_plate(&painter, self.session.progress(), correction_plate);
         let next_spacing = carriage.line_spacing.next();
         // Plates only react once fully shown, not while calm mode fades them.
         if chrome < 1.0 {
@@ -565,6 +597,15 @@ impl TypewriterApp {
         );
         if correction.clicked() && !feeding {
             self.next_correction(now);
+        }
+        let goal = plate_button(
+            ui,
+            goal_plate,
+            "goal-plate",
+            "Session goal. Click for the next: 250, 500 or 1000 words, 15, 25 or 50 minutes of typing, or off.",
+        );
+        if goal.clicked() {
+            self.next_goal();
         }
     }
 }
@@ -638,10 +679,12 @@ impl eframe::App for TypewriterApp {
                     View::Folder => {
                         let name = self.filing.name();
                         let location = self.filing.location();
+                        let stats = sessions_line(Totals::of(self.machine.sessions()));
                         let project = ProjectLabel {
                             name: &name,
                             location: &location,
                             saved: self.filing.is_saved(),
+                            stats: &stats,
                         };
                         let response = folder::show_folder(
                             ui,
@@ -711,6 +754,47 @@ fn first_project(profile: Profile) -> anyhow::Result<(Typewriter, Filing, Option
     Ok((machine, Filing::draft(), trouble))
 }
 
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// "4 sessions · 2 h 10 min · 1,840 words", or nothing before the first.
+fn sessions_line(totals: Totals) -> String {
+    if totals.sessions == 0 {
+        return String::new();
+    }
+    let minutes = totals.seconds / 60;
+    let time = match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m} min"),
+        (h, 0) => format!("{h} h"),
+        (h, m) => format!("{h} h {m} min"),
+    };
+    let plural = |n: i64, word: &str| {
+        let s = if n == 1 { "" } else { "s" };
+        format!("{} {word}{s}", thousands(n))
+    };
+    format!(
+        "{}  \u{b7}  {time}  \u{b7}  {}",
+        plural(totals.sessions as i64, "session"),
+        plural(totals.words, "word")
+    )
+}
+
+/// 1840 as "1,840".
+fn thousands(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("-{out}") } else { out }
+}
+
 fn toggle_fullscreen(ctx: &egui::Context) {
     let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
     ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
@@ -771,6 +855,29 @@ mod tests {
         assert_eq!(zoomed(100, -1), 90);
         assert_eq!(zoomed(200, 1), 200);
         assert_eq!(zoomed(50, -1), 50);
+    }
+
+    #[test]
+    fn sessions_add_up_in_words() {
+        assert_eq!(sessions_line(Totals::default()), "");
+        let totals = Totals {
+            sessions: 4,
+            seconds: 7_830,
+            words: 1_840,
+        };
+        assert_eq!(
+            sessions_line(totals),
+            "4 sessions  \u{b7}  2 h 10 min  \u{b7}  1,840 words"
+        );
+        let one = Totals {
+            sessions: 1,
+            seconds: 59,
+            words: -1_234_567,
+        };
+        assert_eq!(
+            sessions_line(one),
+            "1 session  \u{b7}  0 min  \u{b7}  -1,234,567 words"
+        );
     }
 
     #[test]

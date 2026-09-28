@@ -81,8 +81,8 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 ## M6: Persistence & export
 
 - [x] Native document format: a versioned **RON** folder file (`*.folder.ron`) storing the
-      sheets with their glyph stacks, the carriage and the profile used (session stats come
-      with M7)
+      sheets with their glyph stacks, the carriage and the profile used (session stats since
+      M7)
 - [x] Autosave after a pause, on sheet feed and on quit. Crash-safe writes (temp + rename).
       Unfiled folders are drafts in `$XDG_DATA_HOME/typewriter/drafts/`
 - [x] Projects: Current project… (Save, Save As, Rename), Other projects… (New, Open) and
@@ -94,13 +94,17 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M7: Focus goals
 
-- [ ] Session goals: word count and/or timer (e.g. 500 words, 25 minutes)
-- [ ] Unobtrusive progress indicator (hidden in calm mode, optional gentle bell on reach)
-- [ ] Session stats stored with the document (words per session, time written)
+- [x] Session goals: net words or typing time (250 / 500 / 1000 words, 15 / 25 / 50 min),
+      chosen on the clickable Goal plate
+- [x] Progress on the Goal plate (hidden in calm mode), margin bell once when reached
+- [x] Session stats stored with the project (start, time typed, net words; format version 2),
+      totals shown in the folder view
+- Choosing custom goals and remembering the goal move to settings (M8)
 
 ## M8: Settings & profiles
 
 - [ ] Settings window: constraints, sounds (master volume, per-sound toggles, mute), calm mode, goals
+      (custom targets, remembered between runs)
 - [ ] Config persisted to `$XDG_CONFIG_HOME/typewriter/config.toml`
 - [ ] Profile selection. User profiles loaded from `$XDG_DATA_HOME/typewriter/profiles/`
 - [ ] Documented profile schema so new machines can be added as data only

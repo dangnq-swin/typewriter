@@ -182,6 +182,8 @@ pub struct ProjectLabel<'a> {
     pub location: &'a str,
     /// Saved under a name of its own, not an unsaved draft.
     pub saved: bool,
+    /// Sessions written so far, below the location; empty if none.
+    pub stats: &'a str,
 }
 
 /// Draws the open folder of `project`. `selected` is the sheet chosen with
@@ -361,6 +363,13 @@ pub fn show_folder(
         project.location,
         FontId::monospace(11.0),
         LABEL.gamma_multiply(0.7),
+    );
+    painter.text(
+        pos2(view.center().x, view.top() + 66.0),
+        Align2::CENTER_CENTER,
+        project.stats,
+        FontId::proportional(12.0),
+        LABEL.gamma_multiply(0.85),
     );
 
     action = action.or_else(|| menus(ui, view, project.saved));
