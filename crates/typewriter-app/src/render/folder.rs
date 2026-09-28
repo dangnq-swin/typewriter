@@ -15,6 +15,7 @@ use typewriter_core::page::Page;
 use super::Metrics;
 use super::calm::Dimming;
 use super::paper::{self, INK, splitmix64};
+use crate::filing::ExportFormat;
 
 const TILT_DEGREES: f32 = 38.0;
 /// Camera distance in sheet heights. Smaller means stronger perspective.
@@ -152,16 +153,50 @@ fn word_runs(page: &Page) -> Vec<(u16, u16, u16)> {
     runs
 }
 
-/// Draws the open folder and returns the sheet clicked, if any. `selected`
-/// is the sheet chosen with the keyboard; moving the pointer onto a sheet
-/// chooses it too.
+/// What the controls around the folder ask for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FolderAction {
+    Save,
+    SaveAs,
+    /// Start renaming the project on the folder's tab.
+    Rename,
+    RenameTo(String),
+    CancelRename,
+    New,
+    Open,
+    Export(ExportFormat),
+}
+
+#[derive(Debug, Default)]
+pub struct FolderResponse {
+    /// The sheet clicked, to be read.
+    pub opened: Option<usize>,
+    pub action: Option<FolderAction>,
+}
+
+/// The project in the folder, as the folder view shows it.
+pub struct ProjectLabel<'a> {
+    /// On the folder's tab.
+    pub name: &'a str,
+    /// Where it is saved, above the folder.
+    pub location: &'a str,
+    /// Saved under a name of its own, not an unsaved draft.
+    pub saved: bool,
+}
+
+/// Draws the open folder of `project`. `selected` is the sheet chosen with
+/// the keyboard; moving the pointer onto a sheet chooses it too. While
+/// `renaming`, the tab holds a text field with the new name.
+#[allow(clippy::too_many_arguments)]
 pub fn show_folder(
     ui: &mut Ui,
     view: Rect,
     sheets: &[Page],
     metrics: &Metrics,
     selected: &mut usize,
-) -> Option<usize> {
+    project: &ProjectLabel<'_>,
+    renaming: Option<&mut String>,
+) -> FolderResponse {
     let painter = ui.painter_at(view);
     painter.rect_filled(view, CornerRadius::ZERO, DIM);
 
@@ -201,14 +236,25 @@ pub fn show_folder(
             Stroke::new(1.0, MANILA_EDGE),
         ));
     }
+    let tab_quad = tab.map(|p| camera.project(p, 0.0));
     let tab_centre = camera.project(vec2(-0.35 * size.x, top + 0.035 * size.y), 0.0);
-    painter.text(
-        tab_centre,
-        Align2::CENTER_CENTER,
-        "Finished sheets",
-        FontId::proportional(12.0),
-        LABEL_DARK,
-    );
+    let renaming_now = renaming.is_some();
+    let tab_hovered = !renaming_now
+        && ui
+            .input(|i| i.pointer.hover_pos())
+            .is_some_and(|p| contains(&tab_quad, p));
+    let mut action = None;
+    if let Some(name) = renaming {
+        action = rename_field(ui, tab_centre, name);
+    } else {
+        painter.text(
+            tab_centre,
+            Align2::CENTER_CENTER,
+            project.name,
+            FontId::proportional(12.0),
+            if tab_hovered { HIGHLIGHT } else { LABEL_DARK },
+        );
+    }
 
     let base_quads: Vec<[Pos2; 4]> = placements
         .iter()
@@ -309,10 +355,154 @@ pub fn show_folder(
         LABEL,
     );
 
-    if hovered.is_some() {
+    painter.text(
+        pos2(view.center().x, view.top() + 46.0),
+        Align2::CENTER_CENTER,
+        project.location,
+        FontId::monospace(11.0),
+        LABEL.gamma_multiply(0.7),
+    );
+
+    action = action.or_else(|| menus(ui, view, project.saved));
+    if tab_hovered {
+        response.clone().on_hover_text(if project.saved {
+            "Rename the project"
+        } else {
+            "Save the project under a name (Save As\u{2026})"
+        });
+    }
+    if hovered.is_some() || tab_hovered {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
-    if response.clicked() { hovered } else { None }
+    let mut opened = None;
+    if response.clicked() && !renaming_now {
+        if tab_hovered {
+            action = action.or(Some(if project.saved {
+                FolderAction::Rename
+            } else {
+                FolderAction::SaveAs
+            }));
+        } else {
+            opened = hovered;
+        }
+    }
+    FolderResponse { opened, action }
+}
+
+/// The new name, typed on the folder's tab. Enter renames, Esc or
+/// clicking elsewhere cancels.
+fn rename_field(ui: &mut Ui, at: Pos2, name: &mut String) -> Option<FolderAction> {
+    let rect = Rect::from_center_size(at, vec2(180.0, 22.0));
+    let field = ui.put(
+        rect,
+        egui::TextEdit::singleline(name)
+            .font(FontId::proportional(12.0))
+            .horizontal_align(egui::Align::Center),
+    );
+    if !field.has_focus() && !field.lost_focus() {
+        field.request_focus();
+    }
+    if field.lost_focus() {
+        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        return Some(if entered {
+            FolderAction::RenameTo(name.trim().to_owned())
+        } else {
+            FolderAction::CancelRename
+        });
+    }
+    None
+}
+
+/// Three plates on the desk below the folder, each opening a menu.
+fn menus(ui: &mut Ui, view: Rect, saved: bool) -> Option<FolderAction> {
+    let labels = [
+        "Current project\u{2026}",
+        "Other projects\u{2026}",
+        "Export\u{2026}",
+    ];
+    let painter = ui.painter_at(view);
+    let font = FontId::proportional(12.0);
+    let gap = 12.0;
+    let galleys: Vec<_> = labels
+        .iter()
+        .map(|label| painter.layout_no_wrap((*label).to_owned(), font.clone(), LABEL_DARK))
+        .collect();
+    let widths: Vec<f32> = galleys.iter().map(|g| g.size().x + 24.0).collect();
+    let total = widths.iter().sum::<f32>() + gap * (labels.len() - 1) as f32;
+    let mut x = view.center().x - total / 2.0;
+    let y = view.bottom() - 44.0;
+    let mut chosen = None;
+    for (index, (galley, width)) in galleys.into_iter().zip(widths).enumerate() {
+        let rect = Rect::from_min_size(pos2(x, y), vec2(width, 26.0));
+        x += width + gap;
+        let plate = ui.interact(rect, Id::new(("desk-menu", index)), Sense::click());
+        let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&plate));
+        let (fill, edge) = if plate.hovered() || open {
+            (Color32::from_rgb(0xE8, 0xCD, 0x98), HIGHLIGHT)
+        } else {
+            (MANILA, MANILA_EDGE)
+        };
+        painter.rect(
+            rect,
+            CornerRadius::same(3),
+            fill,
+            Stroke::new(1.0, edge),
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(rect.center() - galley.size() / 2.0, galley, LABEL_DARK);
+        if plate.hovered() {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        }
+        egui::Popup::menu(&plate)
+            .align(egui::RectAlign::TOP_START)
+            .show(|ui| {
+                let items: Vec<(&str, FolderAction, bool, &str)> = match index {
+                    0 => vec![
+                        ("Save", FolderAction::Save, true, "Saved automatically too."),
+                        (
+                            "Save As\u{2026}",
+                            FolderAction::SaveAs,
+                            true,
+                            "Choose a name and place.",
+                        ),
+                        (
+                            "Rename",
+                            FolderAction::Rename,
+                            saved,
+                            "Save the project first.",
+                        ),
+                    ],
+                    1 => vec![
+                        ("New project", FolderAction::New, true, ""),
+                        ("Open project\u{2026}", FolderAction::Open, true, ""),
+                    ],
+                    _ => [
+                        ("To Markdown", ExportFormat::Markdown),
+                        ("To Text file", ExportFormat::Text),
+                        ("To PDF", ExportFormat::Pdf),
+                    ]
+                    .into_iter()
+                    .map(|(label, format)| {
+                        (
+                            label,
+                            FolderAction::Export(format),
+                            saved,
+                            "Save the project first: exports go beside it.",
+                        )
+                    })
+                    .collect(),
+                };
+                for (label, action, enabled, disabled_tip) in items {
+                    let button = ui
+                        .add_enabled(enabled, egui::Button::new(label))
+                        .on_disabled_hover_text(disabled_tip);
+                    if button.clicked() {
+                        chosen = Some(action);
+                    }
+                }
+            });
+    }
+    chosen
 }
 
 /// One sheet taken out of the folder, read-only and scaled to fit.

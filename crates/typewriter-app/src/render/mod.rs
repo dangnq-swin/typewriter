@@ -5,6 +5,7 @@ pub mod calm;
 pub mod feed;
 pub mod folder;
 pub mod paper;
+pub mod pdf;
 pub mod platen;
 pub mod ruler;
 
@@ -12,6 +13,8 @@ use eframe::egui::{FontFamily, FontId, Vec2, vec2};
 use typewriter_core::Profile;
 
 pub const FONT_FAMILY: &str = "typewriter";
+pub const COURIER_PRIME: &[u8] =
+    include_bytes!("../../../../assets/fonts/courier-prime/CourierPrime-Regular.ttf");
 
 /// Courier's advance width is 0.6 em for every glyph.
 const COURIER_ADVANCE_EM: f32 = 0.6;

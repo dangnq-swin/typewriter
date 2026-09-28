@@ -16,6 +16,8 @@ eframe.workspace = true
 anyhow.workspace = true
 image.workspace = true
 rodio.workspace = true
+rfd.workspace = true
+printpdf.workspace = true
 
 [build-dependencies]
 image.workspace = true

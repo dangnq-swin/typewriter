@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, Rect, pos2};
@@ -6,15 +7,16 @@ use typewriter_core::page::Page;
 use typewriter_core::{Command, Constraints, Direction, EraseMode, Event, Profile, Typewriter};
 
 use crate::audio::{self, Audio};
+use crate::filing::{self, Filing, Picked};
 use crate::input::{Action, Input};
 use crate::render::background::Background;
 use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
+use crate::render::folder::{FolderAction, ProjectLabel};
 use crate::render::platen::{self, PlatenView};
-use crate::render::{FONT_FAMILY, Metrics, folder, paper, ruler};
+use crate::render::{COURIER_PRIME, FONT_FAMILY, Metrics, folder, paper, ruler};
+use crate::storage;
 
-const COURIER_PRIME: &[u8] =
-    include_bytes!("../../../assets/fonts/courier-prime/CourierPrime-Regular.ttf");
 // Built-in until user profiles are loaded from disk (M8).
 const SM9_PROFILE: &str = include_str!("../../../profiles/olympia-sm9.toml");
 /// Screen points per inch at 100% zoom.
@@ -29,6 +31,10 @@ const SCROLL_POINTS_PER_STEP: f32 = 40.0;
 /// Correction fluid smudges what is typed on it until it has dried.
 const FLUID_DRY_SECONDS: f64 = 3.0;
 
+/// A reopened sheet is wound back to where typing stopped a notch at a
+/// time, at the pace of the ratchet clicks that wind a finished sheet out.
+const WIND_BACK_NOTCH_SECONDS: f64 = 0.06;
+
 /// Room beyond the window's edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
 
@@ -41,6 +47,22 @@ enum View {
     Sheet(usize),
 }
 
+/// A reopened sheet being wound back down to the line typing stopped at.
+struct WindBack {
+    to_half_line: u16,
+    /// When the next notch turns. Set once the sheet has wound in.
+    next_notch: Option<f64>,
+}
+
+impl WindBack {
+    fn to(to_half_line: u16) -> Self {
+        Self {
+            to_half_line,
+            next_notch: None,
+        }
+    }
+}
+
 /// A new sheet being wound in, and the finished one rolling out.
 struct Feeding {
     started: f64,
@@ -51,6 +73,10 @@ struct Feeding {
 
 pub struct TypewriterApp {
     machine: Typewriter,
+    /// Where the project in the machine is saved.
+    filing: Filing,
+    /// The new name being typed on the folder's tab.
+    renaming: Option<String>,
     metrics: Metrics,
     platen: PlatenView,
     input: Input,
@@ -61,8 +87,10 @@ pub struct TypewriterApp {
     /// no input until it is done.
     feed_motion: FeedMotion,
     feeding: Option<Feeding>,
-    /// A new document starts by winding its first sheet in.
+    /// A project, new or reopened, starts by winding its sheet in.
     first_sheet_pending: bool,
+    /// Then a reopened one winds down to where typing stopped.
+    wind_back: Option<WindBack>,
     /// Cells of the sheet in the machine with correction fluid still drying,
     /// and when it was dabbed on.
     wet: HashMap<(u16, u16), f64>,
@@ -88,9 +116,17 @@ impl TypewriterApp {
         let audio = Audio::new(&profile)
             .inspect_err(|err| eprintln!("sound unavailable, typing silently: {err:#}"))
             .ok();
-        let machine = Typewriter::new(profile, Constraints::default())?;
+        let (mut machine, filing, trouble) = first_project(profile)?;
+        let wind_back = filing.is_saved_somewhere().then(|| machine.reinsert());
+        let mut filing = filing;
+        if let Some(trouble) = trouble {
+            filing.notify(trouble, 0.0);
+        }
+        filing.remember();
         Ok(Self {
             machine,
+            filing,
+            renaming: None,
             metrics,
             platen: PlatenView::new(true),
             input: Input::default(),
@@ -99,6 +135,7 @@ impl TypewriterApp {
             feed_motion: audio::sheet_feed_motion(),
             feeding: None,
             first_sheet_pending: true,
+            wind_back: wind_back.map(WindBack::to),
             wet: HashMap::new(),
             view: View::Typing,
             calm: false,
@@ -115,8 +152,12 @@ impl TypewriterApp {
             ctx.input(|i| (i.events.clone(), i.modifiers.shift, i.smooth_scroll_delta.y));
         // Keys still go through the input state (e.g. Shift+Tab counting),
         // they just do nothing while a sheet is being wound in.
+        // A name being typed on the folder's tab is not for the machine.
+        if self.renaming.is_some() {
+            return;
+        }
         let actions = self.input.actions(&events, shift_down);
-        let feeding = self.is_feeding(now);
+        let feeding = self.is_busy(now);
         for action in actions {
             match action {
                 // The window is not part of the machine.
@@ -156,6 +197,7 @@ impl TypewriterApp {
             )
         });
         let mut page_end = false;
+        self.filing.changed(now);
         for event in self.machine.apply(command) {
             match event {
                 // Many keyboards have no Insert key, so a return on the last
@@ -168,6 +210,7 @@ impl TypewriterApp {
                 }
                 Event::SheetFed => {
                     self.wet.clear();
+                    self.filing.save(&self.machine, now);
                     self.feeding = Some(Feeding {
                         started: now,
                         outgoing: outgoing.clone(),
@@ -202,6 +245,62 @@ impl TypewriterApp {
             self.wet.remove(&(half_line, column));
             self.machine
                 .apply(Command::FluidDried { half_line, column });
+            self.filing.changed(now);
+        }
+    }
+
+    /// Puts another project in the machine, winding its sheet in. The one
+    /// there is saved first.
+    fn put_in(&mut self, mut machine: Typewriter, filing: Filing, reopened: bool, now: f64) {
+        self.filing.save(&self.machine, now);
+        self.wind_back = reopened.then(|| WindBack::to(machine.reinsert()));
+        self.machine = machine;
+        self.filing = filing;
+        self.filing.remember();
+        self.wet.clear();
+        self.feeding = None;
+        self.first_sheet_pending = true;
+        self.view = View::Typing;
+        self.selected = 0;
+        self.renaming = None;
+    }
+
+    fn folder_action(&mut self, action: FolderAction, ctx: &egui::Context, now: f64) {
+        match action {
+            FolderAction::Save => self.filing.save_now(&self.machine, ctx, now),
+            FolderAction::SaveAs => self.filing.ask_save_as(ctx),
+            FolderAction::Rename => self.renaming = Some(self.filing.name()),
+            FolderAction::RenameTo(name) => {
+                self.renaming = None;
+                self.filing.rename(&self.machine, &name, now);
+            }
+            FolderAction::CancelRename => self.renaming = None,
+            FolderAction::New => {
+                let profile = self.machine.profile().clone();
+                let constraints = self.machine.constraints.clone();
+                match Typewriter::new(profile, constraints) {
+                    Ok(machine) => self.put_in(machine, Filing::draft(), false, now),
+                    Err(err) => self.filing.notify(format!("No new project: {err}"), now),
+                }
+            }
+            FolderAction::Open => self.filing.ask_open(ctx),
+            FolderAction::Export(format) => {
+                self.filing
+                    .export(&self.machine, format, self.ink_realism, now);
+            }
+        }
+    }
+
+    fn take_picked(&mut self, now: f64) {
+        match self.filing.picked() {
+            Some(Picked::SaveAs(path)) => self.filing.save_as(&self.machine, path, now),
+            Some(Picked::Open(path)) => match filing::open(self.machine.profile().clone(), &path) {
+                Ok(machine) => self.put_in(machine, Filing::at(path), true, now),
+                Err(err) => self
+                    .filing
+                    .notify(format!("Could not open that project: {err:#}"), now),
+            },
+            None => {}
         }
     }
 
@@ -210,6 +309,33 @@ impl TypewriterApp {
         self.wet.get(&(half_line, column)).map_or(0.0, |&dabbed| {
             (1.0 - (now - dabbed) / FLUID_DRY_SECONDS).clamp(0.0, 1.0) as f32
         })
+    }
+
+    /// The machine takes no input while a sheet goes in or winds back.
+    fn is_busy(&self, now: f64) -> bool {
+        self.is_feeding(now) || self.wind_back.is_some()
+    }
+
+    /// Turns the platen a notch at a time once a reopened sheet is in, with
+    /// a ratchet click each, until it reaches the line typing stopped at.
+    fn wind_back(&mut self, now: f64) {
+        if self.feeding.is_some() {
+            return;
+        }
+        let Some(wind) = &mut self.wind_back else {
+            return;
+        };
+        let to = wind.to_half_line;
+        let mut next = *wind.next_notch.get_or_insert(now);
+        while now >= next && self.machine.carriage().half_line < to {
+            self.apply(Command::PlatenNotch, now);
+            next += WIND_BACK_NOTCH_SECONDS;
+        }
+        if self.machine.carriage().half_line >= to {
+            self.wind_back = None;
+        } else if let Some(wind) = &mut self.wind_back {
+            wind.next_notch = Some(next);
+        }
     }
 
     fn is_feeding(&self, now: f64) -> bool {
@@ -372,7 +498,7 @@ impl TypewriterApp {
             pointer_opacity,
         );
 
-        let feeding = self.is_feeding(now);
+        let feeding = self.is_busy(now);
         let finished = self.machine.document().finished().len();
         if folder::desk_icon(ui, view, finished, chrome) && !feeding {
             self.open_folder();
@@ -493,9 +619,13 @@ impl eframe::App for TypewriterApp {
         }
         self.handle_input(&ctx);
         self.dry_fluid(now);
+        self.take_picked(now);
+        self.filing.autosave(&self.machine, now);
         if !self.is_feeding(now) {
             self.feeding = None;
         }
+        self.wind_back(now);
+        let mut folder_action = None;
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -506,11 +636,26 @@ impl eframe::App for TypewriterApp {
                 match self.view {
                     View::Typing => self.show_typing(ui, now),
                     View::Folder => {
-                        if let Some(i) =
-                            folder::show_folder(ui, view, sheets, &self.metrics, &mut self.selected)
-                        {
+                        let name = self.filing.name();
+                        let location = self.filing.location();
+                        let project = ProjectLabel {
+                            name: &name,
+                            location: &location,
+                            saved: self.filing.is_saved(),
+                        };
+                        let response = folder::show_folder(
+                            ui,
+                            view,
+                            sheets,
+                            &self.metrics,
+                            &mut self.selected,
+                            &project,
+                            self.renaming.as_mut(),
+                        );
+                        if let Some(i) = response.opened {
                             self.view = View::Sheet(i);
                         }
+                        folder_action = response.action;
                     }
                     View::Sheet(i) => match sheets.get(i) {
                         Some(page) => folder::show_sheet(
@@ -527,12 +672,43 @@ impl eframe::App for TypewriterApp {
                         None => self.view = View::Folder,
                     },
                 }
+                self.filing.paint_notice(ui.ctx(), view, now);
             });
+        if let Some(action) = folder_action {
+            self.folder_action(action, &ctx, now);
+        }
 
-        if self.platen.is_animating(now) || self.feeding.is_some() || !self.wet.is_empty() {
+        if self.platen.is_animating(now)
+            || self.feeding.is_some()
+            || self.wind_back.is_some()
+            || !self.wet.is_empty()
+            || self.filing.is_animating(now)
+        {
             ctx.request_repaint();
         }
     }
+
+    fn on_exit(&mut self) {
+        // Saved whatever the pause, so nothing typed is lost.
+        self.filing.changed(0.0);
+        self.filing.save(&self.machine, 0.0);
+    }
+}
+
+/// The project to start with: the one named on the command line, else the
+/// one open last time, else a new one. Also says why a project could not be
+/// opened.
+fn first_project(profile: Profile) -> anyhow::Result<(Typewriter, Filing, Option<String>)> {
+    let asked = std::env::args_os().nth(1).map(PathBuf::from);
+    let mut trouble = None;
+    if let Some(path) = asked.or_else(storage::last_project) {
+        match filing::open(profile.clone(), &path) {
+            Ok(machine) => return Ok((machine, Filing::at(path), None)),
+            Err(err) => trouble = Some(format!("Could not open {}: {err:#}", path.display())),
+        }
+    }
+    let machine = Typewriter::new(profile, Constraints::default())?;
+    Ok((machine, Filing::draft(), trouble))
 }
 
 fn toggle_fullscreen(ctx: &egui::Context) {

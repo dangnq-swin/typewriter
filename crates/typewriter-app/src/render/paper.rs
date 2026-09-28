@@ -74,9 +74,39 @@ pub fn dry(_: u16, _: u16) -> f32 {
     0.0
 }
 
-/// `ink_realism` varies each strike slightly, like uneven key pressure and
-/// type slugs that do not land exactly in place. `dimming` fades the ink,
-/// but not the corrections: a faded patch would show what it covers.
+/// One thing to draw for a sheet, whatever it is drawn on: the window or a
+/// PDF. Positions are in the sheet's points, `y` down.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Drawn {
+    /// A character with its top-left corner at `at`.
+    Glyph {
+        at: Pos2,
+        c: char,
+        color: Color32,
+    },
+    Patch {
+        rect: Rect,
+        color: Color32,
+    },
+    Line {
+        from: Pos2,
+        to: Pos2,
+        width: f32,
+        color: Color32,
+    },
+    /// With a thin rim of another colour just inside its edge.
+    Ellipse {
+        centre: Pos2,
+        radius: Vec2,
+        fill: Color32,
+        rim: Option<Color32>,
+    },
+}
+
+/// Width of the rim on a dab of correction fluid, in points.
+pub const RIM_WIDTH: f32 = 0.8;
+
+/// Draws a sheet in the window. See [`sheet_marks`].
 pub fn paint_sheet(
     painter: &Painter,
     metrics: &Metrics,
@@ -86,21 +116,80 @@ pub fn paint_sheet(
     dimming: Dimming,
     wetness: Wetness<'_>,
 ) {
-    let scale = metrics.points_per_inch / 96.0;
     let clip = painter.clip_rect();
+    let marks = sheet_marks(
+        metrics,
+        page,
+        origin,
+        ink_realism,
+        dimming,
+        wetness,
+        |cell| clip.intersects(cell),
+    );
+    for drawn in marks {
+        match drawn {
+            Drawn::Glyph { at, c, color } => {
+                painter.text(at, Align2::LEFT_TOP, c, metrics.font.clone(), color);
+            }
+            Drawn::Patch { rect, color } => {
+                painter.rect_filled(rect, CornerRadius::same(3), color);
+            }
+            Drawn::Line {
+                from,
+                to,
+                width,
+                color,
+            } => {
+                painter.line_segment([from, to], Stroke::new(width, color));
+            }
+            Drawn::Ellipse {
+                centre,
+                radius,
+                fill,
+                rim,
+            } => {
+                painter.add(Shape::ellipse_filled(centre, radius, fill));
+                if let Some(rim) = rim {
+                    painter.add(Shape::ellipse_stroke(
+                        centre,
+                        radius - Vec2::splat(RIM_WIDTH / 2.0),
+                        Stroke::new(RIM_WIDTH, rim),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// Everything struck or painted on a sheet whose top-left is at `origin`,
+/// in the order it was made, so a correction covers whatever was struck
+/// before it. Cells for which `visible` is false are left out.
+///
+/// `ink_realism` varies each strike slightly, like uneven key pressure and
+/// type slugs that do not land exactly in place. `dimming` fades the ink,
+/// but not the corrections: a faded patch would show what it covers.
+pub fn sheet_marks(
+    metrics: &Metrics,
+    page: &Page,
+    origin: Pos2,
+    ink_realism: bool,
+    dimming: Dimming,
+    wetness: Wetness<'_>,
+    visible: impl Fn(Rect) -> bool,
+) -> Vec<Drawn> {
+    let scale = metrics.points_per_inch / 96.0;
+    let mut out = Vec::new();
     for ((half_line, column), cell) in page.cells() {
         let cell_rect = Rect::from_min_size(
             origin + metrics.cell_offset(half_line, column),
             metrics.cell_size(),
         );
         // Fluid spills a little past its cell.
-        if !clip.intersects(cell_rect.expand(metrics.column_width)) {
+        if !visible(cell_rect.expand(metrics.column_width)) {
             continue;
         }
         let ink = INK.gamma_multiply(dimming.opacity(half_line));
         let marks = cell.marks();
-        // Marks are painted in the order they were made, so a correction
-        // covers whatever was struck before it.
         for (index, mark) in marks.iter().enumerate() {
             let seed = mark_seed(half_line, column, index);
             let (offset, density) = if ink_realism {
@@ -118,47 +207,47 @@ pub fn paint_sheet(
                         .count();
                     let color = ink.gamma_multiply(density * ERASER_GHOST.powi(rubbed as i32));
                     if matches!(mark, Mark::Smudged(_)) {
-                        paint_smudged(painter, metrics, at, *c, color, scale, seed);
+                        smudged(&mut out, at, *c, color, scale, seed);
                     } else {
-                        let font = metrics.font.clone();
-                        painter.text(at, Align2::LEFT_TOP, c, font, color);
+                        out.push(Drawn::Glyph { at, c: *c, color });
                     }
                 }
-                Mark::Correction(Correction::Eraser) => {
-                    paint_scuff(painter, cell_rect, scale, seed)
-                }
-                Mark::Correction(Correction::Chalk(c)) => {
-                    paint_chalk(painter, metrics, at, *c, scale);
-                }
+                Mark::Correction(Correction::Eraser) => scuff(&mut out, cell_rect, scale, seed),
+                Mark::Correction(Correction::Chalk(c)) => chalk(&mut out, at, *c, scale),
                 Mark::Correction(Correction::Fluid { .. }) => {
-                    paint_fluid(painter, cell_rect, wetness(half_line, column), seed);
+                    fluid(&mut out, cell_rect, wetness(half_line, column), seed);
                 }
             }
         }
     }
+    out
 }
 
 /// The fibres the eraser roughed up catch the light: a paler patch with a
 /// few streaks along the rubbing.
-fn paint_scuff(painter: &Painter, cell: Rect, scale: f32, seed: u64) {
+fn scuff(out: &mut Vec<Drawn>, cell: Rect, scale: f32, seed: u64) {
     let patch = cell.expand2(vec2(1.5, -1.0) * scale);
-    painter.rect_filled(patch, CornerRadius::same(3), SCUFF);
+    out.push(Drawn::Patch {
+        rect: patch,
+        color: SCUFF,
+    });
     for i in 0..3_u32 {
         let unit = ((seed >> (i * 16)) & 0xFFFF) as f32 / 65535.0;
         let y = patch.top() + patch.height() * (0.2 + 0.6 * unit);
         let inset = patch.width() * 0.15 * unit;
-        painter.hline(
-            patch.left() + inset..=patch.right() - inset,
-            y,
-            Stroke::new(0.8 * scale, SCUFF_STREAK),
-        );
+        out.push(Drawn::Line {
+            from: pos2(patch.left() + inset, y),
+            to: pos2(patch.right() - inset, y),
+            width: 0.8 * scale,
+            color: SCUFF_STREAK,
+        });
     }
 }
 
 /// The chalk goes on in the shape of the character struck through the slip,
 /// a little fuller than the type, so a slightly misaligned strike leaves the
 /// edges of the ink below.
-fn paint_chalk(painter: &Painter, metrics: &Metrics, at: Pos2, c: char, scale: f32) {
+fn chalk(out: &mut Vec<Drawn>, at: Pos2, c: char, scale: f32) {
     let spread = CHALK_SPREAD * scale;
     for offset in [
         vec2(0.0, 0.0),
@@ -167,19 +256,17 @@ fn paint_chalk(painter: &Painter, metrics: &Metrics, at: Pos2, c: char, scale: f
         vec2(0.0, spread),
         vec2(0.0, -spread),
     ] {
-        painter.text(
-            at + offset,
-            Align2::LEFT_TOP,
+        out.push(Drawn::Glyph {
+            at: at + offset,
             c,
-            metrics.font.clone(),
-            CHALK,
-        );
+            color: CHALK,
+        });
     }
 }
 
 /// A few overlapping dabs of fluid, uneven and slightly past the cell. While
 /// wet it is glossy: brighter, with a highlight.
-fn paint_fluid(painter: &Painter, cell: Rect, wet: f32, seed: u64) {
+fn fluid(out: &mut Vec<Drawn>, cell: Rect, wet: f32, seed: u64) {
     let unit = |shift: u32| ((seed >> shift) & 0xFF) as f32 / 255.0 - 0.5;
     let size = cell.size();
     let dabs = [0_u32, 16, 32].map(|shift| {
@@ -189,52 +276,43 @@ fn paint_fluid(painter: &Painter, cell: Rect, wet: f32, seed: u64) {
     });
     let fill = lerp_color(FLUID, FLUID_WET, wet);
     for (centre, radius) in dabs {
-        painter.add(Shape::ellipse_filled(centre, radius, fill));
-        painter.add(Shape::ellipse_stroke(
+        out.push(Drawn::Ellipse {
             centre,
             radius,
-            Stroke::new(0.6, FLUID_RIM),
-        ));
+            fill,
+            rim: Some(FLUID_RIM),
+        });
     }
     // Painted over again inside, so only the blob's outer rim shows.
     for (centre, radius) in dabs {
-        painter.add(Shape::ellipse_filled(
+        out.push(Drawn::Ellipse {
             centre,
-            radius - Vec2::splat(0.8),
+            radius: radius - Vec2::splat(RIM_WIDTH),
             fill,
-        ));
+            rim: None,
+        });
     }
     if wet > 0.0 {
-        let gloss = cell.center() + vec2(-0.18, -0.16) * size;
-        painter.add(Shape::ellipse_filled(
-            gloss,
-            vec2(0.16, 0.07) * size,
-            Color32::WHITE.gamma_multiply(wet),
-        ));
+        out.push(Drawn::Ellipse {
+            centre: cell.center() + vec2(-0.18, -0.16) * size,
+            radius: vec2(0.16, 0.07) * size,
+            fill: Color32::WHITE.gamma_multiply(wet),
+            rim: None,
+        });
     }
 }
 
 /// Ink that ran on wet fluid: the letter blurred out in a few directions,
 /// fainter overall.
-fn paint_smudged(
-    painter: &Painter,
-    metrics: &Metrics,
-    at: Pos2,
-    c: char,
-    color: Color32,
-    scale: f32,
-    seed: u64,
-) {
+fn smudged(out: &mut Vec<Drawn>, at: Pos2, c: char, color: Color32, scale: f32, seed: u64) {
     let unit = |shift: u32| ((seed >> shift) & 0xFF) as f32 / 255.0 - 0.5;
     for i in 0..4_u32 {
         let offset = vec2(unit(i * 16), unit(i * 16 + 8)) * (2.0 * SMUDGE_SPREAD * scale);
-        painter.text(
-            at + offset,
-            Align2::LEFT_TOP,
+        out.push(Drawn::Glyph {
+            at: at + offset,
             c,
-            metrics.font.clone(),
-            color.gamma_multiply(0.35),
-        );
+            color: color.gamma_multiply(0.35),
+        });
     }
 }
 

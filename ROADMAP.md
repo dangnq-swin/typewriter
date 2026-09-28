@@ -80,13 +80,17 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M6: Persistence & export
 
-- [ ] Native document format (serde, versioned schema) storing pages, glyph stacks,
-      profile used, and session stats
-- [ ] ❓ Serialization format: RON, JSON, or TOML? (RON recommended for readability of nested data)
-- [ ] Autosave at intervals and on quit. Crash-safe writes (write temp + rename)
-- [ ] Open / new / recent documents
-- [ ] Export to **plain text** (last glyph wins, or strikeouts removed, configurable)
-- [ ] Export to **Markdown** (page breaks as `---`, optionally strikeouts as `~~text~~`)
+- [x] Native document format: a versioned **RON** folder file (`*.folder.ron`) storing the
+      sheets with their glyph stacks, the carriage and the profile used (session stats come
+      with M7)
+- [x] Autosave after a pause, on sheet feed and on quit. Crash-safe writes (temp + rename).
+      Unfiled folders are drafts in `$XDG_DATA_HOME/typewriter/drafts/`
+- [x] Projects: Current project… (Save, Save As, Rename), Other projects… (New, Open) and
+      Export… menus in the folder view, with the desktop's dialogs (`rfd`). The last project
+      reopens on launch: its sheet winds in, then the platen clicks down to where typing stopped
+- [x] Export to **plain text** and **Markdown** beside the project file (corrections left
+      out, `'` over `.` as `!`, `---` between sheets in Markdown), and to **PDF** as typed, on
+      white
 
 ## M7: Focus goals
 
@@ -127,4 +131,3 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - Two-colour ribbon (black / red) switch
 - Ribbon wear: ink fades gradually and is refreshed by "changing the ribbon"
 - Carriage-return lever animation
-- Print-ready PDF export that keeps the look of the typed page
