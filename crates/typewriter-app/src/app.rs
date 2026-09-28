@@ -7,6 +7,7 @@ use typewriter_core::{Command, Constraints, Direction, Event, Profile, Typewrite
 use crate::audio::{self, Audio};
 use crate::input::{Action, Input};
 use crate::render::background::Background;
+use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::platen::{self, PlatenView};
 use crate::render::{FONT_FAMILY, Metrics, folder, paper, ruler};
@@ -59,6 +60,9 @@ pub struct TypewriterApp {
     /// A new document starts by winding its first sheet in.
     first_sheet_pending: bool,
     view: View,
+    /// Distraction-free: the chrome fades away and lines dim around the
+    /// typing line.
+    calm: bool,
     /// The sheet chosen in the folder, by index.
     selected: usize,
     zoom_percent: u16,
@@ -89,6 +93,7 @@ impl TypewriterApp {
             feeding: None,
             first_sheet_pending: true,
             view: View::Typing,
+            calm: false,
             selected: 0,
             zoom_percent: ZOOM_DEFAULT,
             scroll_zoom: 0.0,
@@ -103,11 +108,12 @@ impl TypewriterApp {
         // Keys still go through the input state (e.g. Shift+Tab counting),
         // they just do nothing while a sheet is being wound in.
         let actions = self.input.actions(&events, shift_down);
-        if self.is_feeding(now) {
-            return;
-        }
+        let feeding = self.is_feeding(now);
         for action in actions {
             match action {
+                // The window is not part of the machine.
+                Action::Fullscreen => toggle_fullscreen(ctx),
+                _ if feeding => {}
                 Action::Machine(command) => {
                     if !self.browse_command(command) {
                         self.apply(command, now);
@@ -117,6 +123,9 @@ impl TypewriterApp {
                 Action::PageDown => self.page_down(),
                 Action::Escape => self.escape(),
             }
+        }
+        if feeding {
+            return;
         }
         // The paper never scrolls freely, so the wheel zooms: up is closer.
         self.scroll_zoom += scrolled;
@@ -248,7 +257,11 @@ impl TypewriterApp {
 
     fn escape(&mut self) {
         self.view = match self.view {
-            View::Typing | View::Folder => View::Typing,
+            View::Typing => {
+                self.calm = !self.calm;
+                View::Typing
+            }
+            View::Folder => View::Typing,
             View::Sheet(i) => {
                 self.selected = i;
                 View::Folder
@@ -264,6 +277,12 @@ impl TypewriterApp {
             .cell_offset(carriage.half_line, carriage.column);
         let layout = self.platen.layout(view, &self.metrics, cell, now);
         let painter = ui.painter_at(view);
+        let calm = ui.ctx().animate_bool_with_time(
+            egui::Id::new("calm-mode"),
+            self.calm,
+            calm::FADE_SECONDS,
+        );
+        let chrome = 1.0 - calm;
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
         if let Some(feeding) = &self.feeding {
@@ -276,7 +295,11 @@ impl TypewriterApp {
                 let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
                 let old_origin = pos2(paper_origin.x, old_y - rolled * exit);
                 self.paint_lifted(&painter, view, old_origin, 0.0, 1.0);
-                self.paint_page(&painter, old_page, old_origin);
+                let dimming = Dimming {
+                    half_line: *old_half_line,
+                    amount: calm,
+                };
+                self.paint_page(&painter, old_page, old_origin, dimming);
             }
             // Rises from below the window until its top margin reaches the
             // typing line.
@@ -286,7 +309,32 @@ impl TypewriterApp {
             self.paint_lifted(&painter, view, paper_origin, motion.curl(t), motion.lift(t));
             pointer_opacity = motion.pointer_opacity(t);
         }
-        self.paint_page(&painter, self.machine.page(), paper_origin);
+        let dimming = Dimming {
+            half_line: carriage.half_line,
+            amount: calm,
+        };
+        self.paint_page(&painter, self.machine.page(), paper_origin, dimming);
+        platen::paint_strike_marker(
+            &painter,
+            &self.metrics,
+            layout.strike_point,
+            pointer_opacity,
+        );
+
+        let feeding = self.is_feeding(now);
+        let finished = self.machine.document().finished().len();
+        if folder::desk_icon(ui, view, finished, chrome) && !feeding {
+            self.open_folder();
+        }
+        if calm::calm_icon(ui, view) && !feeding {
+            self.calm = !self.calm;
+        }
+        if chrome <= 0.0 {
+            return;
+        }
+        let mut painter = painter;
+        painter.multiply_opacity(chrome);
+        let carriage = self.machine.carriage();
         let ruler_top = ruler::top(&self.metrics, layout.strike_point);
         ruler::paint_scale(
             &painter,
@@ -304,14 +352,10 @@ impl TypewriterApp {
         );
         let zoom_plate = ruler::paint_zoom_plate(&painter, self.zoom_percent, spacing_plate);
         let next_spacing = carriage.line_spacing.next();
-        platen::paint_strike_marker(
-            &painter,
-            &self.metrics,
-            layout.strike_point,
-            pointer_opacity,
-        );
-
-        let feeding = self.is_feeding(now);
+        // Plates only react once fully shown, not while calm mode fades them.
+        if chrome < 1.0 {
+            return;
+        }
         let spacing = plate_button(
             ui,
             spacing_plate,
@@ -330,16 +374,11 @@ impl TypewriterApp {
         if zoom.double_clicked() && !feeding {
             self.set_zoom(ZOOM_DEFAULT);
         }
-
-        let finished = self.machine.document().finished().len();
-        if folder::desk_icon(ui, view, finished) && !feeding {
-            self.open_folder();
-        }
     }
 }
 
 impl TypewriterApp {
-    fn paint_page(&self, painter: &Painter, page: &Page, origin: Pos2) {
+    fn paint_page(&self, painter: &Painter, page: &Page, origin: Pos2, dimming: Dimming) {
         paper::paint_margin_frame(
             painter,
             &self.metrics,
@@ -347,7 +386,14 @@ impl TypewriterApp {
             self.machine.profile().margins.top_lines,
             origin,
         );
-        paper::paint_sheet(painter, &self.metrics, page, origin, self.ink_realism);
+        paper::paint_sheet(
+            painter,
+            &self.metrics,
+            page,
+            origin,
+            self.ink_realism,
+            dimming,
+        );
     }
 
     fn paint_lifted(&self, painter: &Painter, view: Rect, origin: Pos2, curl: f32, lift: f32) {
@@ -412,6 +458,11 @@ impl eframe::App for TypewriterApp {
             ctx.request_repaint();
         }
     }
+}
+
+fn toggle_fullscreen(ctx: &egui::Context) {
+    let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
 }
 
 /// A plate below the scale that reacts to the pointer.

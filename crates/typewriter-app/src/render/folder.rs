@@ -13,6 +13,7 @@ use typewriter_core::carriage::Carriage;
 use typewriter_core::page::Page;
 
 use super::Metrics;
+use super::calm::Dimming;
 use super::paper::{self, INK, splitmix64};
 
 const TILT_DEGREES: f32 = 38.0;
@@ -354,7 +355,7 @@ pub fn show_sheet(
         profile.margins.top_lines,
         origin,
     );
-    paper::paint_sheet(painter, &metrics, page, origin, ink_realism);
+    paper::paint_sheet(painter, &metrics, page, origin, ink_realism, Dimming::NONE);
 
     painter.text(
         pos2(view.center().x, sheet.top() - header / 2.0),
@@ -373,18 +374,25 @@ pub fn show_sheet(
 }
 
 /// A small folder on the desk, bottom left, that opens the folder view.
-pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize) -> bool {
+pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize, opacity: f32) -> bool {
+    if opacity <= 0.0 {
+        return false;
+    }
     let body = Rect::from_min_size(view.left_bottom() + vec2(16.0, -46.0), vec2(48.0, 30.0));
     let hit = body.expand2(vec2(0.0, 6.0)).translate(vec2(0.0, -3.0));
-    let response = ui
-        .interact(hit, Id::new("folder-icon"), Sense::click())
-        .on_hover_text("Finished sheets (Page Up)");
-    let (fill, edge) = if response.hovered() {
+    // Only reacts once fully shown, not while calm mode fades it.
+    let response = (opacity >= 1.0).then(|| {
+        ui.interact(hit, Id::new("folder-icon"), Sense::click())
+            .on_hover_text("Finished sheets (Page Up)")
+    });
+    let hovered = response.as_ref().is_some_and(|r| r.hovered());
+    let (fill, edge) = if hovered {
         (Color32::from_rgb(0xE8, 0xCD, 0x98), HIGHLIGHT)
     } else {
         (MANILA, MANILA_EDGE)
     };
-    let painter = ui.painter_at(view);
+    let mut painter = ui.painter_at(view);
+    painter.multiply_opacity(opacity);
     let tab = Rect::from_min_size(body.left_top() + vec2(3.0, -6.0), vec2(18.0, 8.0));
     painter.rect(
         tab,
@@ -407,10 +415,10 @@ pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize) -> bool {
         FontId::proportional(13.0),
         LABEL_DARK,
     );
-    if response.hovered() {
+    if hovered {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
-    response.clicked()
+    response.is_some_and(|r| r.clicked())
 }
 
 #[cfg(test)]

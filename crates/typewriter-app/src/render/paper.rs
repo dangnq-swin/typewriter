@@ -4,6 +4,7 @@ use eframe::egui::{Align2, Color32, CornerRadius, Painter, Pos2, Rect, Stroke, V
 use typewriter_core::carriage::Carriage;
 use typewriter_core::page::{Correction, Mark, Page};
 
+use super::calm::Dimming;
 use super::{MM_PER_INCH, Metrics};
 
 pub const INK: Color32 = Color32::from_rgba_premultiplied(0x1C, 0x1A, 0x18, 0xEB);
@@ -52,13 +53,15 @@ pub fn paint_margin_frame(
 }
 
 /// `ink_realism` varies each strike slightly, like uneven key pressure and
-/// type slugs that do not land exactly in place.
+/// type slugs that do not land exactly in place. `dimming` fades the ink,
+/// but not the corrections: a faded patch would show what it covers.
 pub fn paint_sheet(
     painter: &Painter,
     metrics: &Metrics,
     page: &Page,
     origin: Pos2,
     ink_realism: bool,
+    dimming: Dimming,
 ) {
     let scale = metrics.points_per_inch / 96.0;
     let clip = painter.clip_rect();
@@ -70,6 +73,7 @@ pub fn paint_sheet(
         if !clip.intersects(cell_rect) {
             continue;
         }
+        let ink = INK.gamma_multiply(dimming.opacity(half_line));
         // Marks are painted in the order they were made, so an opaque
         // correction hides whatever was struck before it.
         for (index, mark) in cell.marks().iter().enumerate() {
@@ -85,7 +89,7 @@ pub fn paint_sheet(
                         Align2::LEFT_TOP,
                         c,
                         metrics.font.clone(),
-                        INK.gamma_multiply(density),
+                        ink.gamma_multiply(density),
                     );
                 }
                 Mark::Correction(kind) => {

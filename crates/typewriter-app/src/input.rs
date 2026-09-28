@@ -15,6 +15,8 @@
 //! - Page Up: open the folder of finished sheets; there, arrows or Page Up /
 //!   Page Down choose or flip sheets (up/left = older), Enter opens the chosen
 //!   one and Esc goes back. The app redirects these; see `app.rs`.
+//! - Esc (typing view): calm mode on / off
+//! - F11: fullscreen
 //!
 //! A typewriter's keys do not repeat, so held keys that act on the machine
 //! only act once, except Enter (above), the arrows and the letters.
@@ -29,6 +31,7 @@ pub enum Action {
     PageUp,
     PageDown,
     Escape,
+    Fullscreen,
 }
 
 #[derive(Debug, Default)]
@@ -120,7 +123,9 @@ fn key_action(key: Key, m: Modifiers, repeat: bool) -> Option<Action> {
     let app = match key {
         Key::PageUp => Some(Action::PageUp),
         Key::PageDown => Some(Action::PageDown),
-        Key::Escape => Some(Action::Escape),
+        Key::Escape if !repeat => Some(Action::Escape),
+        Key::F11 if !repeat => Some(Action::Fullscreen),
+        Key::Escape | Key::F11 => return None,
         _ => None,
     };
     app.or_else(|| key_command(key, m, repeat).map(Action::Machine))
@@ -361,9 +366,30 @@ mod tests {
                 key(Key::PageUp, Modifiers::NONE),
                 key(Key::PageDown, Modifiers::NONE),
                 key(Key::Escape, Modifiers::NONE),
+                key(Key::F11, Modifiers::NONE),
             ],
             false,
         );
-        assert_eq!(actions, [Action::PageUp, Action::PageDown, Action::Escape,]);
+        assert_eq!(
+            actions,
+            [
+                Action::PageUp,
+                Action::PageDown,
+                Action::Escape,
+                Action::Fullscreen
+            ]
+        );
+    }
+
+    #[test]
+    fn held_escape_and_f11_toggle_once() {
+        let actions = Input::default().actions(
+            &[
+                held(Key::Escape, Modifiers::NONE),
+                held(Key::F11, Modifiers::NONE),
+            ],
+            false,
+        );
+        assert!(actions.is_empty());
     }
 }

@@ -69,10 +69,11 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M5: Calm mode
 
-- [ ] Toggle for distraction-free mode
-- [ ] Lines dim progressively with distance from the current line (configurable falloff curve
-      and minimum opacity)
-- [ ] Hide all chrome (menus, counters) in calm mode. Fullscreen shortcut
+- [x] Toggle for distraction-free mode (Esc, or the icon next to the folder icon, which stays shown)
+- [x] Lines dim progressively with distance from the current line (falloff and minimum opacity
+      are constants; configurable with settings in M8)
+- [x] Hide the chrome (scale, plates, folder icon) in calm mode, fading over 250 ms.
+      Fullscreen on F11
 
 ## M6: Persistence & export
 
