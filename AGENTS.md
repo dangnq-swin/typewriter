@@ -41,7 +41,7 @@ typos) do not need a question round.
 | Default profile | **Olympia SM9**, Pica type (10 cpi, 6 lines per inch) |
 | Default paper | **A4** (210 × 297 mm) |
 | Constraints | Fixed line width with margin bell and manual carriage return. Every constraint is configurable (strict ↔ relaxed) |
-| Background | Configurable. The default is the off-white paper photo **supplied by the maintainer** (do not generate or download a substitute). It fills the whole window, fixed (cover-fit, cropped equally), and does not scroll with the sheet. Its tone is even: the photo's vignetting is removed at build time, keeping the grain |
+| Background | The off-white paper photo **supplied by the maintainer** (do not generate or download a substitute). It fills the whole window, fixed (cover-fit, cropped equally), and does not scroll with the sheet. Its tone is even: the photo's vignetting is removed at build time, keeping the grain. Making it configurable is on the backburner |
 | Calm mode | Distraction-free mode: lines are dimmed progressively the further they are from the line being typed |
 | Sounds | Key strike, carriage return, margin bell |
 | Focus goals | Word-count and timer targets per session |
