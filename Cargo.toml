@@ -1,0 +1,21 @@
+[workspace]
+resolver = "3"
+members = ["crates/typewriter-core", "crates/typewriter-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+typewriter-core = { path = "crates/typewriter-core" }
+eframe = "0.36"
+anyhow = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"

@@ -1,0 +1,12 @@
+[package]
+name = "typewriter-core"
+description = "Typewriter mechanics: pages, carriage, profiles and constraints"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
