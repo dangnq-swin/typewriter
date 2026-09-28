@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, Rect, pos2};
 use typewriter_core::page::Page;
-use typewriter_core::{Command, Constraints, Direction, Event, Profile, Typewriter};
+use typewriter_core::{Command, Constraints, Direction, EraseMode, Event, Profile, Typewriter};
 
 use crate::audio::{self, Audio};
 use crate::input::{Action, Input};
@@ -24,6 +25,9 @@ const ZOOM_STEP: u16 = 10;
 const ZOOM_DEFAULT: u16 = 100;
 /// Scrolled distance that counts as one zoom step: about one wheel notch.
 const SCROLL_POINTS_PER_STEP: f32 = 40.0;
+
+/// Correction fluid smudges what is typed on it until it has dried.
+const FLUID_DRY_SECONDS: f64 = 3.0;
 
 /// Room beyond the window's edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
@@ -59,6 +63,9 @@ pub struct TypewriterApp {
     feeding: Option<Feeding>,
     /// A new document starts by winding its first sheet in.
     first_sheet_pending: bool,
+    /// Cells of the sheet in the machine with correction fluid still drying,
+    /// and when it was dabbed on.
+    wet: HashMap<(u16, u16), f64>,
     view: View,
     /// Distraction-free: the chrome fades away and lines dim around the
     /// typing line.
@@ -92,6 +99,7 @@ impl TypewriterApp {
             feed_motion: audio::sheet_feed_motion(),
             feeding: None,
             first_sheet_pending: true,
+            wet: HashMap::new(),
             view: View::Typing,
             calm: false,
             selected: 0,
@@ -122,6 +130,7 @@ impl TypewriterApp {
                 Action::PageUp => self.page_up(),
                 Action::PageDown => self.page_down(),
                 Action::Escape => self.escape(),
+                Action::NextCorrection => self.next_correction(now),
             }
         }
         if feeding {
@@ -153,7 +162,12 @@ impl TypewriterApp {
                 // line feeds the next sheet.
                 Event::PageEnd => page_end = true,
                 Event::Blocked(_) => self.platen.jolt(now),
+                Event::Erase(EraseMode::Fluid) => {
+                    let c = self.machine.carriage();
+                    self.wet.insert((c.half_line, c.column), now);
+                }
                 Event::SheetFed => {
+                    self.wet.clear();
                     self.feeding = Some(Feeding {
                         started: now,
                         outgoing: outgoing.clone(),
@@ -169,6 +183,33 @@ impl TypewriterApp {
         if page_end {
             self.apply(Command::FeedSheet, now);
         }
+    }
+
+    fn next_correction(&mut self, now: f64) {
+        let next = self.machine.constraints.erase.next();
+        self.apply(Command::SetEraseMode(next), now);
+    }
+
+    /// Tells the machine which dabs of fluid have dried by now.
+    fn dry_fluid(&mut self, now: f64) {
+        let dried: Vec<(u16, u16)> = self
+            .wet
+            .iter()
+            .filter(|&(_, &dabbed)| now - dabbed >= FLUID_DRY_SECONDS)
+            .map(|(&cell, _)| cell)
+            .collect();
+        for (half_line, column) in dried {
+            self.wet.remove(&(half_line, column));
+            self.machine
+                .apply(Command::FluidDried { half_line, column });
+        }
+    }
+
+    /// 1 for fluid just dabbed on, falling to 0 as it dries.
+    fn wetness(&self, now: f64, half_line: u16, column: u16) -> f32 {
+        self.wet.get(&(half_line, column)).map_or(0.0, |&dabbed| {
+            (1.0 - (now - dabbed) / FLUID_DRY_SECONDS).clamp(0.0, 1.0) as f32
+        })
     }
 
     fn is_feeding(&self, now: f64) -> bool {
@@ -299,7 +340,7 @@ impl TypewriterApp {
                     half_line: *old_half_line,
                     amount: calm,
                 };
-                self.paint_page(&painter, old_page, old_origin, dimming);
+                self.paint_page(&painter, old_page, old_origin, dimming, &paper::dry);
             }
             // Rises from below the window until its top margin reaches the
             // typing line.
@@ -313,7 +354,17 @@ impl TypewriterApp {
             half_line: carriage.half_line,
             amount: calm,
         };
-        self.paint_page(&painter, self.machine.page(), paper_origin, dimming);
+        let wetness = |half_line, column| self.wetness(now, half_line, column);
+        self.paint_page(
+            &painter,
+            self.machine.page(),
+            paper_origin,
+            dimming,
+            &wetness,
+        );
+        if self.machine.slip_in() {
+            platen::paint_slip(&painter, &self.metrics, layout.strike_point);
+        }
         platen::paint_strike_marker(
             &painter,
             &self.metrics,
@@ -351,6 +402,12 @@ impl TypewriterApp {
             ruler_top + ruler::HEIGHT,
         );
         let zoom_plate = ruler::paint_zoom_plate(&painter, self.zoom_percent, spacing_plate);
+        let correction_plate = ruler::paint_correction_plate(
+            &painter,
+            self.machine.constraints.erase,
+            self.machine.slip_in(),
+            zoom_plate,
+        );
         let next_spacing = carriage.line_spacing.next();
         // Plates only react once fully shown, not while calm mode fades them.
         if chrome < 1.0 {
@@ -374,11 +431,27 @@ impl TypewriterApp {
         if zoom.double_clicked() && !feeding {
             self.set_zoom(ZOOM_DEFAULT);
         }
+        let correction = plate_button(
+            ui,
+            correction_plate,
+            "correction-plate",
+            "Fixing mistakes (F4). Click for the next way: correction paper, eraser or fluid.",
+        );
+        if correction.clicked() && !feeding {
+            self.next_correction(now);
+        }
     }
 }
 
 impl TypewriterApp {
-    fn paint_page(&self, painter: &Painter, page: &Page, origin: Pos2, dimming: Dimming) {
+    fn paint_page(
+        &self,
+        painter: &Painter,
+        page: &Page,
+        origin: Pos2,
+        dimming: Dimming,
+        wetness: paper::Wetness<'_>,
+    ) {
         paper::paint_margin_frame(
             painter,
             &self.metrics,
@@ -393,6 +466,7 @@ impl TypewriterApp {
             origin,
             self.ink_realism,
             dimming,
+            wetness,
         );
     }
 
@@ -418,6 +492,7 @@ impl eframe::App for TypewriterApp {
             self.load_first_sheet(now);
         }
         self.handle_input(&ctx);
+        self.dry_fluid(now);
         if !self.is_feeding(now) {
             self.feeding = None;
         }
@@ -454,7 +529,7 @@ impl eframe::App for TypewriterApp {
                 }
             });
 
-        if self.platen.is_animating(now) || self.feeding.is_some() {
+        if self.platen.is_animating(now) || self.feeding.is_some() || !self.wet.is_empty() {
             ctx.request_repaint();
         }
     }

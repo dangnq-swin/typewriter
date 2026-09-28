@@ -355,7 +355,15 @@ pub fn show_sheet(
         profile.margins.top_lines,
         origin,
     );
-    paper::paint_sheet(painter, &metrics, page, origin, ink_realism, Dimming::NONE);
+    paper::paint_sheet(
+        painter,
+        &metrics,
+        page,
+        origin,
+        ink_realism,
+        Dimming::NONE,
+        &paper::dry,
+    );
 
     painter.text(
         pos2(view.center().x, sheet.top() - header / 2.0),

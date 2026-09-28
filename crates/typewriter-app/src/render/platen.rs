@@ -2,7 +2,9 @@
 
 use std::f32::consts::TAU;
 
-use eframe::egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2, pos2};
+use eframe::egui::{
+    Color32, CornerRadius, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2, pos2, vec2,
+};
 
 use super::Metrics;
 
@@ -153,4 +155,26 @@ impl Glide {
         let eased = 1.0 - (1.0 - t).powi(3);
         self.from + (self.to - self.from) * eased
     }
+}
+
+/// The correction slip, held between the ribbon and the paper over the
+/// typing point. Translucent enough to see what is struck through it.
+pub fn paint_slip(painter: &Painter, metrics: &Metrics, strike_point: Pos2) {
+    let line = metrics.cell_size().y;
+    let slip = Rect::from_center_size(
+        pos2(strike_point.x, strike_point.y + line * 0.5),
+        vec2(metrics.column_width * 5.0, line * 1.6),
+    );
+    painter.rect_filled(
+        slip.translate(vec2(1.0, 1.5)),
+        CornerRadius::same(1),
+        Color32::from_black_alpha(0x18),
+    );
+    painter.rect(
+        slip,
+        CornerRadius::same(1),
+        Color32::from_rgba_unmultiplied(0xF6, 0xF5, 0xF0, 0xC8),
+        Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x9A, 0x94, 0x88, 0x90)),
+        StrokeKind::Inside,
+    );
 }

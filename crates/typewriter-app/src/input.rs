@@ -11,6 +11,7 @@
 //! - hold Shift and tap Tab: once sets a tab stop at the carriage, twice clears
 //!   the nearest stop, three times clears all stops. Acts when Shift is released.
 //! - F1 / F2 / F3: line spacing 1 / 1.5 / 2
+//! - F4: next way of fixing mistakes (correction paper, eraser, fluid)
 //! - arrows: move the carriage and platen (only if free movement is allowed)
 //! - Page Up: open the folder of finished sheets; there, arrows or Page Up /
 //!   Page Down choose or flip sheets (up/left = older), Enter opens the chosen
@@ -32,6 +33,7 @@ pub enum Action {
     PageDown,
     Escape,
     Fullscreen,
+    NextCorrection,
 }
 
 #[derive(Debug, Default)]
@@ -125,7 +127,8 @@ fn key_action(key: Key, m: Modifiers, repeat: bool) -> Option<Action> {
         Key::PageDown => Some(Action::PageDown),
         Key::Escape if !repeat => Some(Action::Escape),
         Key::F11 if !repeat => Some(Action::Fullscreen),
-        Key::Escape | Key::F11 => return None,
+        Key::F4 if !repeat => Some(Action::NextCorrection),
+        Key::Escape | Key::F11 | Key::F4 => return None,
         _ => None,
     };
     app.or_else(|| key_command(key, m, repeat).map(Action::Machine))
@@ -367,6 +370,7 @@ mod tests {
                 key(Key::PageDown, Modifiers::NONE),
                 key(Key::Escape, Modifiers::NONE),
                 key(Key::F11, Modifiers::NONE),
+                key(Key::F4, Modifiers::NONE),
             ],
             false,
         );
@@ -376,17 +380,19 @@ mod tests {
                 Action::PageUp,
                 Action::PageDown,
                 Action::Escape,
-                Action::Fullscreen
+                Action::Fullscreen,
+                Action::NextCorrection,
             ]
         );
     }
 
     #[test]
-    fn held_escape_and_f11_toggle_once() {
+    fn held_escape_f4_and_f11_act_once() {
         let actions = Input::default().actions(
             &[
                 held(Key::Escape, Modifiers::NONE),
                 held(Key::F11, Modifiers::NONE),
+                held(Key::F4, Modifiers::NONE),
             ],
             false,
         );

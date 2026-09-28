@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Source};
-use typewriter_core::{Event, Profile};
+use typewriter_core::{EraseMode, Event, Profile};
 
 use crate::render::feed::FeedMotion;
 #[cfg(test)]
@@ -47,6 +47,7 @@ pub struct Audio {
     backspace: SamplesBuffer,
     tab: SamplesBuffer,
     erase: SamplesBuffer,
+    fluid: SamplesBuffer,
     carriage_return: Option<SamplesBuffer>,
     /// Empty when the profile rolls its paper silently.
     rolls: Vec<SamplesBuffer>,
@@ -69,6 +70,7 @@ impl Audio {
             backspace: decode(clip!("backspace"))?,
             tab: decode(clip!("tab"))?,
             erase: decode(clip!("erase"))?,
+            fluid: decode(clip!("fluid"))?,
             carriage_return: if profile.sounds.carriage_return {
                 Some(decode(clip!("return"))?)
             } else {
@@ -95,7 +97,10 @@ impl Audio {
             Event::Space => Some(&self.space),
             Event::Backspace => Some(&self.backspace),
             Event::Tab => Some(&self.tab),
+            Event::Erase(EraseMode::Fluid) => Some(&self.fluid),
             Event::Erase(_) => Some(&self.erase),
+            // Strikes through the slip sound like any other.
+            Event::SlipIn | Event::SlipOut => None,
             Event::CarriageReturn => self.carriage_return.as_ref(),
             Event::LineFeed => self.roll_variety.pick(&self.rolls),
             Event::SheetFed => {
@@ -268,7 +273,8 @@ mod tests {
         assert_eq!(decode_all(&KEYS).unwrap().len(), 6);
         assert_eq!(decode_all(&BELLS).unwrap().len(), 2);
         assert_eq!(decode_all(&ROLLS).unwrap().len(), 4);
-        let others: [&[u8]; 8] = [
+        let others: [&[u8]; 9] = [
+            clip!("fluid"),
             clip!("space"),
             clip!("backspace"),
             clip!("tab"),
@@ -278,6 +284,6 @@ mod tests {
             clip!("feed-in"),
             clip!("blocked"),
         ];
-        assert_eq!(decode_all(&others).unwrap().len(), 8);
+        assert_eq!(decode_all(&others).unwrap().len(), 9);
     }
 }

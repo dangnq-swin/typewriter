@@ -1,13 +1,13 @@
 //! The carriage scale below the typing line, with margin and tab stop marks,
-//! the line spacing indicator and the zoom plate.
+//! the line spacing indicator, the zoom plate and the correction plate.
 
 use std::f32::consts::PI;
 
 use eframe::egui::{
     Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2,
 };
-use typewriter_core::LineSpacing;
 use typewriter_core::carriage::Carriage;
+use typewriter_core::{EraseMode, LineSpacing};
 
 use super::Metrics;
 
@@ -169,11 +169,29 @@ pub fn paint_spacing_indicator(
 /// The zoom level on a plate right of `after` (the spacing plate). Returns
 /// the plate's outline.
 pub fn paint_zoom_plate(painter: &Painter, percent: u16, after: Rect) -> Rect {
-    let text = painter.layout_no_wrap(
-        format!("{percent} %"),
-        FontId::proportional(PLATE_FONT_SIZE),
-        TICKS,
-    );
+    paint_text_plate(painter, format!("{percent} %"), after)
+}
+
+/// How mistakes are fixed, on a plate right of `after` (the zoom plate).
+/// Returns the plate's outline.
+pub fn paint_correction_plate(
+    painter: &Painter,
+    mode: EraseMode,
+    slip_in: bool,
+    after: Rect,
+) -> Rect {
+    let method = match mode {
+        EraseMode::Off => "Off",
+        EraseMode::Paper if slip_in => "Paper (slip in)",
+        EraseMode::Paper => "Paper",
+        EraseMode::Eraser => "Eraser",
+        EraseMode::Fluid => "Fluid",
+    };
+    paint_text_plate(painter, format!("Correct: {method}"), after)
+}
+
+fn paint_text_plate(painter: &Painter, text: String, after: Rect) -> Rect {
+    let text = painter.layout_no_wrap(text, FontId::proportional(PLATE_FONT_SIZE), TICKS);
     let size = vec2(text.size().x + PLATE_PADDING * 2.0, after.height());
     let rect = Rect::from_min_size(after.right_top() + vec2(PLATE_GAP, 0.0), size);
     paint_plate(painter, rect);

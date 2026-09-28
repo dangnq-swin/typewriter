@@ -23,8 +23,8 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Margin bell event a configurable number of columns before the right margin
 - [x] Carriage return + line feed as one action. Line spacing 1 / 1.5 / 2
 - [x] Tab stops (set / clear / tab)
-- [x] Constraint settings (each toggleable): backspace allowed?, erase mode (off / digital /
-      white-out / correction tape), typing past right margin blocked?, cursor movement allowed?
+- [x] Constraint settings (each toggleable): backspace allowed?, erase mode (off / correction paper /
+      eraser / correction fluid), typing past right margin blocked?, cursor movement allowed?
 - [x] Olympia SM9 profile loaded from `profiles/olympia-sm9.toml`:
       Pica 10 cpi, 6 lpi, A4, default margins, bell offset
 - [x] Event stream (`KeyStrike`, `Space`, `Backspace`, `Tab`, `Erase`, `Bell`, `CarriageReturn`,
@@ -53,6 +53,9 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Folder of finished sheets (2.5D, Page Up or desk icon), read-only sheet view
 - [x] Zoom levels (mouse wheel, percentage plate below the scale, double-click for 100 %). Window resize keeps the typing point centred
 - [x] Subtle ink realism (on by default): slight per-glyph offset/opacity variance
+- [x] Ways of fixing mistakes: correction paper (slip in/out, chalk over what is struck),
+      eraser (ghost and scuff), correction fluid (dries in 3 s, smudges if typed on wet).
+      Correct plate and F4 to switch
 
 ## M4: Sound
 
