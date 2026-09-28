@@ -69,6 +69,11 @@ impl Page {
         self.half_lines
     }
 
+    /// Nothing was ever struck on it (or everything was erased).
+    pub fn is_blank(&self) -> bool {
+        self.cells.is_empty()
+    }
+
     pub fn cell(&self, half_line: u16, column: u16) -> Option<&Cell> {
         self.cells.get(&(half_line, column))
     }

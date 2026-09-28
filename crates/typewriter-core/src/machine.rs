@@ -2,6 +2,7 @@
 
 use crate::carriage::{Carriage, LineSpacing};
 use crate::constraints::{Constraints, EraseMode};
+use crate::document::Document;
 use crate::page::{Correction, Page};
 use crate::profile::{Profile, ProfileError};
 
@@ -24,6 +25,8 @@ pub enum Command {
     SetLineSpacing(LineSpacing),
     /// Carriage release lever / platen knob. Vertical moves are in half lines.
     Move(Direction),
+    /// Takes the sheet out and feeds a blank one, carriage at the top margin.
+    FeedSheet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +49,7 @@ pub enum Event {
     CarriageReturn,
     /// A line feed would roll the paper past its bottom edge.
     PageEnd,
+    SheetFed,
     Blocked(BlockReason),
 }
 
@@ -65,7 +69,7 @@ pub struct Typewriter {
     profile: Profile,
     pub constraints: Constraints,
     carriage: Carriage,
-    page: Page,
+    document: Document,
 }
 
 impl Typewriter {
@@ -76,12 +80,12 @@ impl Typewriter {
         for &stop in &profile.tab_stops {
             carriage.set_tab_stop(stop);
         }
-        let page = Page::new(profile.columns(), profile.half_lines());
+        let document = Document::new(Page::new(profile.columns(), profile.half_lines()));
         Ok(Self {
             profile,
             constraints,
             carriage,
-            page,
+            document,
         })
     }
 
@@ -93,8 +97,13 @@ impl Typewriter {
         &self.carriage
     }
 
+    /// The sheet in the machine.
     pub fn page(&self) -> &Page {
-        &self.page
+        self.document.current()
+    }
+
+    pub fn document(&self) -> &Document {
+        &self.document
     }
 
     pub fn apply(&mut self, command: Command) -> Vec<Event> {
@@ -124,6 +133,7 @@ impl Typewriter {
                 vec![]
             }
             Command::Move(direction) => self.move_freely(direction),
+            Command::FeedSheet => self.feed_sheet(),
         }
     }
 
@@ -133,7 +143,7 @@ impl Typewriter {
         if self.constraints.lock_at_right_margin && !c.margin_released {
             (c.right_margin, BlockReason::RightMargin)
         } else {
-            (self.page.columns(), BlockReason::PaperEdge)
+            (self.document.current().columns(), BlockReason::PaperEdge)
         }
     }
 
@@ -168,7 +178,9 @@ impl Typewriter {
         let mut events = if c.is_whitespace() {
             vec![Event::Space]
         } else {
-            self.page.strike(self.carriage.half_line, column, c);
+            self.document
+                .current_mut()
+                .strike(self.carriage.half_line, column, c);
             vec![Event::KeyStrike(c)]
         };
         self.advance_to(column + 1, &mut events);
@@ -208,9 +220,9 @@ impl Typewriter {
         }
         let (row, col) = (self.carriage.half_line, self.carriage.column);
         match correction {
-            None => self.page.erase(row, col),
+            None => self.document.current_mut().erase(row, col),
             Some(correction) => {
-                self.page.cover(row, col, correction);
+                self.document.current_mut().cover(row, col, correction);
             }
         }
         vec![Event::Erase(mode)]
@@ -221,7 +233,7 @@ impl Typewriter {
         c.column = c.left_margin;
         c.margin_released = false;
         let next = c.half_line + c.line_spacing.half_lines();
-        if next < self.page.half_lines() {
+        if next < self.document.current().half_lines() {
             c.half_line = next;
             vec![Event::CarriageReturn]
         } else {
@@ -249,7 +261,7 @@ impl Typewriter {
     }
 
     fn set_tab_stop(&mut self) -> Vec<Event> {
-        if self.carriage.column >= self.page.columns() {
+        if self.carriage.column >= self.document.current().columns() {
             return vec![Event::Blocked(BlockReason::InvalidStop)];
         }
         self.carriage.set_tab_stop(self.carriage.column);
@@ -266,7 +278,7 @@ impl Typewriter {
     }
 
     fn set_right_margin(&mut self) -> Vec<Event> {
-        let columns = self.page.columns();
+        let columns = self.document.current().columns();
         let c = &mut self.carriage;
         if c.column <= c.left_margin || c.column > columns {
             return vec![Event::Blocked(BlockReason::InvalidStop)];
@@ -275,12 +287,22 @@ impl Typewriter {
         vec![]
     }
 
+    fn feed_sheet(&mut self) -> Vec<Event> {
+        let fresh = Page::new(self.profile.columns(), self.profile.half_lines());
+        self.document.feed(fresh);
+        let c = &mut self.carriage;
+        c.column = c.left_margin;
+        c.half_line = self.profile.margins.top_lines * 2;
+        c.margin_released = false;
+        vec![Event::SheetFed]
+    }
+
     fn move_freely(&mut self, direction: Direction) -> Vec<Event> {
         if !self.constraints.free_movement {
             return vec![Event::Blocked(BlockReason::NotAllowed)];
         }
-        let columns = self.page.columns();
-        let half_lines = self.page.half_lines();
+        let columns = self.document.current().columns();
+        let half_lines = self.document.current().half_lines();
         let c = &mut self.carriage;
         let (position, max) = match direction {
             Direction::Left | Direction::Right => (&mut c.column, columns),
@@ -485,6 +507,23 @@ mod tests {
             tw.apply(Command::SetRightMargin),
             [Event::Blocked(BlockReason::InvalidStop)]
         );
+    }
+
+    #[test]
+    fn feeding_a_sheet_files_the_old_one_and_starts_at_the_top() {
+        let mut tw = sm9();
+        type_str(&mut tw, "done");
+        tw.apply(Command::Return);
+        tw.apply(Command::SetLineSpacing(LineSpacing::Double));
+        tw.apply(Command::SetTabStop);
+        assert_eq!(tw.apply(Command::FeedSheet), [Event::SheetFed]);
+        assert_eq!((tw.carriage().column, tw.carriage().half_line), (10, 12));
+        assert!(tw.page().is_blank());
+        assert_eq!(tw.document().finished().len(), 1);
+        assert_eq!(tw.document().finished()[0].line_text(12).trim(), "done");
+        // Machine settings stay as they were.
+        assert_eq!(tw.carriage().line_spacing, LineSpacing::Double);
+        assert_eq!(tw.carriage().tab_stops().count(), 1);
     }
 
     #[test]
