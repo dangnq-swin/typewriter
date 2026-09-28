@@ -82,23 +82,14 @@ impl PlatenView {
     }
 }
 
-/// Small pointers above and below the typing line, like the type guide.
+/// A small pointer just below the typing line, like the type guide. Only
+/// below, so it never overlaps the line typed before.
 pub fn paint_strike_marker(painter: &Painter, metrics: &Metrics, strike_point: Pos2) {
     let color = Color32::from_rgba_unmultiplied(0x80, 0x30, 0x20, 0xB0);
     let w = metrics.column_width * 0.45;
     let line = metrics.cell_size().y;
-    let gap = 3.0;
-    let top = strike_point.y - gap;
+    let gap = 2.0;
     let bottom = strike_point.y + line + gap;
-    painter.add(eframe::egui::Shape::convex_polygon(
-        vec![
-            pos2(strike_point.x - w, top - w),
-            pos2(strike_point.x + w, top - w),
-            pos2(strike_point.x, top),
-        ],
-        color,
-        Stroke::NONE,
-    ));
     painter.add(eframe::egui::Shape::convex_polygon(
         vec![
             pos2(strike_point.x, bottom),

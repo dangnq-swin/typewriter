@@ -55,7 +55,7 @@ typos) do not need a question round.
 | SM9 defaults | A4 at Pica = 82 columns x 70 lines. Left margin col 10, right margin col 72 (locks before it), bell 8 columns before the right margin, top margin 6 lines |
 | Page end | A return on the last line emits `PageEnd` and does not feed; the carriage stays on that line until a new sheet is fed |
 | Keys | Backspace = carriage back (no erase). Shift+Backspace or Delete = Erase. Enter = return. Hold Shift and tap Tab: 1× sets a tab stop, 2× clears the nearest stop within 3 columns, 3× clears all (acts on Shift release). Full list in `crates/typewriter-app/src/input.rs`; rebinding comes with settings (M8) |
-| Platen view | The typing point stays fixed on screen. The paper scrolls up and, by default, slides sideways like the carriage (can be turned off) |
+| Platen view | The typing point stays fixed on screen. The paper scrolls up and, by default, slides sideways like the carriage (can be turned off). A single pointer just below the typing line marks the typing point |
 | Blocked input | A short horizontal jolt of the sheet (plus a sound from M4) |
 | Carriage scale | A ruler below the typing line, travelling with the carriage like the SM9 scale: column ticks and numbers, margin brackets, tab stop pointers |
 | Spacing indicator | Plate labelled "Spacing:" right below the scale, flush with its left end (paper edge, travels with the carriage). Two circles: first filled; second empty (1), left half filled (1.5) or filled (2) |
