@@ -1,9 +1,12 @@
 //! The paper texture behind everything, fixed to the window.
 
+use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{
-    self, Color32, ColorImage, CornerRadius, Painter, Rect, TextureFilter, TextureHandle,
-    TextureOptions, Vec2, pos2,
+    self, Color32, ColorImage, CornerRadius, Painter, Pos2, Rect, Shape, TextureFilter,
+    TextureHandle, TextureOptions, Vec2, pos2,
 };
+
+use super::feed::convex_mesh;
 
 /// Evened out and re-encoded from `assets/paper/` by the build script.
 const PAPER_JPEG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/paper.jpg"));
@@ -36,6 +39,35 @@ impl Background {
                 painter.rect_filled(view, CornerRadius::ZERO, FALLBACK);
             }
         }
+    }
+}
+
+impl Background {
+    /// Covers a convex polygon with exactly the paper behind it, so a sheet
+    /// held over the background hides what is under it without showing a
+    /// seam.
+    pub fn paint_polygon(&self, painter: &Painter, view: Rect, points: &[Pos2]) {
+        let mesh = match &self.texture {
+            Some(texture) => {
+                let uv = cover_uv(texture.size_vec2(), view.size());
+                let mut mesh = convex_mesh(points, |pos| {
+                    let at = (pos - view.min) / view.size();
+                    Vertex {
+                        pos,
+                        uv: uv.min + at * uv.size(),
+                        color: Color32::WHITE,
+                    }
+                });
+                mesh.texture_id = texture.id();
+                mesh
+            }
+            None => convex_mesh(points, |pos| Vertex {
+                pos,
+                uv: WHITE_UV,
+                color: FALLBACK,
+            }),
+        };
+        painter.add(Shape::mesh(mesh));
     }
 }
 

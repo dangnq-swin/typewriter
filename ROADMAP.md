@@ -41,7 +41,7 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Visual feedback for blocked input (e.g. at right margin in strict mode)
 - [x] Embed Courier Prime from `assets/fonts/` and size it so one advance = 1/10 in (Courier metrics: 0.6 em → 12 pt)
 - [x] Carriage scale below the typing line: column ticks, margin brackets, tab stop pointers
-- [x] Line spacing indicator ("Spacing:" + two circles) right below the scale
+- [x] Line spacing indicator ("Spacing:" + two circles) right below the scale, clickable
 
 ## M3: Paper & page view
 
@@ -49,17 +49,23 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
       bundled at JPEG quality 70 by `build.rs`)
 - [x] Flat colour fallback when texture is missing
 - [x] Sheet drawn as a margin frame (1 mm clearance) with its sides extended to the paper edges
-- [x] Multi-page documents: Ctrl+Enter feeds a new sheet, finished sheets are kept
+- [x] Multi-page documents: Insert feeds a new sheet, finished sheets are kept
 - [x] Folder of finished sheets (2.5D, Page Up or desk icon), read-only sheet view
-- [x] Zoom levels (Ctrl+Plus / Minus / 0, Ctrl+scroll). Window resize keeps the typing point centred
+- [x] Zoom levels (mouse wheel, percentage plate below the scale, double-click for 100 %). Window resize keeps the typing point centred
 - [x] Subtle ink realism (on by default): slight per-glyph offset/opacity variance
 
 ## M4: Sound
 
-- [ ] Audio playback via `rodio` (or `kira` if latency is a problem), non-blocking
-- [ ] Key strike (several variants to avoid repetition), space bar, carriage return, bell
-- [ ] Master volume + per-sound toggles, mute shortcut
-- [ ] ❓ Sound source: record a real SM9, maintainer-supplied, or CC0 samples?
+- [x] Audio playback via `rodio`, non-blocking (clips decoded once, mixed on the output device)
+- [x] Key strike (six variants, never the same twice in a row), space bar, backspace, tab,
+      erase, sheet feed (input waits until it has played), blocked input, margin bell (two variants, picked at random)
+- [x] Held Enter rolls the paper (line feed) with a platen ratchet click per line; Space,
+      Backspace and erase keys do not auto-repeat
+- [x] Carriage return sound, silenced per profile (`[sounds]` in the profile; the SM9's is silent)
+- [x] Sheet feed animation: old sheet rolls out, new sheet rises with the knob turns (curled
+      edge, shadow), typing pointer fades in at the end
+- [x] Sound source: CC0 samples (mostly a Hermes Precisa 305), cut by `scripts/prepare-sounds.sh`
+- Master volume, per-sound toggles and mute move to settings (M8)
 
 ## M5: Calm mode
 
@@ -86,7 +92,7 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M8: Settings & profiles
 
-- [ ] Settings window: constraints, sounds, calm mode, goals
+- [ ] Settings window: constraints, sounds (master volume, per-sound toggles, mute), calm mode, goals
 - [ ] Config persisted to `$XDG_CONFIG_HOME/typewriter/config.toml`
 - [ ] Profile selection. User profiles loaded from `$XDG_DATA_HOME/typewriter/profiles/`
 - [ ] Documented profile schema so new machines can be added as data only

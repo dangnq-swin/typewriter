@@ -15,6 +15,7 @@ typewriter-core.workspace = true
 eframe.workspace = true
 anyhow.workspace = true
 image.workspace = true
+rodio.workspace = true
 
 [build-dependencies]
 image.workspace = true

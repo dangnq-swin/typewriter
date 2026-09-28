@@ -90,8 +90,11 @@ impl PlatenView {
 
 /// A small pointer just below the typing line, like the type guide. Only
 /// below, so it never overlaps the line typed before.
-pub fn paint_strike_marker(painter: &Painter, metrics: &Metrics, strike_point: Pos2) {
-    let color = Color32::from_rgba_unmultiplied(0x80, 0x30, 0x20, 0xB0);
+pub fn paint_strike_marker(painter: &Painter, metrics: &Metrics, strike_point: Pos2, opacity: f32) {
+    if opacity <= 0.0 {
+        return;
+    }
+    let color = Color32::from_rgba_unmultiplied(0x80, 0x30, 0x20, 0xB0).gamma_multiply(opacity);
     let w = metrics.column_width * 0.45;
     let line = metrics.cell_size().y;
     let gap = 2.0;

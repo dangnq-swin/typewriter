@@ -16,6 +16,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
 
 # Decoding and resizing the paper texture is painfully slow unoptimised,
 # both in the build script and at startup of debug builds.

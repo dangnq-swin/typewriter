@@ -292,7 +292,7 @@ pub fn show_folder(
     }
 
     let hint = if sheets.is_empty() {
-        "No finished sheets yet. Ctrl+Enter feeds a new one.".to_owned()
+        "No finished sheets yet. Insert feeds a new one.".to_owned()
     } else {
         format!(
             "{} finished sheet{}  ·  arrow keys: choose  ·  Enter or click: read it  ·  Esc: back to the typewriter",

@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
+use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, Rect, pos2};
+use typewriter_core::page::Page;
 use typewriter_core::{Command, Constraints, Direction, Event, Profile, Typewriter};
 
-use crate::input::{Action, Input, Zoom};
+use crate::audio::{self, Audio};
+use crate::input::{Action, Input};
 use crate::render::background::Background;
+use crate::render::feed::{self, FeedMotion};
 use crate::render::platen::{self, PlatenView};
 use crate::render::{FONT_FAMILY, Metrics, folder, paper, ruler};
 
@@ -17,8 +20,12 @@ const POINTS_PER_INCH: f32 = 96.0;
 const ZOOM_MIN: u16 = 50;
 const ZOOM_MAX: u16 = 200;
 const ZOOM_STEP: u16 = 10;
-/// Accumulated Ctrl+scroll zoom factor that counts as one step.
-const SCROLL_ZOOM_STEP: f32 = 1.1;
+const ZOOM_DEFAULT: u16 = 100;
+/// Scrolled distance that counts as one zoom step: about one wheel notch.
+const SCROLL_POINTS_PER_STEP: f32 = 40.0;
+
+/// Room beyond the window's edge for a moving sheet's shadow.
+const SHADOW_ROOM: f32 = 30.0;
 
 /// What fills the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,12 +36,28 @@ enum View {
     Sheet(usize),
 }
 
+/// A new sheet being wound in, and the finished one rolling out.
+struct Feeding {
+    started: f64,
+    /// The finished sheet and the half-line it was at, if there was one.
+    outgoing: Option<(Page, u16)>,
+    motion: FeedMotion,
+}
+
 pub struct TypewriterApp {
     machine: Typewriter,
     metrics: Metrics,
     platen: PlatenView,
     input: Input,
     background: Background,
+    /// `None` without a working output device: the machine stays silent.
+    audio: Option<Audio>,
+    /// Winding a sheet in takes as long as its sound, and the machine takes
+    /// no input until it is done.
+    feed_motion: FeedMotion,
+    feeding: Option<Feeding>,
+    /// A new document starts by winding its first sheet in.
+    first_sheet_pending: bool,
     view: View,
     /// The sheet chosen in the folder, by index.
     selected: usize,
@@ -47,10 +70,13 @@ pub struct TypewriterApp {
 impl TypewriterApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> anyhow::Result<Self> {
         install_fonts(&cc.egui_ctx);
-        // Ctrl+Plus/Minus zoom the sheet, not egui's whole interface.
+        // No Ctrl shortcuts on a typewriter, egui's interface zoom included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let profile = Profile::from_toml_str(SM9_PROFILE)?;
         let metrics = Metrics::new(&profile, POINTS_PER_INCH);
+        let audio = Audio::new(&profile)
+            .inspect_err(|err| eprintln!("sound unavailable, typing silently: {err:#}"))
+            .ok();
         let machine = Typewriter::new(profile, Constraints::default())?;
         Ok(Self {
             machine,
@@ -58,53 +84,109 @@ impl TypewriterApp {
             platen: PlatenView::new(true),
             input: Input::default(),
             background: Background::load(&cc.egui_ctx),
+            audio,
+            feed_motion: audio::sheet_feed_motion(),
+            feeding: None,
+            first_sheet_pending: true,
             view: View::Typing,
             selected: 0,
-            zoom_percent: 100,
-            scroll_zoom: 1.0,
+            zoom_percent: ZOOM_DEFAULT,
+            scroll_zoom: 0.0,
             ink_realism: true,
         })
     }
 
     fn handle_input(&mut self, ctx: &egui::Context) {
         let now = ctx.input(|i| i.time);
-        let (events, shift_down, zoom_delta) =
-            ctx.input(|i| (i.events.clone(), i.modifiers.shift, i.zoom_delta()));
-        for action in self.input.actions(&events, shift_down) {
+        let (events, shift_down, scrolled) =
+            ctx.input(|i| (i.events.clone(), i.modifiers.shift, i.smooth_scroll_delta.y));
+        // Keys still go through the input state (e.g. Shift+Tab counting),
+        // they just do nothing while a sheet is being wound in.
+        let actions = self.input.actions(&events, shift_down);
+        if self.is_feeding(now) {
+            return;
+        }
+        for action in actions {
             match action {
                 Action::Machine(command) => {
                     if !self.browse_command(command) {
                         self.apply(command, now);
                     }
                 }
-                Action::Zoom(zoom) => self.zoom(zoom),
                 Action::PageUp => self.page_up(),
                 Action::PageDown => self.page_down(),
                 Action::Escape => self.escape(),
             }
         }
-        self.scroll_zoom *= zoom_delta;
-        if self.scroll_zoom >= SCROLL_ZOOM_STEP {
-            self.zoom(Zoom::In);
-            self.scroll_zoom = 1.0;
-        } else if self.scroll_zoom <= 1.0 / SCROLL_ZOOM_STEP {
-            self.zoom(Zoom::Out);
-            self.scroll_zoom = 1.0;
+        // The paper never scrolls freely, so the wheel zooms: up is closer.
+        self.scroll_zoom += scrolled;
+        if self.scroll_zoom.abs() >= SCROLL_POINTS_PER_STEP {
+            self.zoom(if self.scroll_zoom > 0.0 { 1 } else { -1 });
+            self.scroll_zoom = 0.0;
         }
     }
 
     /// Typing always goes to the machine, so it also brings the view back.
     fn apply(&mut self, command: Command, now: f64) {
         self.view = View::Typing;
+        // The finished sheet is still seen rolling out after the machine
+        // has filed it.
+        let outgoing = (command == Command::FeedSheet).then(|| {
+            (
+                self.machine.page().clone(),
+                self.machine.carriage().half_line,
+            )
+        });
+        let mut page_end = false;
         for event in self.machine.apply(command) {
-            if matches!(event, Event::Blocked(_)) {
-                self.platen.jolt(now);
+            match event {
+                // Many keyboards have no Insert key, so a return on the last
+                // line feeds the next sheet.
+                Event::PageEnd => page_end = true,
+                Event::Blocked(_) => self.platen.jolt(now),
+                Event::SheetFed => {
+                    self.feeding = Some(Feeding {
+                        started: now,
+                        outgoing: outgoing.clone(),
+                        motion: self.feed_motion.clone(),
+                    });
+                }
+                _ => {}
             }
+            if let Some(audio) = &mut self.audio {
+                audio.play(event);
+            }
+        }
+        if page_end {
+            self.apply(Command::FeedSheet, now);
         }
     }
 
-    fn zoom(&mut self, zoom: Zoom) {
-        let percent = zoomed(self.zoom_percent, zoom);
+    fn is_feeding(&self, now: f64) -> bool {
+        self.feeding
+            .as_ref()
+            .is_some_and(|f| now - f.started < f.motion.duration())
+    }
+
+    /// There is no finished sheet to wind out yet, so the first sheet only
+    /// winds in.
+    fn load_first_sheet(&mut self, now: f64) {
+        self.feeding = Some(Feeding {
+            started: now,
+            outgoing: None,
+            motion: self.feed_motion.clone().after_wind_out(0.0),
+        });
+        if let Some(audio) = &mut self.audio {
+            audio.play_wind_in();
+        }
+    }
+
+    /// Zooms `steps` steps in (positive) or out (negative).
+    fn zoom(&mut self, steps: i32) {
+        self.set_zoom(zoomed(self.zoom_percent, steps));
+    }
+
+    fn set_zoom(&mut self, percent: u16) {
         if percent != self.zoom_percent {
             self.zoom_percent = percent;
             self.metrics = Metrics::new(self.machine.profile(), self.points_per_inch());
@@ -141,6 +223,8 @@ impl TypewriterApp {
         match command {
             Command::Move(Direction::Up | Direction::Left) => self.browse(-1),
             Command::Move(Direction::Down | Direction::Right) => self.browse(1),
+            // A held Enter that opened a sheet must not reach the machine.
+            Command::LineFeed => {}
             Command::Return if self.view == View::Folder => {
                 if !self.machine.document().finished().is_empty() {
                     self.view = View::Sheet(self.selected);
@@ -180,20 +264,29 @@ impl TypewriterApp {
             .cell_offset(carriage.half_line, carriage.column);
         let layout = self.platen.layout(view, &self.metrics, cell, now);
         let painter = ui.painter_at(view);
-        paper::paint_margin_frame(
-            &painter,
-            &self.metrics,
-            carriage,
-            self.machine.profile().margins.top_lines,
-            layout.paper_origin,
-        );
-        paper::paint_sheet(
-            &painter,
-            &self.metrics,
-            self.machine.page(),
-            layout.paper_origin,
-            self.ink_realism,
-        );
+        let mut paper_origin = layout.paper_origin;
+        let mut pointer_opacity = 1.0;
+        if let Some(feeding) = &self.feeding {
+            let t = now - feeding.started;
+            let motion = &feeding.motion;
+            if let (Some(rolled), Some((old_page, old_half_line))) =
+                (motion.roll_out(t), &feeding.outgoing)
+            {
+                let old_y = layout.strike_point.y - self.metrics.cell_offset(*old_half_line, 0).y;
+                let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
+                let old_origin = pos2(paper_origin.x, old_y - rolled * exit);
+                self.paint_lifted(&painter, view, old_origin, 0.0, 1.0);
+                self.paint_page(&painter, old_page, old_origin);
+            }
+            // Rises from below the window until its top margin reaches the
+            // typing line.
+            let placed = layout.strike_point.y - cell.y;
+            let below = view.bottom() + SHADOW_ROOM;
+            paper_origin.y = below + (placed - below) * motion.progress(t);
+            self.paint_lifted(&painter, view, paper_origin, motion.curl(t), motion.lift(t));
+            pointer_opacity = motion.pointer_opacity(t);
+        }
+        self.paint_page(&painter, self.machine.page(), paper_origin);
         let ruler_top = ruler::top(&self.metrics, layout.strike_point);
         ruler::paint_scale(
             &painter,
@@ -203,26 +296,85 @@ impl TypewriterApp {
             layout.paper_origin.x,
             ruler_top,
         );
-        ruler::paint_spacing_indicator(
+        let spacing_plate = ruler::paint_spacing_indicator(
             &painter,
             carriage.line_spacing,
             layout.paper_origin.x,
             ruler_top + ruler::HEIGHT,
         );
-        platen::paint_strike_marker(&painter, &self.metrics, layout.strike_point);
+        let zoom_plate = ruler::paint_zoom_plate(&painter, self.zoom_percent, spacing_plate);
+        let next_spacing = carriage.line_spacing.next();
+        platen::paint_strike_marker(
+            &painter,
+            &self.metrics,
+            layout.strike_point,
+            pointer_opacity,
+        );
+
+        let feeding = self.is_feeding(now);
+        let spacing = plate_button(
+            ui,
+            spacing_plate,
+            "spacing-plate",
+            "Line spacing (F1 / F2 / F3). Click for the next notch.",
+        );
+        if spacing.clicked() && !feeding {
+            self.apply(Command::SetLineSpacing(next_spacing), now);
+        }
+        let zoom = plate_button(
+            ui,
+            zoom_plate,
+            "zoom-plate",
+            "Zoom (mouse wheel). Double-click for 100 %.",
+        );
+        if zoom.double_clicked() && !feeding {
+            self.set_zoom(ZOOM_DEFAULT);
+        }
 
         let finished = self.machine.document().finished().len();
-        if folder::desk_icon(ui, view, finished) {
+        if folder::desk_icon(ui, view, finished) && !feeding {
             self.open_folder();
         }
+    }
+}
+
+impl TypewriterApp {
+    fn paint_page(&self, painter: &Painter, page: &Page, origin: Pos2) {
+        paper::paint_margin_frame(
+            painter,
+            &self.metrics,
+            self.machine.carriage(),
+            self.machine.profile().margins.top_lines,
+            origin,
+        );
+        paper::paint_sheet(painter, &self.metrics, page, origin, self.ink_realism);
+    }
+
+    fn paint_lifted(&self, painter: &Painter, view: Rect, origin: Pos2, curl: f32, lift: f32) {
+        feed::paint_lifted_sheet(
+            painter,
+            &self.background,
+            view,
+            Rect::from_min_size(origin, self.metrics.paper_size),
+            self.metrics.points_per_inch,
+            curl,
+            lift,
+        );
     }
 }
 
 impl eframe::App for TypewriterApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        self.handle_input(&ctx);
         let now = ctx.input(|i| i.time);
+        if self.first_sheet_pending {
+            self.first_sheet_pending = false;
+            self.load_first_sheet(now);
+        }
+        self.handle_input(&ctx);
+        if !self.is_feeding(now) {
+            self.feeding = None;
+        }
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -256,18 +408,27 @@ impl eframe::App for TypewriterApp {
                 }
             });
 
-        if self.platen.is_animating(now) {
+        if self.platen.is_animating(now) || self.feeding.is_some() {
             ctx.request_repaint();
         }
     }
 }
 
-fn zoomed(percent: u16, zoom: Zoom) -> u16 {
-    match zoom {
-        Zoom::In => percent.saturating_add(ZOOM_STEP).min(ZOOM_MAX),
-        Zoom::Out => percent.saturating_sub(ZOOM_STEP).max(ZOOM_MIN),
-        Zoom::Reset => 100,
+/// A plate below the scale that reacts to the pointer.
+fn plate_button(ui: &mut egui::Ui, rect: Rect, id: &str, tip: &str) -> egui::Response {
+    let response = ui
+        .interact(rect, egui::Id::new(id), egui::Sense::click())
+        .on_hover_text(tip);
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
+    response
+}
+
+fn zoomed(percent: u16, steps: i32) -> u16 {
+    let target = i32::from(percent) + steps * i32::from(ZOOM_STEP);
+    // Clamped to ZOOM_MIN..=ZOOM_MAX, so it fits in u16.
+    target.clamp(i32::from(ZOOM_MIN), i32::from(ZOOM_MAX)) as u16
 }
 
 /// Index `step` sheets away from `index`, kept within `count` sheets.
@@ -304,11 +465,10 @@ mod tests {
 
     #[test]
     fn zoom_steps_within_limits() {
-        assert_eq!(zoomed(100, Zoom::In), 110);
-        assert_eq!(zoomed(100, Zoom::Out), 90);
-        assert_eq!(zoomed(200, Zoom::In), 200);
-        assert_eq!(zoomed(50, Zoom::Out), 50);
-        assert_eq!(zoomed(170, Zoom::Reset), 100);
+        assert_eq!(zoomed(100, 1), 110);
+        assert_eq!(zoomed(100, -1), 90);
+        assert_eq!(zoomed(200, 1), 200);
+        assert_eq!(zoomed(50, -1), 50);
     }
 
     #[test]

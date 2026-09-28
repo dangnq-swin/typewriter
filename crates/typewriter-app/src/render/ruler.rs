@@ -1,5 +1,5 @@
 //! The carriage scale below the typing line, with margin and tab stop marks,
-//! and the line spacing indicator.
+//! the line spacing indicator and the zoom plate.
 
 use std::f32::consts::PI;
 
@@ -14,8 +14,10 @@ use super::Metrics;
 pub const HEIGHT: f32 = 20.0;
 /// Space between the bottom of the typing line and the scale.
 const GAP: f32 = 10.0;
-/// Space between the scale and the spacing indicator below it.
+/// Space between the scale and the plates below it, and between plates.
 const PLATE_GAP: f32 = 4.0;
+const PLATE_PADDING: f32 = 6.0;
+const PLATE_FONT_SIZE: f32 = 10.0;
 
 const SCALE: Color32 = Color32::from_rgba_premultiplied(0xDC, 0xD8, 0xCE, 0xEE);
 const SCALE_EDGE: Color32 = Color32::from_rgb(0x9A, 0x94, 0x88);
@@ -113,26 +115,29 @@ fn paint_tab_mark(painter: &Painter, x: f32, rect: Rect) {
 /// Labelled plate just below the scale, flush with its left end. Two
 /// circles: the first is always filled, the second is empty for single
 /// spacing, filled on its left half for 1.5 and full for double.
-pub fn paint_spacing_indicator(painter: &Painter, spacing: LineSpacing, left: f32, top: f32) {
+/// Returns the plate's outline, which can be clicked to change the spacing.
+pub fn paint_spacing_indicator(
+    painter: &Painter,
+    spacing: LineSpacing,
+    left: f32,
+    top: f32,
+) -> Rect {
     let radius = 5.0;
     let gap = 4.0;
-    let padding = 6.0;
-    let label = painter.layout_no_wrap("Spacing:".into(), FontId::proportional(10.0), TICKS);
+    let label = painter.layout_no_wrap(
+        "Spacing:".into(),
+        FontId::proportional(PLATE_FONT_SIZE),
+        TICKS,
+    );
     let circles_width = radius * 4.0 + gap;
     let size = vec2(
-        padding + label.size().x + gap * 1.5 + circles_width + padding,
+        PLATE_PADDING + label.size().x + gap * 1.5 + circles_width + PLATE_PADDING,
         HEIGHT,
     );
     let rect = Rect::from_min_size(pos2(left, top + PLATE_GAP), size);
-    painter.rect(
-        rect,
-        CornerRadius::same(2),
-        SCALE,
-        Stroke::new(1.0, SCALE_EDGE),
-        eframe::egui::StrokeKind::Inside,
-    );
+    paint_plate(painter, rect);
     let label_pos = pos2(
-        rect.left() + padding,
+        rect.left() + PLATE_PADDING,
         rect.center().y - label.size().y / 2.0,
     );
     let label_width = label.size().x;
@@ -158,6 +163,32 @@ pub fn paint_spacing_indicator(painter: &Painter, spacing: LineSpacing, left: f3
         }
     }
     painter.circle_stroke(second, radius, outline);
+    rect
+}
+
+/// The zoom level on a plate right of `after` (the spacing plate). Returns
+/// the plate's outline.
+pub fn paint_zoom_plate(painter: &Painter, percent: u16, after: Rect) -> Rect {
+    let text = painter.layout_no_wrap(
+        format!("{percent} %"),
+        FontId::proportional(PLATE_FONT_SIZE),
+        TICKS,
+    );
+    let size = vec2(text.size().x + PLATE_PADDING * 2.0, after.height());
+    let rect = Rect::from_min_size(after.right_top() + vec2(PLATE_GAP, 0.0), size);
+    paint_plate(painter, rect);
+    painter.galley(rect.center() - text.size() / 2.0, text, TICKS);
+    rect
+}
+
+fn paint_plate(painter: &Painter, rect: Rect) {
+    painter.rect(
+        rect,
+        CornerRadius::same(2),
+        SCALE,
+        Stroke::new(1.0, SCALE_EDGE),
+        eframe::egui::StrokeKind::Inside,
+    );
 }
 
 fn left_half_disc(centre: Pos2, radius: f32) -> Vec<Pos2> {

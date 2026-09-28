@@ -1,0 +1,283 @@
+//! Typewriter sounds, mixed on the default output device.
+
+use std::io::Cursor;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use anyhow::Context;
+use rodio::buffer::SamplesBuffer;
+use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Source};
+use typewriter_core::{Event, Profile};
+
+use crate::render::feed::FeedMotion;
+#[cfg(test)]
+use crate::render::feed::SETTLE_SECONDS;
+
+/// Cut from their CC0 sources by `scripts/prepare-sounds.sh`.
+macro_rules! clip {
+    ($name:literal) => {
+        include_bytes!(concat!("../../../assets/sounds/", $name, ".wav"))
+    };
+}
+
+const KEYS: [&[u8]; 6] = [
+    clip!("key-1"),
+    clip!("key-2"),
+    clip!("key-3"),
+    clip!("key-4"),
+    clip!("key-5"),
+    clip!("key-6"),
+];
+/// The lengths of the bundled feed clips.
+const FALLBACK_WIND_OUT_SECONDS: f64 = 1.61;
+const FALLBACK_WIND_IN_SECONDS: f64 = 6.85;
+const BELLS: [&[u8]; 2] = [clip!("bell-1"), clip!("bell-2")];
+const ROLLS: [&[u8]; 4] = [
+    clip!("roll-1"),
+    clip!("roll-2"),
+    clip!("roll-3"),
+    clip!("roll-4"),
+];
+
+pub struct Audio {
+    // Playback stops when the device sink is dropped.
+    device: MixerDeviceSink,
+    keys: Vec<SamplesBuffer>,
+    bells: Vec<SamplesBuffer>,
+    space: SamplesBuffer,
+    backspace: SamplesBuffer,
+    tab: SamplesBuffer,
+    erase: SamplesBuffer,
+    carriage_return: Option<SamplesBuffer>,
+    /// Empty when the profile rolls its paper silently.
+    rolls: Vec<SamplesBuffer>,
+    wind_out: SamplesBuffer,
+    wind_in: SamplesBuffer,
+    blocked: SamplesBuffer,
+    key_variety: Variety,
+    bell_variety: Variety,
+    roll_variety: Variety,
+}
+
+impl Audio {
+    pub fn new(profile: &Profile) -> anyhow::Result<Self> {
+        let device = DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
+        Ok(Self {
+            device,
+            keys: decode_all(&KEYS)?,
+            bells: decode_all(&BELLS)?,
+            space: decode(clip!("space"))?,
+            backspace: decode(clip!("backspace"))?,
+            tab: decode(clip!("tab"))?,
+            erase: decode(clip!("erase"))?,
+            carriage_return: if profile.sounds.carriage_return {
+                Some(decode(clip!("return"))?)
+            } else {
+                None
+            },
+            rolls: if profile.sounds.line_feed {
+                decode_all(&ROLLS)?
+            } else {
+                Vec::new()
+            },
+            wind_out: decode(clip!("feed-out"))?,
+            wind_in: decode(clip!("feed-in"))?,
+            blocked: decode(clip!("blocked"))?,
+            key_variety: Variety::new(seed()),
+            bell_variety: Variety::new(seed().rotate_left(32)),
+            roll_variety: Variety::new(seed().rotate_left(16)),
+        })
+    }
+
+    pub fn play(&mut self, event: Event) {
+        let sound = match event {
+            Event::KeyStrike(_) => self.key_variety.pick(&self.keys),
+            Event::Bell => self.bell_variety.pick(&self.bells),
+            Event::Space => Some(&self.space),
+            Event::Backspace => Some(&self.backspace),
+            Event::Tab => Some(&self.tab),
+            Event::Erase(_) => Some(&self.erase),
+            Event::CarriageReturn => self.carriage_return.as_ref(),
+            Event::LineFeed => self.roll_variety.pick(&self.rolls),
+            Event::SheetFed => {
+                // Mixed together, so the new sheet's sound follows the
+                // clicks without a gap however the frames fall.
+                let after = self.wind_out.total_duration().unwrap_or_default();
+                let mixer = self.device.mixer();
+                mixer.add(self.wind_out.clone());
+                mixer.add(self.wind_in.clone().delay(after));
+                None
+            }
+            Event::Blocked(_) => Some(&self.blocked),
+            Event::PageEnd => None,
+        };
+        if let Some(sound) = sound {
+            self.device.mixer().add(sound.clone());
+        }
+    }
+}
+
+impl Audio {
+    /// Only the new sheet winding in, for the first sheet of a document.
+    pub fn play_wind_in(&self) {
+        self.device.mixer().add(self.wind_in.clone());
+    }
+}
+
+/// A sheet feed lasts as long as its sounds and moves with them, even
+/// without a sound device: the finished sheet winds out during the clicks,
+/// the new one winds in with the knob turns.
+pub fn sheet_feed_motion() -> FeedMotion {
+    let wind_out = decode(clip!("feed-out"))
+        .ok()
+        .and_then(|clip| clip.total_duration())
+        .map_or(FALLBACK_WIND_OUT_SECONDS, |d| d.as_secs_f64());
+    let wind_in = match Decoder::new(Cursor::new(clip!("feed-in"))) {
+        Ok(feed) => {
+            let (channels, rate) = (feed.channels(), feed.sample_rate());
+            let samples: Vec<f32> = feed.collect();
+            FeedMotion::from_sound(&samples, usize::from(channels.get()), rate.get())
+        }
+        Err(err) => {
+            eprintln!("sheet feed sound unreadable, winding evenly: {err}");
+            FeedMotion::even(FALLBACK_WIND_IN_SECONDS)
+        }
+    };
+    wind_in.after_wind_out(wind_out)
+}
+
+/// Decoded once up front, so a key press only has to copy samples.
+fn decode(wav: &'static [u8]) -> anyhow::Result<SamplesBuffer> {
+    let source = Decoder::new(Cursor::new(wav)).context("bundled sound is not a valid WAV")?;
+    let (channels, rate) = (source.channels(), source.sample_rate());
+    Ok(SamplesBuffer::new(
+        channels,
+        rate,
+        source.collect::<Vec<_>>(),
+    ))
+}
+
+fn decode_all(clips: &[&'static [u8]]) -> anyhow::Result<Vec<SamplesBuffer>> {
+    clips.iter().map(|clip| decode(clip)).collect()
+}
+
+fn seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::from(d.subsec_nanos()))
+}
+
+/// Picks among sound variants so repeated keys do not sound mechanical in
+/// the wrong way. Never plays the same variant twice in a row.
+struct Variety {
+    state: u64,
+    last: Option<usize>,
+}
+
+impl Variety {
+    fn new(seed: u64) -> Self {
+        // xorshift gets stuck at zero.
+        Self {
+            state: seed | 1,
+            last: None,
+        }
+    }
+
+    fn next(&mut self) -> u64 {
+        self.state ^= self.state << 13;
+        self.state ^= self.state >> 7;
+        self.state ^= self.state << 17;
+        self.state
+    }
+
+    fn index(&mut self, len: usize) -> Option<usize> {
+        if len == 0 {
+            return None;
+        }
+        // The remainder is below `len`, so it fits back into usize.
+        let mut i = (self.next() % len as u64) as usize;
+        if Some(i) == self.last {
+            i = (i + 1) % len;
+        }
+        self.last = Some(i);
+        Some(i)
+    }
+
+    fn pick<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
+        self.index(items.len()).and_then(|i| items.get(i))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn variety_never_repeats_and_covers_all() {
+        let mut v = Variety::new(42);
+        let mut seen = [false; 6];
+        let mut last = None;
+        for _ in 0..200 {
+            let i = v.index(6).unwrap();
+            assert_ne!(Some(i), last);
+            seen[i] = true;
+            last = Some(i);
+        }
+        assert!(seen.iter().all(|&s| s));
+    }
+
+    #[test]
+    fn variety_handles_one_and_none() {
+        let mut v = Variety::new(7);
+        assert_eq!(v.index(1), Some(0));
+        assert_eq!(v.index(1), Some(0));
+        assert_eq!(v.index(0), None);
+    }
+
+    #[test]
+    fn sheet_feed_ends_once_the_sheet_has_settled() {
+        let m = sheet_feed_motion();
+        let seconds = m.duration();
+        // Not the full 8.46 s of sound: its end is quiet.
+        assert!(
+            seconds > 6.0 && seconds < 8.46 - SETTLE_SECONDS,
+            "{seconds}"
+        );
+        assert_eq!(m.progress(seconds - SETTLE_SECONDS), 1.0);
+    }
+
+    #[test]
+    fn sheet_winds_in_with_the_knob_turns() {
+        let m = sheet_feed_motion();
+        // The finished sheet winds out steadily during the clicks, before
+        // the new one moves.
+        assert!(
+            m.roll_out(0.5)
+                .is_some_and(|r| (r - 0.5 / 1.61).abs() < 0.01)
+        );
+        assert_eq!(m.roll_out(1.65), None);
+        assert_eq!(m.progress(1.6), 0.0);
+        // Resting in the pause before the ratchet run.
+        assert!((m.progress(5.11) - m.progress(5.26)).abs() < 0.01);
+        assert!(m.progress(5.16) > 0.3 && m.progress(5.16) < 0.9);
+        assert_eq!(m.progress(7.9), 1.0);
+        assert_eq!(m.pointer_opacity(m.duration() - SETTLE_SECONDS), 0.0);
+    }
+
+    #[test]
+    fn bundled_clips_decode() {
+        assert_eq!(decode_all(&KEYS).unwrap().len(), 6);
+        assert_eq!(decode_all(&BELLS).unwrap().len(), 2);
+        assert_eq!(decode_all(&ROLLS).unwrap().len(), 4);
+        let others: [&[u8]; 8] = [
+            clip!("space"),
+            clip!("backspace"),
+            clip!("tab"),
+            clip!("erase"),
+            clip!("return"),
+            clip!("feed-out"),
+            clip!("feed-in"),
+            clip!("blocked"),
+        ];
+        assert_eq!(decode_all(&others).unwrap().len(), 8);
+    }
+}
