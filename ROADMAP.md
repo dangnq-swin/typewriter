@@ -49,9 +49,10 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
       bundled at JPEG quality 70 by `build.rs`)
 - [x] Flat colour fallback when texture is missing
 - [x] Sheet drawn as a margin frame (1 mm clearance) with its sides extended to the paper edges
-- [ ] Multi-page documents: page end → "feed a new sheet" action
-- [ ] Zoom levels. Window resize keeps the paper centred
-- [ ] Subtle ink realism (optional, toggleable): slight per-glyph offset/opacity variance
+- [x] Multi-page documents: Ctrl+Enter feeds a new sheet, finished sheets are kept
+- [x] Folder of finished sheets (2.5D, Page Up or desk icon), read-only sheet view
+- [x] Zoom levels (Ctrl+Plus / Minus / 0, Ctrl+scroll). Window resize keeps the typing point centred
+- [x] Subtle ink realism (on by default): slight per-glyph offset/opacity variance
 
 ## M4: Sound
 

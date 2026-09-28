@@ -1,6 +1,7 @@
 //! Drawing the sheet and the platen view.
 
 pub mod background;
+pub mod folder;
 pub mod paper;
 pub mod platen;
 pub mod ruler;

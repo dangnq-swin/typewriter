@@ -35,6 +35,12 @@ impl PlatenView {
         }
     }
 
+    /// Jumps straight to the carriage position, e.g. after a zoom change,
+    /// instead of gliding there.
+    pub fn snap(&mut self) {
+        self.glide = Glide::default();
+    }
+
     pub fn jolt(&mut self, now: f64) {
         self.jolt_started = Some(now);
     }

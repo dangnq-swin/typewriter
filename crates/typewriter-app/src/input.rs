@@ -3,6 +3,7 @@
 //! Default bindings:
 //! - printable keys: type
 //! - Enter: carriage return
+//! - Ctrl+Enter: feed a new sheet
 //! - Backspace: carriage back one column (no erase)
 //! - Shift+Backspace, Delete: erase
 //! - Tab: tabulate
@@ -10,9 +11,30 @@
 //!   the nearest stop, three times clears all stops. Acts when Shift is released.
 //! - Ctrl+1 / Ctrl+2 / Ctrl+3: line spacing 1 / 1.5 / 2
 //! - arrows: move the carriage and platen (only if free movement is allowed)
+//! - Ctrl+Plus / Ctrl+Minus / Ctrl+0: zoom in / out / reset
+//! - Page Up: open the folder of finished sheets; there, arrows or Page Up /
+//!   Page Down choose or flip sheets (up/left = older), Enter opens the chosen
+//!   one and Esc goes back. The app redirects these; see `app.rs`.
 
 use eframe::egui::{Event, Key, Modifiers};
 use typewriter_core::{Command, Direction, LineSpacing};
+
+/// What a key asks for: a machine command, or something for the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Machine(Command),
+    Zoom(Zoom),
+    PageUp,
+    PageDown,
+    Escape,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Zoom {
+    In,
+    Out,
+    Reset,
+}
 
 #[derive(Debug, Default)]
 pub struct Input {
@@ -22,8 +44,8 @@ pub struct Input {
 impl Input {
     /// Translates one frame of events. `shift_down` is the Shift state at the
     /// end of the frame; releasing it completes a Shift+Tab gesture.
-    pub fn commands(&mut self, events: &[Event], shift_down: bool) -> Vec<Command> {
-        let mut commands = Vec::new();
+    pub fn actions(&mut self, events: &[Event], shift_down: bool) -> Vec<Action> {
+        let mut actions = Vec::new();
         for event in events {
             match event {
                 Event::Key {
@@ -41,16 +63,16 @@ impl Input {
                 // Any other key finishes the gesture first, so the stop is set
                 // where the carriage was when Tab was tapped.
                 Event::Key { pressed: true, .. } | Event::Text(_) => {
-                    commands.extend(self.finish_gesture());
+                    actions.extend(self.finish_gesture().map(Action::Machine));
                 }
                 _ => {}
             }
-            commands.extend(command_for(event));
+            actions.extend(action_for(event));
         }
         if !shift_down {
-            commands.extend(self.finish_gesture());
+            actions.extend(self.finish_gesture().map(Action::Machine));
         }
-        commands
+        actions
     }
 
     fn finish_gesture(&mut self) -> Option<Command> {
@@ -65,25 +87,39 @@ impl Input {
     }
 }
 
-fn command_for(event: &Event) -> Vec<Command> {
+fn action_for(event: &Event) -> Vec<Action> {
     match event {
         Event::Text(text) => text
             .chars()
             .filter(|c| !c.is_control())
-            .map(Command::Type)
+            .map(|c| Action::Machine(Command::Type(c)))
             .collect(),
         Event::Key {
             key,
             pressed: true,
             modifiers,
             ..
-        } => key_command(*key, *modifiers).into_iter().collect(),
+        } => key_action(*key, *modifiers).into_iter().collect(),
         _ => vec![],
     }
 }
 
+fn key_action(key: Key, m: Modifiers) -> Option<Action> {
+    let app = match key {
+        Key::Plus | Key::Equals if m.command => Some(Action::Zoom(Zoom::In)),
+        Key::Minus if m.command => Some(Action::Zoom(Zoom::Out)),
+        Key::Num0 if m.command => Some(Action::Zoom(Zoom::Reset)),
+        Key::PageUp => Some(Action::PageUp),
+        Key::PageDown => Some(Action::PageDown),
+        Key::Escape => Some(Action::Escape),
+        _ => None,
+    };
+    app.or_else(|| key_command(key, m).map(Action::Machine))
+}
+
 fn key_command(key: Key, m: Modifiers) -> Option<Command> {
     let command = match key {
+        Key::Enter if m.command => Command::FeedSheet,
         Key::Enter => Command::Return,
         Key::Backspace if m.shift => Command::Erase,
         Key::Backspace => Command::Backspace,
@@ -120,7 +156,25 @@ mod tests {
     }
 
     fn one_frame(events: &[Event]) -> Vec<Command> {
-        Input::default().commands(events, false)
+        Input::default()
+            .actions(events, false)
+            .into_iter()
+            .map(|a| match a {
+                Action::Machine(c) => c,
+                other => panic!("not a machine command: {other:?}"),
+            })
+            .collect()
+    }
+
+    fn machine(input: &mut Input, events: &[Event], shift_down: bool) -> Vec<Command> {
+        input
+            .actions(events, shift_down)
+            .into_iter()
+            .filter_map(|a| match a {
+                Action::Machine(c) => Some(c),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -178,10 +232,10 @@ mod tests {
         ] {
             let mut input = Input::default();
             for _ in 0..taps {
-                assert!(input.commands(&[shift_tab()], true).is_empty());
+                assert!(machine(&mut input, &[shift_tab()], true).is_empty());
             }
-            assert_eq!(input.commands(&[], false), [expected], "{taps} taps");
-            assert!(input.commands(&[], false).is_empty());
+            assert_eq!(machine(&mut input, &[], false), [expected], "{taps} taps");
+            assert!(machine(&mut input, &[], false).is_empty());
         }
     }
 
@@ -195,14 +249,48 @@ mod tests {
             repeat: true,
             modifiers: Modifiers::SHIFT,
         };
-        input.commands(&[shift_tab(), repeat], true);
-        assert_eq!(input.commands(&[], false), [Command::SetTabStop]);
+        machine(&mut input, &[shift_tab(), repeat], true);
+        assert_eq!(machine(&mut input, &[], false), [Command::SetTabStop]);
     }
 
     #[test]
     fn another_key_finishes_the_gesture_first() {
         let mut input = Input::default();
-        let commands = input.commands(&[shift_tab(), Event::Text("A".into())], true);
+        let commands = machine(&mut input, &[shift_tab(), Event::Text("A".into())], true);
         assert_eq!(commands, [Command::SetTabStop, Command::Type('A')]);
+    }
+
+    #[test]
+    fn ctrl_enter_feeds_a_sheet() {
+        assert_eq!(
+            one_frame(&[key(Key::Enter, Modifiers::COMMAND)]),
+            [Command::FeedSheet]
+        );
+    }
+
+    #[test]
+    fn app_keys() {
+        let actions = Input::default().actions(
+            &[
+                key(Key::Equals, Modifiers::COMMAND),
+                key(Key::Minus, Modifiers::COMMAND),
+                key(Key::Num0, Modifiers::COMMAND),
+                key(Key::PageUp, Modifiers::NONE),
+                key(Key::PageDown, Modifiers::NONE),
+                key(Key::Escape, Modifiers::NONE),
+            ],
+            false,
+        );
+        assert_eq!(
+            actions,
+            [
+                Action::Zoom(Zoom::In),
+                Action::Zoom(Zoom::Out),
+                Action::Zoom(Zoom::Reset),
+                Action::PageUp,
+                Action::PageDown,
+                Action::Escape,
+            ]
+        );
     }
 }
