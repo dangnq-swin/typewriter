@@ -10,8 +10,16 @@ use crate::profile::{Profile, ProfileError};
 pub enum Command {
     Type(char),
     Backspace,
-    /// Erase or cover the character before the carriage, per [`EraseMode`].
+    /// Fix a mistake, per [`EraseMode`]: cover the character before the
+    /// carriage, or put the correction slip in or take it out.
     Erase,
+    SetEraseMode(EraseMode),
+    /// Correction fluid dabbed on this cell of the sheet in the machine has
+    /// dried. The core has no clock, so the app says when.
+    FluidDried {
+        half_line: u16,
+        column: u16,
+    },
     /// Carriage return and line feed in one throw of the lever.
     Return,
     /// Turning the platen knob: the paper rolls on by the line spacing and
@@ -47,7 +55,12 @@ pub enum Event {
     Space,
     Backspace,
     Tab,
+    /// The eraser or the fluid covered the character before the carriage.
     Erase(EraseMode),
+    /// The correction slip went in front of the ribbon: strikes now cover
+    /// in chalk instead of printing.
+    SlipIn,
+    SlipOut,
     Bell,
     CarriageReturn,
     /// The platen rolled on a line without a carriage return.
@@ -75,6 +88,7 @@ pub struct Typewriter {
     pub constraints: Constraints,
     carriage: Carriage,
     document: Document,
+    slip_in: bool,
 }
 
 impl Typewriter {
@@ -91,6 +105,7 @@ impl Typewriter {
             constraints,
             carriage,
             document,
+            slip_in: false,
         })
     }
 
@@ -111,11 +126,24 @@ impl Typewriter {
         &self.document
     }
 
+    /// The correction slip is held in front of the ribbon.
+    pub fn slip_in(&self) -> bool {
+        self.slip_in
+    }
+
     pub fn apply(&mut self, command: Command) -> Vec<Event> {
         match command {
             Command::Type(c) => self.type_char(c),
             Command::Backspace => self.backspace(),
             Command::Erase => self.erase(),
+            Command::SetEraseMode(mode) => {
+                self.constraints.erase = mode;
+                self.take_slip_out()
+            }
+            Command::FluidDried { half_line, column } => {
+                self.document.current_mut().dry(half_line, column);
+                vec![]
+            }
             Command::Return => self.carriage_return(),
             Command::LineFeed => {
                 if self.roll_one_line() {
@@ -187,12 +215,16 @@ impl Typewriter {
         if column >= limit {
             return vec![Event::Blocked(reason)];
         }
+        let half_line = self.carriage.half_line;
+        let page = self.document.current_mut();
         let mut events = if c.is_whitespace() {
             vec![Event::Space]
         } else {
-            self.document
-                .current_mut()
-                .strike(self.carriage.half_line, column, c);
+            if self.slip_in {
+                page.cover(half_line, column, Correction::Chalk(c));
+            } else {
+                page.strike(half_line, column, c);
+            }
             vec![Event::KeyStrike(c)]
         };
         self.advance_to(column + 1, &mut events);
@@ -223,21 +255,31 @@ impl Typewriter {
         let mode = self.constraints.erase;
         let correction = match mode {
             EraseMode::Off => return vec![Event::Blocked(BlockReason::NotAllowed)],
-            EraseMode::Digital => None,
-            EraseMode::WhiteOut => Some(Correction::WhiteOut),
-            EraseMode::CorrectionTape => Some(Correction::CorrectionTape),
+            EraseMode::Paper => {
+                self.slip_in = !self.slip_in;
+                return vec![if self.slip_in {
+                    Event::SlipIn
+                } else {
+                    Event::SlipOut
+                }];
+            }
+            EraseMode::Eraser => Correction::Eraser,
+            EraseMode::Fluid => Correction::Fluid { wet: true },
         };
         if let Err(reason) = self.step_back() {
             return vec![Event::Blocked(reason)];
         }
         let (row, col) = (self.carriage.half_line, self.carriage.column);
-        match correction {
-            None => self.document.current_mut().erase(row, col),
-            Some(correction) => {
-                self.document.current_mut().cover(row, col, correction);
-            }
-        }
+        self.document.current_mut().cover(row, col, correction);
         vec![Event::Erase(mode)]
+    }
+
+    fn take_slip_out(&mut self) -> Vec<Event> {
+        if std::mem::take(&mut self.slip_in) {
+            vec![Event::SlipOut]
+        } else {
+            vec![]
+        }
     }
 
     fn carriage_return(&mut self) -> Vec<Event> {
@@ -310,13 +352,17 @@ impl Typewriter {
     }
 
     fn feed_sheet(&mut self) -> Vec<Event> {
+        let mut events = self.take_slip_out();
+        // Filed away, it has all the time it needs to dry.
+        self.document.current_mut().dry_all();
         let fresh = Page::new(self.profile.columns(), self.profile.half_lines());
         self.document.feed(fresh);
         let c = &mut self.carriage;
         c.column = c.left_margin;
         c.half_line = self.profile.margins.top_lines * 2;
         c.margin_released = false;
-        vec![Event::SheetFed]
+        events.push(Event::SheetFed);
+        events
     }
 
     fn move_freely(&mut self, direction: Direction) -> Vec<Event> {
@@ -347,6 +393,7 @@ impl Typewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::page::Mark;
 
     fn sm9() -> Typewriter {
         let profile =
@@ -421,24 +468,100 @@ mod tests {
     }
 
     #[test]
-    fn digital_erase_removes_the_previous_character() {
+    fn correction_paper_whitens_what_is_struck_through_the_slip() {
         let mut tw = sm9();
-        type_str(&mut tw, "ab");
-        assert_eq!(tw.apply(Command::Erase), [Event::Erase(EraseMode::Digital)]);
-        assert_eq!(tw.carriage().column, 11);
-        assert!(tw.page().cell(12, 11).is_none());
+        assert_eq!(tw.constraints.erase, EraseMode::Paper);
+        type_str(&mut tw, "cat");
+        tw.apply(Command::Backspace);
+        tw.apply(Command::Backspace);
+        assert_eq!(tw.apply(Command::Erase), [Event::SlipIn]);
+        assert!(tw.slip_in());
+        // The wrong letter again, through the slip: a strike that prints chalk.
+        assert_eq!(type_str(&mut tw, "a"), [Event::KeyStrike('a')]);
+        assert_eq!(tw.apply(Command::Erase), [Event::SlipOut]);
+        tw.apply(Command::Backspace);
+        type_str(&mut tw, "u");
+        assert_eq!(tw.page().line_text(12).trim_start(), "cut");
+        assert_eq!(
+            tw.page().cell(12, 11).unwrap().marks(),
+            [
+                Mark::Glyph('a'),
+                Mark::Correction(Correction::Chalk('a')),
+                Mark::Glyph('u')
+            ]
+        );
     }
 
     #[test]
-    fn white_out_covers_and_allows_retyping() {
+    fn correction_paper_whitens_an_overstruck_character() {
         let mut tw = sm9();
-        tw.constraints.erase = EraseMode::WhiteOut;
-        type_str(&mut tw, "x");
+        type_str(&mut tw, "'");
+        tw.apply(Command::Backspace);
+        type_str(&mut tw, ".");
+        tw.apply(Command::Backspace);
         tw.apply(Command::Erase);
+        // Both strikes again through the slip.
+        type_str(&mut tw, "'");
+        tw.apply(Command::Backspace);
+        type_str(&mut tw, ".");
+        tw.apply(Command::Erase);
+        tw.apply(Command::Backspace);
+        type_str(&mut tw, "?");
+        assert_eq!(tw.page().line_text(12).trim_start(), "?");
+    }
+
+    #[test]
+    fn the_slip_comes_out_with_the_sheet_or_another_method() {
+        let mut tw = sm9();
+        tw.apply(Command::Erase);
+        assert_eq!(
+            tw.apply(Command::SetEraseMode(EraseMode::Eraser)),
+            [Event::SlipOut]
+        );
+        assert!(tw.apply(Command::SetEraseMode(EraseMode::Paper)).is_empty());
+        tw.apply(Command::Erase);
+        assert_eq!(
+            tw.apply(Command::FeedSheet),
+            [Event::SlipOut, Event::SheetFed]
+        );
+        assert!(!tw.slip_in());
+    }
+
+    #[test]
+    fn eraser_covers_the_previous_character_and_allows_retyping() {
+        let mut tw = sm9();
+        tw.constraints.erase = EraseMode::Eraser;
+        type_str(&mut tw, "x");
+        assert_eq!(tw.apply(Command::Erase), [Event::Erase(EraseMode::Eraser)]);
+        assert_eq!(tw.carriage().column, 10);
         type_str(&mut tw, "y");
         let cell = tw.page().cell(12, 10).unwrap();
         assert_eq!(cell.top_glyph(), Some('y'));
         assert_eq!(cell.marks().len(), 3);
+    }
+
+    #[test]
+    fn typing_on_wet_fluid_smudges_until_the_app_says_it_dried() {
+        let mut tw = sm9();
+        tw.constraints.erase = EraseMode::Fluid;
+        type_str(&mut tw, "xx");
+        tw.apply(Command::Erase);
+        tw.apply(Command::Erase);
+        type_str(&mut tw, "y");
+        assert_eq!(
+            tw.page().cell(12, 10).unwrap().marks().last(),
+            Some(&Mark::Smudged('y'))
+        );
+        tw.apply(Command::FluidDried {
+            half_line: 12,
+            column: 11,
+        });
+        type_str(&mut tw, "z");
+        assert_eq!(
+            tw.page().cell(12, 11).unwrap().marks().last(),
+            Some(&Mark::Glyph('z'))
+        );
+        assert_eq!(tw.page().line_text(12).trim_start(), "yz");
     }
 
     #[test]
