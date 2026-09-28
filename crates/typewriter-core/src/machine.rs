@@ -5,6 +5,7 @@ use crate::constraints::{Constraints, EraseMode};
 use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
 use crate::page::{Correction, Page};
 use crate::profile::{Profile, ProfileError};
+use crate::session::SessionStats;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -92,6 +93,8 @@ pub struct Typewriter {
     carriage: Carriage,
     document: Document,
     slip_in: bool,
+    /// Sessions written in this project, oldest first.
+    sessions: Vec<SessionStats>,
 }
 
 impl Typewriter {
@@ -109,6 +112,7 @@ impl Typewriter {
             carriage,
             document,
             slip_in: false,
+            sessions: Vec::new(),
         })
     }
 
@@ -120,6 +124,7 @@ impl Typewriter {
             constraints: self.constraints.clone(),
             carriage: self.carriage.clone(),
             document: self.document.clone(),
+            sessions: self.sessions.clone(),
         }
         .to_ron()
     }
@@ -146,6 +151,7 @@ impl Typewriter {
         }
         machine.carriage = file.carriage;
         machine.document = file.document;
+        machine.sessions = file.sessions;
         Ok(machine)
     }
 
@@ -176,6 +182,19 @@ impl Typewriter {
 
     pub fn document(&self) -> &Document {
         &self.document
+    }
+
+    pub fn sessions(&self) -> &[SessionStats] {
+        &self.sessions
+    }
+
+    /// Keeps the session's stats with the project, updating the entry of a
+    /// session already recorded.
+    pub fn record_session(&mut self, stats: SessionStats) {
+        match self.sessions.last_mut() {
+            Some(last) if last.started == stats.started => *last = stats,
+            _ => self.sessions.push(stats),
+        }
     }
 
     /// The correction slip is held in front of the ribbon.
@@ -563,8 +582,17 @@ mod tests {
         type_str(&mut tw, "ab");
         tw.apply(Command::Erase);
         tw.apply(Command::Tab);
+        let session = |started, words| SessionStats {
+            started,
+            seconds: 90,
+            words,
+        };
+        tw.record_session(session(100, 5));
+        tw.record_session(session(100, 7));
+        tw.record_session(session(200, 1));
         let text = tw.to_folder_ron().unwrap();
         let back = Typewriter::from_folder_ron(tw.profile().clone(), &text).unwrap();
+        assert_eq!(back.sessions(), [session(100, 7), session(200, 1)]);
         assert_eq!(back.document(), tw.document());
         assert_eq!(back.carriage(), tw.carriage());
         assert_eq!(back.constraints, tw.constraints);
@@ -598,11 +626,26 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_file_from_before_session_stats_opens() {
+        let mut tw = sm9();
+        type_str(&mut tw, "old");
+        let text = tw.to_folder_ron().unwrap();
+        let start = text.find("sessions:").unwrap();
+        let old = text[..start]
+            .trim_end()
+            .replacen("version: 2", "version: 1", 1)
+            + "\n)";
+        let back = Typewriter::from_folder_ron(tw.profile().clone(), &old).unwrap();
+        assert_eq!(back.document(), tw.document());
+        assert!(back.sessions().is_empty());
+    }
+
+    #[test]
     fn folder_files_from_elsewhere_are_refused() {
         let tw = sm9();
         let text = tw.to_folder_ron().unwrap();
         let profile = tw.profile().clone();
-        let newer = text.replacen("version: 1", "version: 99", 1);
+        let newer = text.replacen("version: 2", "version: 99", 1);
         assert!(matches!(
             Typewriter::from_folder_ron(profile.clone(), &newer),
             Err(FolderError::NewerVersion(99))

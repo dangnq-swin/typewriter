@@ -7,10 +7,11 @@ use thiserror::Error;
 use crate::carriage::Carriage;
 use crate::constraints::Constraints;
 use crate::page::Page;
+use crate::session::SessionStats;
 
 /// Bumped whenever the folder file changes in a way older versions cannot
-/// read.
-pub const FORMAT_VERSION: u32 = 1;
+/// read. 2 added the session stats.
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
@@ -60,6 +61,9 @@ pub(crate) struct FolderFile {
     pub constraints: Constraints,
     pub carriage: Carriage,
     pub document: Document,
+    /// Absent before version 2.
+    #[serde(default)]
+    pub sessions: Vec<SessionStats>,
 }
 
 #[derive(Debug, Error)]

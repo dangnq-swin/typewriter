@@ -90,7 +90,7 @@ fn row_text(page: &Page, half_line: u16) -> String {
 
 /// What a cell reads as. Overstrikes read as their top glyph, except the
 /// typewriter's exclamation mark: an apostrophe over a full stop.
-fn cell_char(cell: &Cell) -> Option<char> {
+pub(crate) fn cell_char(cell: &Cell) -> Option<char> {
     let visible: Vec<char> = cell.visible_glyphs().collect();
     if visible.contains(&'\'') && visible.contains(&'.') {
         return Some('!');
