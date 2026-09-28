@@ -15,6 +15,7 @@ Every file under `assets/` must be listed here with its source and license.
 | `sounds/feed-in.wav` | [Typewriter Sounds](https://freesound.org/people/Gate13/sounds/697389/), Gate13, Freesound (preview) | CC0 |
 | `sounds/roll-1.wav` … `sounds/roll-4.wav`, `sounds/feed-out.wav` | [COMType_MECHMisc_Line_Ratchet_Mechanical_Typewriter_03](https://freesound.org/people/CallFlan/sounds/761339/), CallFlan, Freesound (preview) | CC0 |
 | `sounds/erase.wav` | [Eraser on Paper_1-2.aif](https://freesound.org/people/lucaslara/sounds/154461/), lucaslara, Freesound (preview) | CC0 |
+| `sounds/fluid.wav` | [painting_1.aif](https://freesound.org/people/ssalo/sounds/482891/), ssalo, Freesound (preview) | CC0 |
 
 All sounds are trimmed, faded and peak-normalised from these sources by
 `scripts/prepare-sounds.sh`, which records the exact cut points.

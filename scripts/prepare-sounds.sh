@@ -21,6 +21,7 @@ declare -A sources=(
     [gate13.mp3]=$fs/697/697389_5135931-hq.mp3
     [platen-ratchet.mp3]=$fs/761/761339_10683427-hq.mp3
     [eraser.mp3]=$fs/154/154461_2592491-hq.mp3
+    [fluid-brush.mp3]=$fs/482/482891_4023776-hq.mp3
 )
 for name in "${!sources[@]}"; do
     # Renamed only when complete, so an interrupted download is not reused.
@@ -123,3 +124,6 @@ ffmpeg -v error -y "${inputs[@]}" -filter_complex \
     "${graph}${mix}amix=inputs=$clicks:normalize=0,apad,atrim=0:$out_seconds" -c:a pcm_f32le "$tmp"
 normalize "$tmp" feed-out.wav -14
 clip erase.wav eraser.mp3 1.000 1.650 -18
+# A dab of correction fluid: the wet brush pressed onto the paper (the take's
+# louder moments are the brush knocking, so they are left out).
+clip fluid.wav fluid-brush.mp3 9.700 10.200 -18 "highpass=f=150"
