@@ -45,8 +45,10 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M3: Paper & page view
 
-- [ ] Load the maintainer-supplied off-white paper texture as default background
-- [ ] Flat colour fallback when texture is missing
+- [x] Load the maintainer-supplied off-white paper texture as default background (whole window,
+      bundled at JPEG quality 70 by `build.rs`)
+- [x] Flat colour fallback when texture is missing
+- [x] Sheet drawn as a margin frame (1 mm clearance) with its sides extended to the paper edges
 - [ ] Configurable background: texture path, colour, desk/surround colour
 - [ ] Multi-page documents: page end → "feed a new sheet" action
 - [ ] Zoom levels. Window resize keeps the paper centred

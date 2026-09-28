@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use eframe::egui::{self, Color32, FontData, FontDefinitions, FontFamily};
+use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
 use typewriter_core::{Constraints, Event, Profile, Typewriter};
 
 use crate::input::Input;
+use crate::render::background::Background;
 use crate::render::platen::{self, PlatenView};
 use crate::render::{FONT_FAMILY, Metrics, paper, ruler};
 
@@ -12,13 +13,13 @@ const COURIER_PRIME: &[u8] =
 // Built-in until user profiles are loaded from disk (M8).
 const SM9_PROFILE: &str = include_str!("../../../profiles/olympia-sm9.toml");
 const POINTS_PER_INCH: f32 = 96.0;
-const DESK: Color32 = Color32::from_rgb(0x2E, 0x2B, 0x28);
 
 pub struct TypewriterApp {
     machine: Typewriter,
     metrics: Metrics,
     platen: PlatenView,
     input: Input,
+    background: Background,
 }
 
 impl TypewriterApp {
@@ -32,6 +33,7 @@ impl TypewriterApp {
             metrics,
             platen: PlatenView::new(true),
             input: Input::default(),
+            background: Background::load(&cc.egui_ctx),
         })
     }
 
@@ -55,7 +57,7 @@ impl eframe::App for TypewriterApp {
         let now = ctx.input(|i| i.time);
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(DESK))
+            .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 let view = ui.max_rect();
                 let carriage = self.machine.carriage();
@@ -64,6 +66,15 @@ impl eframe::App for TypewriterApp {
                     .cell_offset(carriage.half_line, carriage.column);
                 let layout = self.platen.layout(view, &self.metrics, cell, now);
                 let painter = ui.painter_at(view);
+                self.background.paint(&painter, view);
+                paper::paint_margin_frame(
+                    &painter,
+                    &self.metrics,
+                    carriage,
+                    self.machine.profile().margins.top_lines,
+                    self.machine.page(),
+                    layout.paper_origin,
+                );
                 paper::paint_sheet(
                     &painter,
                     &self.metrics,

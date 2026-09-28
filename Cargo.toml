@@ -15,6 +15,18 @@ anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+# Decoding and resizing the paper texture is painfully slow unoptimised,
+# both in the build script and at startup of debug builds.
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

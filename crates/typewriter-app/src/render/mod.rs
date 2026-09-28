@@ -1,5 +1,6 @@
 //! Drawing the sheet and the platen view.
 
+pub mod background;
 pub mod paper;
 pub mod platen;
 pub mod ruler;
@@ -11,7 +12,7 @@ pub const FONT_FAMILY: &str = "typewriter";
 
 /// Courier's advance width is 0.6 em for every glyph.
 const COURIER_ADVANCE_EM: f32 = 0.6;
-const MM_PER_INCH: f32 = 25.4;
+pub const MM_PER_INCH: f32 = 25.4;
 
 /// Physical page geometry converted to screen points.
 #[derive(Debug, Clone)]

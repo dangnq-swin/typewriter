@@ -41,7 +41,7 @@ typos) do not need a question round.
 | Default profile | **Olympia SM9**, Pica type (10 cpi, 6 lines per inch) |
 | Default paper | **A4** (210 × 297 mm) |
 | Constraints | Fixed line width with margin bell and manual carriage return. Every constraint is configurable (strict ↔ relaxed) |
-| Background | Configurable. The default is an off-white paper texture **supplied by the maintainer** (do not generate or download a substitute) |
+| Background | Configurable. The default is the off-white paper photo **supplied by the maintainer** (do not generate or download a substitute). It fills the whole window, fixed (cover-fit, cropped equally), and does not scroll with the sheet. Its tone is even: the photo's vignetting is removed at build time, keeping the grain |
 | Calm mode | Distraction-free mode: lines are dimmed progressively the further they are from the line being typed |
 | Sounds | Key strike, carriage return, margin bell |
 | Focus goals | Word-count and timer targets per session |
@@ -59,6 +59,8 @@ typos) do not need a question round.
 | Blocked input | A short horizontal jolt of the sheet (plus a sound from M4) |
 | Carriage scale | A ruler below the typing line, travelling with the carriage like the SM9 scale: column ticks and numbers, margin brackets, tab stop pointers |
 | Spacing indicator | Plate labelled "Spacing:" right below the scale, flush with its left end (paper edge, travels with the carriage). Two circles: first filled; second empty (1), left half filled (1.5) or filled (2) |
+| Sheet | No fill of its own. A thin frame around the writing area, 1 mm outside the margins (just clear of the type), with its four sides extended to the paper's edges to show the sheet's width and height. It follows the carriage margins; at the bottom it mirrors the top margin (the profile has no bottom margin) |
+| Texture bundling | `image` crate (JPEG only), as a build dependency and at runtime. `build.rs` evens out the original in `assets/paper/` and re-encodes it at JPEG quality 70, at most 2048 px per side (the GPU texture limit), into the binary; the original file stays as supplied |
 | Margin controls | On the backburner: no key bindings for margin release or setting margins yet (the core supports them) |
 
 ## Repository layout
@@ -86,6 +88,7 @@ typewriter/
 │   │       ├── export.rs       # plain text / Markdown export
 │   │       └── session.rs      # focus goals, word count, timers, stats
 │   └── typewriter-app/         # binary: eframe app, rendering, input, audio, settings
+│       ├── build.rs            # re-encodes the paper texture for bundling
 │       └── src/
 │           ├── main.rs
 │           ├── app.rs          # eframe::App impl, top-level state
@@ -115,8 +118,8 @@ Rules:
 
 - Every file in `assets/` needs a recorded source and license in `assets/LICENSES.md`.
 - Only add assets that are GPL-3.0-compatible (e.g. OFL, CC0, CC-BY, Apache-2.0 for fonts).
-- Do not download or invent a replacement for the maintainer-provided paper texture. Use a
-  flat off-white fill as a fallback until the texture is supplied.
+- Do not download or invent a replacement for the maintainer-provided paper texture. A flat
+  off-white fill is the fallback if it cannot be loaded.
 
 ## Build, test, lint
 

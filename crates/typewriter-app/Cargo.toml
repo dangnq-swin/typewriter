@@ -14,6 +14,10 @@ path = "src/main.rs"
 typewriter-core.workspace = true
 eframe.workspace = true
 anyhow.workspace = true
+image.workspace = true
+
+[build-dependencies]
+image.workspace = true
 
 [lints]
 workspace = true
