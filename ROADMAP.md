@@ -12,7 +12,6 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Cargo workspace with `typewriter-core` (lib) and `typewriter-app` (bin `typewriter`)
 - [x] Workspace lints (`unsafe_code` forbidden, `unwrap`/`expect` warned)
 - [x] Empty eframe window opens on Wayland
-- [ ] Verify the window on X11
 - [x] `assets/LICENSES.md`, Courier Prime vendored
 - [x] CI: none for now
 
@@ -34,12 +33,15 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## M2: Minimal typing GUI
 
-- [ ] Render a single A4 sheet with a monospace typewriter font at correct pitch
-- [ ] Keyboard input → core commands. Enter = carriage return
-- [ ] **Platen view**: the typing line stays at a fixed vertical position, and the paper
+- [x] Render a single A4 sheet with a monospace typewriter font at correct pitch
+- [x] Keyboard input → core commands. Enter = carriage return, Backspace = carriage back,
+      Shift+Backspace / Delete = erase
+- [x] **Platen view**: the typing line stays at a fixed vertical position, and the paper
       scrolls up and moves sideways like a carriage (option to disable horizontal travel)
-- [ ] Visual feedback for blocked input (e.g. at right margin in strict mode)
-- [ ] Load Courier Prime from `assets/fonts/` and size it so one advance = 1/10 in (Courier metrics: 0.6 em → 12 pt)
+- [x] Visual feedback for blocked input (e.g. at right margin in strict mode)
+- [x] Embed Courier Prime from `assets/fonts/` and size it so one advance = 1/10 in (Courier metrics: 0.6 em → 12 pt)
+- [x] Carriage scale below the typing line: column ticks, margin brackets, tab stop pointers
+- [x] Line spacing indicator ("Spacing:" + two circles) right below the scale
 
 ## M3: Paper & page view
 
@@ -98,6 +100,9 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 
 ## Later / ideas
 
+- Verify and support X11 (Wayland is the current target)
+- Margin controls: key bindings for margin release and setting the left/right margin at the
+  carriage (already supported by the core), margin-release indicator on the scale
 - Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with its own
   pitch, typeface, bell offset and sounds
 - Elite (12 cpi) type option for the SM9

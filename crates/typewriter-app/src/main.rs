@@ -1,4 +1,6 @@
 mod app;
+mod input;
+mod render;
 
 fn main() -> anyhow::Result<()> {
     let options = eframe::NativeOptions {
@@ -11,7 +13,10 @@ fn main() -> anyhow::Result<()> {
     eframe::run_native(
         "typewriter",
         options,
-        Box::new(|_cc| Ok(Box::new(app::TypewriterApp))),
+        Box::new(|cc| {
+            let app = app::TypewriterApp::new(cc)?;
+            Ok(Box::new(app))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("failed to start the GUI: {e}"))
 }

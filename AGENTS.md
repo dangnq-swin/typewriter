@@ -36,7 +36,7 @@ typos) do not need a question round.
 |---|---|
 | Language | Rust (stable, edition 2024). Toolchain managed with **rustup**, pinned to the `stable` channel (with `rustfmt` and `clippy`) in `rust-toolchain.toml` |
 | UI | Native GUI using **egui / eframe** |
-| Platform | **Linux only** |
+| Platform | **Linux only**, Wayland first. X11 is not a target yet (low priority) |
 | License | **GPL-3.0-or-later** |
 | Default profile | **Olympia SM9**, Pica type (10 cpi, 6 lines per inch) |
 | Default paper | **A4** (210 × 297 mm) |
@@ -54,6 +54,12 @@ typos) do not need a question round.
 | Erasing | Separate **Erase** action, on by default. Modes: `digital` (default, removes the glyph), `white-out` and `correction-tape` (cover the glyphs, which stay in the cell's stack and can be typed over), `off` |
 | SM9 defaults | A4 at Pica = 82 columns x 70 lines. Left margin col 10, right margin col 72 (locks before it), bell 8 columns before the right margin, top margin 6 lines |
 | Page end | A return on the last line emits `PageEnd` and does not feed; the carriage stays on that line until a new sheet is fed |
+| Keys | Backspace = carriage back (no erase). Shift+Backspace or Delete = Erase. Enter = return. Hold Shift and tap Tab: 1× sets a tab stop, 2× clears the nearest stop within 3 columns, 3× clears all (acts on Shift release). Full list in `crates/typewriter-app/src/input.rs`; rebinding comes with settings (M8) |
+| Platen view | The typing point stays fixed on screen. The paper scrolls up and, by default, slides sideways like the carriage (can be turned off) |
+| Blocked input | A short horizontal jolt of the sheet (plus a sound from M4) |
+| Carriage scale | A ruler below the typing line, travelling with the carriage like the SM9 scale: column ticks and numbers, margin brackets, tab stop pointers |
+| Spacing indicator | Plate labelled "Spacing:" right below the scale, flush with its left end (paper edge, travels with the carriage). Two circles: first filled; second empty (1), left half filled (1.5) or filled (2) |
+| Margin controls | On the backburner: no key bindings for margin release or setting margins yet (the core supports them) |
 
 ## Repository layout
 
