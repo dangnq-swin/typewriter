@@ -675,8 +675,7 @@ impl TypewriterApp {
         if let Some(audio) = &mut self.audio {
             audio.play_crumple();
         }
-        // Reset the slot's pull: the next sheet must slide out, not start out.
-        ctx.animate_value_with_time(egui::Id::new(("folder-pull", index)), 0.0, 0.0);
+        folder::put_back(ctx, index);
         let count = self.machine.document().finished().len();
         self.selected = self.selected.min(count.saturating_sub(1));
         self.session.recount(self.machine.document());
@@ -1149,7 +1148,7 @@ impl TypewriterApp {
         if chrome < 1.0 {
             return;
         }
-        let spacing = plate_button(
+        let spacing = render::button(
             ui,
             spacing_plate,
             "spacing-plate",
@@ -1158,7 +1157,7 @@ impl TypewriterApp {
         if spacing.clicked() && !feeding {
             self.apply(Command::SetLineSpacing(next_spacing), now);
         }
-        let zoom = plate_button(
+        let zoom = render::button(
             ui,
             zoom_plate,
             "zoom-plate",
@@ -1167,7 +1166,7 @@ impl TypewriterApp {
         if zoom.double_clicked() && !feeding {
             self.set_zoom(ZOOM_DEFAULT);
         }
-        let correction = plate_button(
+        let correction = render::button(
             ui,
             correction_plate,
             "correction-plate",
@@ -1180,7 +1179,7 @@ impl TypewriterApp {
         if correction.clicked() && !feeding {
             self.next_correction(now);
         }
-        let goal = plate_button(
+        let goal = render::button(
             ui,
             goal_plate,
             "goal-plate",
@@ -1200,7 +1199,7 @@ impl TypewriterApp {
             Keeping::Off { unsaved: true } => "Unsaved changes. Click to save.".to_owned(),
             Keeping::Off { unsaved: false } => "Saved. Click to save now.".to_owned(),
         };
-        let autosave = plate_button(ui, autosave_plate, "autosave-plate", &tip);
+        let autosave = render::button(ui, autosave_plate, "autosave-plate", &tip);
         if autosave.clicked() {
             let ctx = ui.ctx().clone();
             self.filing.save_now(&self.machine, &ctx, now);
@@ -1469,18 +1468,21 @@ impl eframe::App for TypewriterApp {
                             saved: self.filing.is_saved(),
                             stats: &stats,
                         };
+                        let contents = folder::Folder {
+                            sheets,
+                            metrics: &self.metrics,
+                            margins: &self.machine.profile().margins,
+                            selected: self.selected,
+                            project,
+                            log: &log,
+                            covered: self.log_open,
+                        };
                         let response = folder::show_folder(
                             ui,
                             view,
-                            sheets,
-                            &self.metrics,
-                            &self.machine.profile().margins,
-                            self.selected,
-                            &project,
-                            &log,
+                            &contents,
                             self.renaming.as_mut(),
                             self.renumbering.as_mut(),
-                            self.log_open,
                         );
                         self.pulled = response.pulled;
                         if response.open_scratchpad {
@@ -1497,18 +1499,17 @@ impl eframe::App for TypewriterApp {
                     }
                     View::Sheet(i) => match sheets.get(i) {
                         Some(page) => {
-                            let response = folder::show_sheet(
-                                ui,
-                                view,
-                                self.machine.profile(),
-                                self.machine.carriage(),
+                            let open = folder::OpenSheet {
+                                profile: self.machine.profile(),
+                                carriage: self.machine.carriage(),
                                 page,
-                                i,
-                                sheets.len(),
-                                points_per_inch,
-                                self.settings.look.ink_realism,
-                                self.annotating.as_mut(),
-                            );
+                                index: i,
+                                total: sheets.len(),
+                                max_points_per_inch: points_per_inch,
+                                ink_realism: self.settings.look.ink_realism,
+                            };
+                            let response =
+                                folder::show_sheet(ui, view, &open, self.annotating.as_mut());
                             if response.start_note {
                                 self.annotating = Some(page.note().to_owned());
                             }
@@ -1631,17 +1632,6 @@ fn first_project(
 
 fn points_per_inch(zoom_percent: u16) -> f32 {
     POINTS_PER_INCH * f32::from(zoom_percent) / 100.0
-}
-
-/// Makes a plate clickable, with a tooltip.
-fn plate_button(ui: &mut egui::Ui, rect: Rect, id: &str, tip: &str) -> egui::Response {
-    let response = ui
-        .interact(rect, egui::Id::new(id), render::CLICK)
-        .on_hover_text(tip);
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    response
 }
 
 fn zoomed(percent: u16, steps: i32) -> u16 {

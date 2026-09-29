@@ -1,9 +1,7 @@
 //! The copy holder: a finished sheet on a stand left of the machine, read
 //! while typing (retyping a page), a line guide keeping the place.
 
-use eframe::egui::{
-    self, Color32, CornerRadius, CursorIcon, Id, Pos2, Rect, Stroke, StrokeKind, Ui, pos2, vec2,
-};
+use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Stroke, StrokeKind, Ui, pos2, vec2};
 use typewriter_core::Profile;
 use typewriter_core::page::Page;
 
@@ -130,12 +128,7 @@ pub fn show(ui: &mut Ui, view: Rect, profile: &Profile, holder: &mut Holder, ink
         StrokeKind::Inside,
     );
 
-    let response = ui
-        .interact(sheet, Id::new("copy-holder"), super::CLICK)
-        .on_hover_text("Click a line to move the guide");
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-    }
+    let response = super::button(ui, sheet, "copy-holder", "Click a line to move the guide");
     if response.clicked()
         && let Some(pointer) = response.interact_pointer_pos()
     {
@@ -155,9 +148,7 @@ fn half_line_at(metrics: &Metrics, origin: Pos2, pointer: Pos2) -> u16 {
 fn close_button(ui: &mut Ui, painter: &egui::Painter, board: Rect) -> bool {
     let centre = board.right_top() + vec2(-CLOSE_RADIUS - 3.0, CLOSE_RADIUS + 3.0);
     let rect = Rect::from_center_size(centre, vec2(2.0, 2.0) * CLOSE_RADIUS);
-    let response = ui
-        .interact(rect, Id::new("copy-holder-close"), super::CLICK)
-        .on_hover_text("Take the sheet down");
+    let response = super::button(ui, rect, "copy-holder-close", "Take the sheet down");
     let color = if response.hovered() { HIGHLIGHT } else { CLIP };
     painter.circle_filled(centre, CLOSE_RADIUS, BOARD_EDGE);
     // Drawn: the interface font has no ✕.
@@ -165,9 +156,6 @@ fn close_button(ui: &mut Ui, painter: &egui::Painter, board: Rect) -> bool {
     let stroke = Stroke::new(1.5, color);
     painter.line_segment([centre + vec2(-arm, -arm), centre + vec2(arm, arm)], stroke);
     painter.line_segment([centre + vec2(-arm, arm), centre + vec2(arm, -arm)], stroke);
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-    }
     response.clicked()
 }
 

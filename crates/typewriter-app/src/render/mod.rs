@@ -4,6 +4,7 @@
 pub mod background;
 pub mod calendar;
 pub mod calm;
+pub mod desk;
 pub mod feed;
 pub mod folder;
 pub mod holder;
@@ -19,8 +20,13 @@ pub mod scrunch;
 pub mod settings;
 
 use std::collections::HashSet;
+use std::fmt::Debug;
+use std::hash::Hash;
 
-use eframe::egui::{Color32, FontFamily, FontId, Rect, Sense, Shape, Stroke, Vec2, vec2};
+use eframe::egui::{
+    Color32, CursorIcon, FontFamily, FontId, Id, Painter, Rect, Response, Sense, Shape, Stroke, Ui,
+    Vec2, vec2,
+};
 use typewriter_core::Profile;
 
 pub const FONT_FAMILY: &str = "typewriter";
@@ -41,12 +47,57 @@ pub const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
 pub const SHEET_EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
 /// Hovered controls and the typing pointer.
 pub const HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
+/// The desk dimmed behind the folder, an open sheet or the settings.
+pub const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
+/// Text on the dimmed desk.
+pub const LABEL: Color32 = Color32::from_rgb(0xEE, 0xE8, 0xDC);
+/// A shadow on the desk.
+pub const SHADOW: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x30);
 
 /// Clickable, never focused: Tab and Enter belong to the typewriter, and a
 /// focused control would take Enter as a click.
 pub const CLICK: Sense = Sense::CLICK;
 /// [`CLICK`], and draggable.
 pub const CLICK_AND_DRAG: Sense = Sense::CLICK.union(Sense::DRAG);
+
+/// Clickable `rect` with a tooltip; the pointing hand while hovered.
+pub fn button(ui: &Ui, rect: Rect, id: impl Hash + Debug, tip: &str) -> Response {
+    let response = ui.interact(rect, Id::new(id), CLICK).on_hover_text(tip);
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    response
+}
+
+/// An icon on the desk, fading with the chrome.
+pub struct DeskIcon<'a> {
+    /// Where it answers the pointer.
+    pub hit: Rect,
+    pub id: &'a str,
+    pub tip: &'a str,
+}
+
+impl DeskIcon<'_> {
+    /// Draws it `opacity` shown by `paint` (lit if hovered). Answers only
+    /// fully shown, not mid-fade. True when clicked.
+    pub fn show(
+        &self,
+        ui: &Ui,
+        view: Rect,
+        opacity: f32,
+        paint: impl FnOnce(&Painter, bool),
+    ) -> bool {
+        if opacity <= 0.0 {
+            return false;
+        }
+        let response = (opacity >= 1.0).then(|| button(ui, self.hit, self.id, self.tip));
+        let hovered = response.as_ref().is_some_and(Response::hovered);
+        let mut painter = ui.painter_at(view);
+        painter.multiply_opacity(opacity);
+        paint(&painter, hovered);
+        response.is_some_and(|r| r.clicked())
+    }
+}
 
 /// Page geometry in screen points.
 #[derive(Debug, Clone)]

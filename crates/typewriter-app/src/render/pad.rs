@@ -4,15 +4,15 @@
 
 use eframe::egui::epaint::Shadow;
 use eframe::egui::{
-    Color32, CornerRadius, CursorIcon, FontFamily, FontId, Id, Key, Modifiers, Painter, Pos2, Rect,
-    Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    Color32, CornerRadius, FontFamily, FontId, Id, Key, Modifiers, Painter, Pos2, Rect, Stroke,
+    StrokeKind, Ui, Vec2, pos2, vec2,
 };
 use typewriter_core::Scratchpad;
 use typewriter_core::scratchpad::{self as book, SPREADS};
 
 use super::note::{ASCENT_EM, GRAPHITE, LINE_EM, PENCIL_FAMILY, PencilField, SIZE_INCHES};
 use super::scratchpad::{BOOK_INCHES, CORNER_WIDTHS, KRAFT, KRAFT_EDGE, STAPLE};
-use super::{CLICK, HIGHLIGHT, chevron, smoothstep};
+use super::{HIGHLIGHT, button, chevron, smoothstep};
 
 pub const SLIDE_SECONDS: f32 = 0.25;
 /// Cover showing round the pages.
@@ -178,12 +178,7 @@ impl Pad {
             } else {
                 "Next page (Page Down)"
             };
-            let response = ui
-                .interact(rect, Id::new(("scratchpad-turn", direction)), CLICK)
-                .on_hover_text(tip);
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-            }
+            let response = button(ui, rect, ("scratchpad-turn", direction), tip);
             if response.clicked() {
                 step = Some(direction);
             }

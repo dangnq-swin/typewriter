@@ -10,7 +10,7 @@ use eframe::egui::{self, Color32, CornerRadius, FontId, Id, LayerId, Order, Rect
 use typewriter_core::{Typewriter, export};
 
 use crate::machines::Machines;
-use crate::render::{calendar, pdf};
+use crate::render::{LABEL, calendar, pdf};
 use crate::storage;
 
 /// Autosave after this pause in typing.
@@ -400,7 +400,7 @@ impl Filing {
         let galley = painter.layout(
             text.clone(),
             FontId::proportional(13.0),
-            Color32::from_rgb(0xEE, 0xE8, 0xDC).gamma_multiply(opacity),
+            LABEL.gamma_multiply(opacity),
             view.width() - 80.0,
         );
         let size = galley.size() + vec2(24.0, 14.0);
