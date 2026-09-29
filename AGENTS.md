@@ -14,6 +14,12 @@ portable). Other machines are added later as additional profiles.
 
 See [`ROADMAP.md`](ROADMAP.md) for the planned milestones.
 
+## Design principles
+
+- **Only what a typewriter or a real desk can do.** Every feature needs a real-world
+  counterpart: the machine, paper, a folder, a copy holder. No search across sheets, no ambient
+  soundtracks.
+
 ## Working agreement: ask before assuming
 
 **Ask the maintainer questions before proceeding** whenever a task involves:
