@@ -4,7 +4,6 @@
 pub mod background;
 pub mod calendar;
 pub mod calm;
-pub mod desk;
 pub mod feed;
 pub mod folder;
 pub mod holder;
@@ -14,6 +13,7 @@ pub mod notice;
 pub mod pad;
 pub mod paper;
 pub mod pdf;
+pub mod perspective;
 pub mod platen;
 pub mod ruler;
 pub mod scratchpad;

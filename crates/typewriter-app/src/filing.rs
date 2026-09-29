@@ -4,10 +4,8 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use anyhow::Context as _;
-use eframe::egui;
 use typewriter_core::{Typewriter, export};
 
 use crate::machines::Machines;
@@ -24,20 +22,6 @@ pub enum ExportFormat {
     Markdown,
     Text,
     Pdf,
-}
-
-/// Which desktop dialog is open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Dialog {
-    SaveAs,
-    Open,
-}
-
-/// A desktop dialog's answer.
-pub enum Picked {
-    SaveAs(PathBuf),
-    Open(PathBuf),
-    Cancelled,
 }
 
 /// How the project is kept. Drives the Autosave plate.
@@ -63,7 +47,6 @@ pub struct Filing {
     path: Option<PathBuf>,
     /// First unsaved change.
     changed_at: Option<f64>,
-    dialog: Option<(Dialog, Receiver<Option<PathBuf>>)>,
     /// (when, error if it failed)
     last_write: Option<(f64, Option<String>)>,
 }
@@ -83,7 +66,6 @@ impl Filing {
         Self {
             path,
             changed_at: None,
-            dialog: None,
             last_write: None,
         }
     }
@@ -205,23 +187,13 @@ impl Filing {
         }
     }
 
-    /// The Save command: writes now, or Save As for a draft. What to tell,
-    /// if anything.
-    pub fn save_now(
-        &mut self,
-        machine: &Typewriter,
-        ctx: &egui::Context,
-        now: f64,
-    ) -> Option<String> {
-        if !self.is_saved() {
-            self.ask(Dialog::SaveAs, ctx);
-            return None;
-        }
+    /// The Save command for a saved project: writes now. What to tell.
+    pub fn save_now(&mut self, machine: &Typewriter, now: f64) -> String {
         self.changed(now);
-        Some(match self.save(machine, now) {
+        match self.save(machine, now) {
             Ok(()) => "Saved".to_owned(),
             Err(err) => err,
-        })
+        }
     }
 
     /// Saves under a chosen path; a draft moves there. What to tell either
@@ -298,61 +270,18 @@ impl Filing {
         }
     }
 
-    pub fn ask_save_as(&mut self, ctx: &egui::Context) {
-        self.ask(Dialog::SaveAs, ctx);
-    }
-
-    pub fn ask_open(&mut self, ctx: &egui::Context) {
-        self.ask(Dialog::Open, ctx);
-    }
-
-    /// Opens the desktop dialog on a thread, so the window keeps drawing.
-    fn ask(&mut self, dialog: Dialog, ctx: &egui::Context) {
-        if self.dialog.is_some() {
-            return;
-        }
-        let (sender, receiver) = mpsc::channel();
-        let directory = self
-            .path
+    /// Where a file dialog opens: beside the project, unless it is a draft.
+    pub fn dialog_folder(&self) -> Option<PathBuf> {
+        self.path
             .as_deref()
             .filter(|p| !storage::is_draft(p))
             .and_then(Path::parent)
-            .map(Path::to_path_buf);
-        let file_name = format!("{}{}", self.name(), storage::EXTENSION);
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let mut picker = rfd::FileDialog::new().add_filter("Typewriter project", &["ron"]);
-            if let Some(directory) = directory {
-                picker = picker.set_directory(directory);
-            }
-            let picked = match dialog {
-                Dialog::SaveAs => picker
-                    .set_title("Save the project as")
-                    .set_file_name(file_name)
-                    .save_file(),
-                Dialog::Open => picker.set_title("Open a project").pick_file(),
-            };
-            let _ = sender.send(picked);
-            ctx.request_repaint();
-        });
-        self.dialog = Some((dialog, receiver));
+            .map(Path::to_path_buf)
     }
 
-    /// The dialog's answer, once it has closed.
-    pub fn picked(&mut self) -> Option<Picked> {
-        let (dialog, receiver) = self.dialog.as_ref()?;
-        let picked = match receiver.try_recv() {
-            Err(TryRecvError::Empty) => return None,
-            Ok(picked) => picked,
-            Err(TryRecvError::Disconnected) => None,
-        };
-        let dialog = *dialog;
-        self.dialog = None;
-        Some(match (picked, dialog) {
-            (Some(path), Dialog::SaveAs) => Picked::SaveAs(path),
-            (Some(path), Dialog::Open) => Picked::Open(path),
-            (None, _) => Picked::Cancelled,
-        })
+    /// The project's file name, for Save As to suggest.
+    pub fn file_name(&self) -> String {
+        format!("{}{}", self.name(), storage::EXTENSION)
     }
 
     /// The project to reopen next time.
@@ -365,11 +294,9 @@ impl Filing {
     }
 
     pub fn is_animating(&self, now: f64) -> bool {
-        self.dialog.is_some()
-            || self
-                .last_write
-                .as_ref()
-                .is_some_and(|(at, _)| now - at < WRITING_SECONDS)
+        self.last_write
+            .as_ref()
+            .is_some_and(|(at, _)| now - at < WRITING_SECONDS)
     }
 }
 

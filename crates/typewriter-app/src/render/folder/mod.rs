@@ -16,9 +16,9 @@ use typewriter_core::page::Page;
 use typewriter_core::profile::Margins;
 
 use super::calendar::{self, Month};
-use super::desk::{Camera, OnDesk, Placement, add_quad, contains, corners};
 use super::note::{self, NoteArea};
 use super::paper::INK;
+use super::perspective::{Camera, OnDesk, Placement, add_quad, contains, corners};
 use super::{CLICK, DIM, DeskIcon, HIGHLIGHT, LABEL, Metrics, SHADOW, SHEET, scratchpad};
 
 /// Camera distance, sheet heights. Smaller = stronger perspective.

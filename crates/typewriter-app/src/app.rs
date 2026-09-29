@@ -11,9 +11,10 @@ use typewriter_core::{
 };
 
 use crate::audio::{self, Audio};
-use crate::filing::{self, Filing, Keeping, Picked, WriteStatus};
+use crate::filing::{self, Filing, Keeping, WriteStatus};
 use crate::input::{Action, Input};
 use crate::machines::Machines;
+use crate::picker::{Dialog, Picked, Picker};
 use crate::render::background::Background;
 use crate::render::calendar;
 use crate::render::calm::{self, Dimming};
@@ -195,6 +196,7 @@ pub struct TypewriterApp {
     machines: Machines,
     running: storage::Running,
     notice: Notice,
+    picker: Picker,
 }
 
 impl TypewriterApp {
@@ -271,6 +273,7 @@ impl TypewriterApp {
             machines,
             running,
             notice,
+            picker: Picker::default(),
         })
     }
 
@@ -281,10 +284,20 @@ impl TypewriterApp {
         }
     }
 
-    /// The Save command.
+    /// The Save command: writes now, or Save As for a draft.
     fn save_now(&mut self, ctx: &egui::Context, now: f64) {
-        let told = self.filing.save_now(&self.machine, ctx, now);
-        self.tell(told, now);
+        if !self.filing.is_saved() {
+            self.ask(Dialog::SaveAs, ctx);
+            return;
+        }
+        let told = self.filing.save_now(&self.machine, now);
+        self.notice.show(told, now);
+    }
+
+    fn ask(&mut self, dialog: Dialog, ctx: &egui::Context) {
+        let folder = self.filing.dialog_folder();
+        let file_name = self.filing.file_name();
+        self.picker.ask(dialog, folder, file_name, ctx);
     }
 
     /// Writes if autosave would.
@@ -613,7 +626,7 @@ impl TypewriterApp {
     fn folder_action(&mut self, action: FolderAction, ctx: &egui::Context, now: f64) {
         match action {
             FolderAction::Save => self.save_now(ctx, now),
-            FolderAction::SaveAs => self.filing.ask_save_as(ctx),
+            FolderAction::SaveAs => self.ask(Dialog::SaveAs, ctx),
             FolderAction::Rename => self.renaming = Some(self.filing.name()),
             FolderAction::RenameTo(name) => {
                 self.renaming = None;
@@ -622,7 +635,7 @@ impl TypewriterApp {
             }
             FolderAction::CancelRename => self.renaming = None,
             FolderAction::New => self.leave(Leaving::New, ctx, now),
-            FolderAction::Open => self.filing.ask_open(ctx),
+            FolderAction::Open => self.ask(Dialog::Open, ctx),
             FolderAction::Renumber => self.renumbering = Some(String::new()),
             FolderAction::RenumberTo(number) => {
                 self.renumbering = None;
@@ -735,7 +748,7 @@ impl TypewriterApp {
     }
 
     fn take_picked(&mut self, ctx: &egui::Context, now: f64) {
-        match self.filing.picked() {
+        match self.picker.picked() {
             Some(Picked::SaveAs(path)) => {
                 let saved = self.filing.save_as(&self.machine, path, now);
                 let (Ok(told) | Err(told)) = &saved;
@@ -855,7 +868,7 @@ impl TypewriterApp {
         match answer {
             Answer::SaveAs => {
                 self.leaving_after_save_as = Some(leaving);
-                self.filing.ask_save_as(ctx);
+                self.ask(Dialog::SaveAs, ctx);
             }
             Answer::Save => {
                 self.filing.changed(now);
@@ -1618,6 +1631,7 @@ impl eframe::App for TypewriterApp {
             || self.wind_back.is_some()
             || !self.wet.is_empty()
             || self.filing.is_animating(now)
+            || self.picker.is_open()
             || self.notice.is_animating(now)
             || self.settings_file.is_pending()
             || self.scrunching.is_some()

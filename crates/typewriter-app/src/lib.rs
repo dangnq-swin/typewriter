@@ -8,6 +8,7 @@ pub mod import;
 mod input;
 pub mod machines;
 pub mod odt;
+mod picker;
 mod render;
 pub mod settings;
 #[cfg(test)]
