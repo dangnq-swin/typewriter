@@ -21,6 +21,7 @@ use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
 use crate::render::holder;
 use crate::render::knob;
+use crate::render::notice::Notice;
 use crate::render::platen::{self, PlatenView};
 use crate::render::{
     COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, pad, paper, ruler, scratchpad, splitmix64,
@@ -193,6 +194,7 @@ pub struct TypewriterApp {
     settings_file: SettingsFile,
     machines: Machines,
     running: storage::Running,
+    notice: Notice,
 }
 
 impl TypewriterApp {
@@ -206,7 +208,7 @@ impl TypewriterApp {
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
         let machines = Machines::load()?;
-        let (mut machine, mut filing, trouble) = first_project(&machines, &settings.machine)?;
+        let (mut machine, filing, trouble) = first_project(&machines, &settings.machine)?;
         let zoom_percent = settings.look.zoom_percent;
         let metrics = Metrics::new(machine.profile(), points_per_inch(zoom_percent));
         let audio = Audio::new(machine.profile().sounds.clone(), settings.sound.clone())
@@ -217,8 +219,9 @@ impl TypewriterApp {
         let recovered = (crashed && filing.is_saved_somewhere()).then(|| {
             "Recovered your work from when Typewriter last closed unexpectedly.".to_owned()
         });
-        if let Some(notice) = trouble.or(settings_trouble).or(recovered) {
-            filing.notify(notice, 0.0);
+        let mut notice = Notice::default();
+        if let Some(trouble) = trouble.or(settings_trouble).or(recovered) {
+            notice.show(trouble, 0.0);
         }
         filing.remember();
         let mut session = Session::start(machine.document());
@@ -267,7 +270,29 @@ impl TypewriterApp {
             settings_file,
             machines,
             running,
+            notice,
         })
+    }
+
+    /// Shows `told` in the notice, if anything.
+    fn tell(&mut self, told: Option<String>, now: f64) {
+        if let Some(text) = told {
+            self.notice.show(text, now);
+        }
+    }
+
+    /// The Save command.
+    fn save_now(&mut self, ctx: &egui::Context, now: f64) {
+        let told = self.filing.save_now(&self.machine, ctx, now);
+        self.tell(told, now);
+    }
+
+    /// Writes if autosave would.
+    fn keep(&mut self, now: f64) {
+        let kept = self
+            .filing
+            .keep(&self.machine, now, self.settings.saving.autosave);
+        self.tell(kept.err(), now);
     }
 
     fn handle_input(&mut self, ctx: &egui::Context) {
@@ -292,7 +317,7 @@ impl TypewriterApp {
             for action in actions {
                 match action {
                     Action::Fullscreen => self.toggle_fullscreen(ctx, now),
-                    Action::Save => self.filing.save_now(&self.machine, ctx, now),
+                    Action::Save => self.save_now(ctx, now),
                     Action::PageUp => self.turn_log(-1),
                     Action::PageDown => self.turn_log(1),
                     Action::Escape => self.log_open = false,
@@ -308,7 +333,7 @@ impl TypewriterApp {
                 match action {
                     Action::Fullscreen => self.toggle_fullscreen(ctx, now),
                     Action::Escape if !editing && !menu_open => self.escape(),
-                    Action::Save => self.filing.save_now(&self.machine, ctx, now),
+                    Action::Save => self.save_now(ctx, now),
                     _ => {}
                 }
             }
@@ -319,7 +344,7 @@ impl TypewriterApp {
             match action {
                 // Not the machine's: allowed while feeding.
                 Action::Fullscreen => self.toggle_fullscreen(ctx, now),
-                Action::Save => self.filing.save_now(&self.machine, ctx, now),
+                Action::Save => self.save_now(ctx, now),
                 Action::Scratchpad => self.open_scratchpad(),
                 _ if feeding => {}
                 // No such key on the machine: the typeface can't print it.
@@ -413,10 +438,10 @@ impl TypewriterApp {
                     self.platen.jolt(now);
                     // Shown again at each blocked key: it stays while tried.
                     if reason == BlockReason::Jammed {
-                        self.filing.notify(JAMMED.to_owned(), now);
+                        self.notice.show(JAMMED, now);
                     }
                 }
-                Event::Freed => self.filing.withdraw(JAMMED),
+                Event::Freed => self.notice.withdraw(JAMMED),
                 Event::Erase(EraseMode::Fluid) => {
                     let c = self.machine.carriage();
                     self.wet.insert((c.half_line, c.column), now);
@@ -426,8 +451,7 @@ impl TypewriterApp {
                     // A re-fed sheet leaves or rejoins the folder mid-way:
                     // the filed count alone can't tell.
                     self.session.recount(self.machine.document());
-                    let autosave = self.settings.saving.autosave;
-                    self.filing.keep(&self.machine, now, autosave);
+                    self.keep(now);
                     self.feeding = Some(Feeding {
                         started: now,
                         outgoing: outgoing.clone(),
@@ -555,8 +579,7 @@ impl TypewriterApp {
     /// Swaps in another project and winds its sheet in. Saves the old one
     /// first; anything needing a question was asked before.
     fn put_in(&mut self, mut machine: Typewriter, filing: Filing, reopened: bool, now: f64) {
-        let autosave = self.settings.saving.autosave;
-        self.filing.keep(&self.machine, now, autosave);
+        self.keep(now);
         self.wind_back = reopened.then(|| WindBack::to(machine.reinsert()));
         // New session, same goal.
         let goal = self.session.goal();
@@ -589,12 +612,13 @@ impl TypewriterApp {
 
     fn folder_action(&mut self, action: FolderAction, ctx: &egui::Context, now: f64) {
         match action {
-            FolderAction::Save => self.filing.save_now(&self.machine, ctx, now),
+            FolderAction::Save => self.save_now(ctx, now),
             FolderAction::SaveAs => self.filing.ask_save_as(ctx),
             FolderAction::Rename => self.renaming = Some(self.filing.name()),
             FolderAction::RenameTo(name) => {
                 self.renaming = None;
-                self.filing.rename(&self.machine, &name, now);
+                let told = self.filing.rename(&self.machine, &name);
+                self.tell(told, now);
             }
             FolderAction::CancelRename => self.renaming = None,
             FolderAction::New => self.leave(Leaving::New, ctx, now),
@@ -628,7 +652,8 @@ impl TypewriterApp {
             }
             FolderAction::Export(format) => {
                 let ink_realism = self.settings.look.ink_realism;
-                self.filing.export(&self.machine, format, ink_realism, now);
+                let told = self.filing.export(&self.machine, format, ink_realism);
+                self.notice.show(told, now);
             }
         }
     }
@@ -713,8 +738,10 @@ impl TypewriterApp {
         match self.filing.picked() {
             Some(Picked::SaveAs(path)) => {
                 let saved = self.filing.save_as(&self.machine, path, now);
+                let (Ok(told) | Err(told)) = &saved;
+                self.notice.show(told.clone(), now);
                 if let Some(leaving) = self.leaving_after_save_as.take()
-                    && saved
+                    && saved.is_ok()
                 {
                     self.go(leaving, ctx, now);
                 }
@@ -756,14 +783,14 @@ impl TypewriterApp {
                 let constraints = self.settings.machine.rules.constraints(erase);
                 match Typewriter::new(profile, constraints) {
                     Ok(machine) => self.put_in(machine, Filing::draft(), false, now),
-                    Err(err) => self.filing.notify(format!("No new project: {err}"), now),
+                    Err(err) => self.notice.show(format!("No new project: {err}"), now),
                 }
             }
             Leaving::Open(path) => match filing::open(&self.machines, &path) {
                 Ok(machine) => self.put_in(machine, Filing::at(path), true, now),
                 Err(err) => self
-                    .filing
-                    .notify(format!("Could not open that project: {err:#}"), now),
+                    .notice
+                    .show(format!("Could not open that project: {err:#}"), now),
             },
         }
     }
@@ -833,8 +860,9 @@ impl TypewriterApp {
             Answer::Save => {
                 self.filing.changed(now);
                 // Stay if it failed: the notice says why.
-                if self.filing.save(&self.machine, now) {
-                    self.go(leaving, ctx, now);
+                match self.filing.save(&self.machine, now) {
+                    Ok(()) => self.go(leaving, ctx, now),
+                    Err(err) => self.notice.show(err, now),
                 }
             }
             Answer::Keep | Answer::DontSave => self.go(leaving, ctx, now),
@@ -1202,7 +1230,7 @@ impl TypewriterApp {
         let autosave = render::button(ui, autosave_plate, "autosave-plate", &tip);
         if autosave.clicked() {
             let ctx = ui.ctx().clone();
-            self.filing.save_now(&self.machine, &ctx, now);
+            self.save_now(&ctx, now);
         }
         if !feeding {
             self.margin_stops(ui, &scale, now);
@@ -1427,8 +1455,10 @@ impl eframe::App for TypewriterApp {
         self.dry_fluid(now);
         self.follow_fullscreen(&ctx, now);
         self.take_picked(&ctx, now);
-        self.filing
+        let autosaved = self
+            .filing
             .autosave(&self.machine, now, self.settings.saving.autosave);
+        self.tell(autosaved.err(), now);
         // Closing puts the project away too: hold it back to ask if needed.
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting && self.must_ask() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1558,7 +1588,7 @@ impl eframe::App for TypewriterApp {
                         render::scrunch::paint(&painter, scrunching.outline, t, scrunching.seed);
                     }
                 }
-                self.filing.paint_notice(ui.ctx(), view, now);
+                self.notice.paint(ui.ctx(), view, now);
             });
         if let Some(action) = folder_action {
             self.folder_action(action, &ctx, now);
@@ -1579,7 +1609,7 @@ impl eframe::App for TypewriterApp {
             }
         }
         if let Err(err) = self.settings_file.keep(&self.settings, now, false) {
-            self.filing.notify(err, now);
+            self.notice.show(err, now);
         }
 
         if self.platen.is_animating(now)
@@ -1588,6 +1618,7 @@ impl eframe::App for TypewriterApp {
             || self.wind_back.is_some()
             || !self.wet.is_empty()
             || self.filing.is_animating(now)
+            || self.notice.is_animating(now)
             || self.settings_file.is_pending()
             || self.scrunching.is_some()
         {
@@ -1602,7 +1633,9 @@ impl eframe::App for TypewriterApp {
         if autosave || !self.filing.is_saved() {
             self.filing.changed(0.0);
         }
-        self.filing.keep(&self.machine, 0.0, autosave);
+        if let Err(err) = self.filing.keep(&self.machine, 0.0, autosave) {
+            eprintln!("{err}");
+        }
         self.running.clear();
         if let Err(err) = self.settings_file.keep(&self.settings, 0.0, true) {
             eprintln!("{err}");

@@ -10,6 +10,7 @@ pub mod folder;
 pub mod holder;
 pub mod knob;
 pub mod note;
+pub mod notice;
 pub mod pad;
 pub mod paper;
 pub mod pdf;
