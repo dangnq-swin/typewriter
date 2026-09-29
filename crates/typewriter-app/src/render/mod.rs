@@ -17,6 +17,8 @@ pub mod scratchpad;
 pub mod scrunch;
 pub mod settings;
 
+use std::collections::HashSet;
+
 use eframe::egui::{Color32, FontFamily, FontId, Sense, Vec2, vec2};
 use typewriter_core::Profile;
 
@@ -114,6 +116,69 @@ pub fn smoothstep(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Where TrueType table `tag` starts in `font`.
+pub fn font_table(font: &[u8], tag: &[u8; 4]) -> Option<usize> {
+    let count = usize::from(u16_at(font, 4)?);
+    (0..count)
+        .map(|i| 12 + 16 * i)
+        .find(|&record| font.get(record..record + 4) == Some(tag))
+        .and_then(|record| u32_at(font, record + 8))
+        .and_then(|offset| usize::try_from(offset).ok())
+}
+
+/// The characters `font` has a glyph for, from its format-4 character map
+/// (the Basic Multilingual Plane). Empty if it has none.
+pub fn font_characters(font: &[u8]) -> HashSet<char> {
+    format_4_characters(font).unwrap_or_default()
+}
+
+fn format_4_characters(font: &[u8]) -> Option<HashSet<char>> {
+    let cmap = font_table(font, b"cmap")?;
+    let subtables = usize::from(u16_at(font, cmap + 2)?);
+    let table = (0..subtables).find_map(|i| {
+        let offset = usize::try_from(u32_at(font, cmap + 8 + 8 * i)?).ok()?;
+        (u16_at(font, cmap + offset)? == 4).then_some(cmap + offset)
+    })?;
+    // Four parallel arrays of segments: ends, (a pad,) starts, deltas and
+    // offsets into the glyph array.
+    let segments = usize::from(u16_at(font, table + 6)?) / 2;
+    let ends = table + 14;
+    let starts = ends + 2 * segments + 2;
+    let deltas = starts + 2 * segments;
+    let offsets = deltas + 2 * segments;
+    let mut characters = HashSet::new();
+    for s in 0..segments {
+        let (end, start) = (u16_at(font, ends + 2 * s)?, u16_at(font, starts + 2 * s)?);
+        let delta = u16_at(font, deltas + 2 * s)?;
+        let offset = u16_at(font, offsets + 2 * s)?;
+        for code in start..=end {
+            let glyph = if offset == 0 {
+                code.wrapping_add(delta)
+            } else {
+                let at = offsets + 2 * s + usize::from(offset) + 2 * usize::from(code - start);
+                match u16_at(font, at)? {
+                    0 => 0,
+                    glyph => glyph.wrapping_add(delta),
+                }
+            };
+            if glyph != 0
+                && let Some(c) = char::from_u32(code.into())
+            {
+                characters.insert(c);
+            }
+        }
+    }
+    Some(characters)
+}
+
+fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_be_bytes(bytes.get(at..at + 2)?.try_into().ok()?))
+}
+
+fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+}
+
 /// `v` turned by `angle` radians: clockwise on screen, where y is down.
 pub fn rotate(v: Vec2, angle: f32) -> Vec2 {
     let (sin, cos) = angle.sin_cos();
@@ -145,6 +210,18 @@ mod tests {
         assert!((m.column_width - 9.6).abs() < 1e-4);
         assert!((m.font.size - 16.0).abs() < 1e-4);
         assert!((m.cell_size().y - 16.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn courier_prime_maps_latin_but_not_cyrillic_or_symbols() {
+        let characters = font_characters(COURIER_PRIME);
+        for c in ['a', 'Z', '\u{e9}', '\u{2014}', '\u{a7}', '\u{201c}'] {
+            assert!(characters.contains(&c), "{c}");
+        }
+        for c in ['\u{416}', '\u{3b1}', '\u{2715}', '\u{2191}'] {
+            assert!(!characters.contains(&c), "{c}");
+        }
+        assert!(font_characters(b"not a font").is_empty());
     }
 
     #[test]

@@ -50,6 +50,7 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 |---|---|
 | Backspace | Move back one step. After a type jam: free the typebars |
 | é, ü, ç… | Not on the Olympia SM9: accented letters don't type (`typewriter import` keeps them). Machines with dead keys (see `docs/profiles.md`) strike the accent without moving on, so the next letter lands on it |
+| Ж, α, ✓… | Characters the typewriter's typeface doesn't have don't type |
 | Shift+Backspace or Delete | Move back one step while fixing your mistake |
 | Tab | Jump to the next tab stop |
 | Shift + Tab (tap while holding Shift) | Once: set a tab stop at the carriage. Twice: clear the nearest stop. Three times: clear all stops |

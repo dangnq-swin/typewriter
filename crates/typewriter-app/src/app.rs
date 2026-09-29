@@ -1,6 +1,6 @@
 //! The app: views, input routing, feeding, projects and dialogs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -135,6 +135,8 @@ pub struct TypewriterApp {
     renumbering: Option<String>,
     /// Open: where the pencil is.
     scratchpad: Option<pad::Writing>,
+    /// What Courier Prime can print: the machine's keys.
+    typeface: HashSet<char>,
     /// A finished sheet on the copy holder. Not saved.
     holder: Option<holder::Holder>,
     /// The sheet awaiting a yes to scrunch.
@@ -224,6 +226,7 @@ impl TypewriterApp {
             renumbering: None,
             scratchpad: None,
             holder: None,
+            typeface: render::font_characters(COURIER_PRIME),
             confirm_scrunch: None,
             scrunching: None,
             leaving: None,
@@ -296,6 +299,9 @@ impl TypewriterApp {
                 Action::Save => self.filing.save_now(&self.machine, ctx, now),
                 Action::Scratchpad => self.open_scratchpad(),
                 _ if feeding => {}
+                // No such key on the machine: the typeface can't print it.
+                Action::Machine(Command::Type(c))
+                    if !c.is_whitespace() && !self.typeface.contains(&c) => {}
                 Action::Machine(command) => self.key(command, now),
                 Action::PageUp => self.page_up(),
                 Action::PageDown => self.page_down(),

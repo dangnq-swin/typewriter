@@ -3,8 +3,9 @@
 //! No Ctrl bindings (a typewriter has none), except Ctrl+S. Keys don't repeat
 //! unless a real machine would: only letters, arrows and Enter do.
 //!
-//! - printable keys: type, except 1 and ! (no such keys). Accented letters
-//!   need the machine's dead key (`Profile::dead_keys`); the SM9 has none
+//! - printable keys: type, except 1 and ! (no such keys) and characters the
+//!   typeface lacks (`app.rs` checks). Accented letters need the machine's
+//!   dead key (`Profile::dead_keys`); the SM9 has none
 //! - 1 / !: the scratchpad; Esc or a click away puts it back. While it is
 //!   open, Page Up / Page Down turn its leaves (`render/pad.rs`)
 //! - Enter: return; held, rolls the paper a line per key repeat

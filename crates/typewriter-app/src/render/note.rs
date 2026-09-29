@@ -217,17 +217,9 @@ mod tests {
     fn caveat_metrics_match_the_font() {
         // hhea: ascender, descender, line gap at offsets 4, 6, 8. head:
         // units per em at 18.
-        let table = |tag: &[u8]| {
-            let count = u16::from_be_bytes([CAVEAT[4], CAVEAT[5]]) as usize;
-            (0..count)
-                .map(|i| &CAVEAT[12 + 16 * i..28 + 16 * i])
-                .find(|record| &record[..4] == tag)
-                .map(|record| u32::from_be_bytes([record[8], record[9], record[10], record[11]]))
-                .unwrap() as usize
-        };
         let int = |at: usize| f32::from(i16::from_be_bytes([CAVEAT[at], CAVEAT[at + 1]]));
-        let head = table(b"head");
-        let hhea = table(b"hhea");
+        let head = super::super::font_table(CAVEAT, b"head").unwrap();
+        let hhea = super::super::font_table(CAVEAT, b"hhea").unwrap();
         let em = f32::from(u16::from_be_bytes([CAVEAT[head + 18], CAVEAT[head + 19]]));
         assert_eq!(int(hhea + 4) / em, ASCENT_EM);
         assert!(((int(hhea + 4) - int(hhea + 6) + int(hhea + 8)) / em - LINE_EM).abs() < 1e-6);
