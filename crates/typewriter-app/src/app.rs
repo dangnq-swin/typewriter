@@ -1196,7 +1196,7 @@ impl TypewriterApp {
                 egui::Id::new(("platen-knob", name)),
                 egui::Sense::DRAG,
             )
-            .on_hover_text("Platen knob (\u{2191} / \u{2193}): drag or scroll to roll a half-line");
+            .on_hover_text("Platen knob (Up / Down): drag or scroll to roll a half-line");
         if response.hovered() || response.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
         }
@@ -1654,6 +1654,32 @@ fn add_family(fonts: &mut FontDefinitions, name: &str, font: &'static [u8], fall
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The fonts as the app sets them up, loaded.
+    fn fonts() -> egui::Context {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
+        ctx
+    }
+
+    #[test]
+    fn the_interface_font_has_every_symbol_the_interface_writes() {
+        let ctx = fonts();
+        let font = egui::FontId::proportional(12.0);
+        // Symbols in labels, tooltips and notes. ✔ ✕ ↑ ↓ are missing: draw
+        // them, or write words.
+        let missing: String = ctx.fonts_mut(|fonts| {
+            "\u{2026}\u{201c}\u{201d}\u{2013}\u{b7}%"
+                .chars()
+                .filter(|&c| !fonts.has_glyph(&font, c))
+                .collect()
+        });
+        assert_eq!(missing, "");
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
+    }
 
     #[test]
     fn a_refed_sheet_is_never_more_than_a_third_of_a_cell_off() {

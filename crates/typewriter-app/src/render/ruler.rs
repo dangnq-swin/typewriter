@@ -31,6 +31,8 @@ const SAVED: Color32 = Color32::from_rgb(0x3C, 0x8A, 0x3C);
 const WRITING: Color32 = Color32::from_rgb(0xD0, 0x90, 0x20);
 const FAILED: Color32 = Color32::from_rgb(0xB0, 0x30, 0x1C);
 const DOT_RADIUS: f32 = 3.5;
+/// The reached goal's check mark, drawn.
+const CHECK_WIDTH: f32 = 9.0;
 const STOP_FOOT: f32 = 4.0;
 const RELEASED_OPACITY: f32 = 0.35;
 const RELEASED_LIFT: f32 = 3.0;
@@ -232,8 +234,43 @@ pub fn paint_correction_plate(
 }
 
 /// The session goal's progress, right of `after`.
+/// A reached goal gets a check mark, drawn: the plate font has no ✔.
 pub fn paint_goal_plate(painter: &Painter, progress: Option<Progress>, after: Rect) -> Rect {
-    paint_text_plate(painter, goal_text(progress), after)
+    let reached = progress.is_some_and(|p| p.reached);
+    let text = painter.layout_no_wrap(
+        goal_text(progress),
+        FontId::proportional(PLATE_FONT_SIZE),
+        TICKS,
+    );
+    let check = if reached {
+        CHECK_WIDTH + PLATE_PADDING / 2.0
+    } else {
+        0.0
+    };
+    let size = vec2(text.size().x + PLATE_PADDING * 2.0 + check, after.height());
+    let rect = Rect::from_min_size(after.right_top() + vec2(PLATE_GAP, 0.0), size);
+    paint_plate(painter, rect);
+    let text_left = rect.left() + PLATE_PADDING;
+    let text_right = text_left + text.size().x;
+    painter.galley(
+        pos2(text_left, rect.center().y - text.size().y / 2.0),
+        text,
+        TICKS,
+    );
+    if reached {
+        let h = 0.55 * rect.height();
+        let at = |x: f32, y: f32| {
+            pos2(
+                text_right + PLATE_PADDING / 2.0 + x * CHECK_WIDTH,
+                rect.center().y + (y - 0.5) * h,
+            )
+        };
+        painter.add(Shape::line(
+            vec![at(0.0, 0.55), at(0.35, 0.9), at(1.0, 0.1)],
+            Stroke::new(1.4, SAVED),
+        ));
+    }
+    rect
 }
 
 fn goal_text(progress: Option<Progress>) -> String {
@@ -241,7 +278,7 @@ fn goal_text(progress: Option<Progress>) -> String {
         goal,
         words,
         minutes,
-        reached,
+        ..
     }) = progress
     else {
         return "Goal: Off".to_owned();
@@ -254,8 +291,7 @@ fn goal_text(progress: Option<Progress>) -> String {
             minutes: m,
         } => format!("{words} / {w} words or {minutes} / {m} min"),
     };
-    let check = if reached { " \u{2714}" } else { "" };
-    format!("Goal: {target}{check}")
+    format!("Goal: {target}")
 }
 
 /// Flush with the scale's right end (`right`), in `left_row`'s row; drops a
@@ -368,7 +404,7 @@ mod tests {
         );
         assert_eq!(
             goal_text(progress(Goal::Minutes(12), true)),
-            "Goal: 12 / 12 min \u{2714}"
+            "Goal: 12 / 12 min"
         );
         let either = Goal::WordsOrMinutes {
             words: 750,
