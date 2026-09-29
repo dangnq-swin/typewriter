@@ -53,47 +53,56 @@ M0–M9 are done; the git history has the details.
       written on. The folder file keeps words per day in place of sessions (format version 7;
       older files' sessions are folded into their days)
 
-## M15: Desktop integration
+## M15: Windows builds for testers
+
+- [ ] ❓ Projects, drafts and settings kept where Windows keeps them (`%APPDATA%\typewriter`)
+      instead of the XDG paths, which Windows lacks
+- [ ] No console window beside the app on Windows
+- [ ] Typing on Windows keyboard layouts, dead keys included, checked by a tester
+- [ ] CI (GitHub Actions): fmt, clippy and tests on Linux for every push; a Windows build,
+      started by hand, that runs the tests and leaves the app as a download on the run
+
+## M16: Desktop integration
 
 - [ ] Open `*.folder.ron` files from the file manager (a MIME type)
 - [ ] Print: send the PDF export to a printer
 - [ ] Verify and support X11 (Wayland is the current target)
-- [ ] Windows and macOS builds
+- [ ] macOS builds
 
-## M16: Look
+## M17: Look
 
 - [ ] Configurable background: own texture path or a flat colour instead of the bundled
       paper photo
 - [ ] Night desk: a dim room with a lamp's pool of light on the paper
 - [ ] Carriage-return lever animation
 
-## M17: Ribbon
+## M18: Ribbon
 
 - [ ] ❓ Two-colour ribbon (black / red) switch
 - [ ] Ribbon wear: ink fades gradually and is refreshed by "changing the ribbon"
 
-## M18: More machines
+## M19: More machines
 
 - [ ] Profiles with their own sounds and typeface
 - [ ] Elite (12 cpi) type option for the SM9
 - [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
       its own pitch, typeface, bell offset and sounds
 
-## M19: Paper
+## M20: Paper
 
 - [ ] ❓ Other stock: onion skin, coloured bond, US Letter beside A4, chosen when feeding a
       sheet (a real stack of paper beside the machine)
 - [ ] ❓ Index cards and envelopes: small stock fed the same way, typed on and filed
 
-## M20: Filing away
+## M21: Filing away
 
 - [ ] ❓ Export as .odt, the other half of `typewriter import`
 - [ ] ❓ Packaging: Flatpak and an AppImage, beside `scripts/install.sh`
 
-## M21: Testers
+## M22: Testers
 
-- [ ] ❓ Builds for first testers, and a round of fixes for what trips them up. Choices held back
-      for their feedback (key rebinding among them) are settled afterwards
+- [ ] ❓ A round of fixes for what trips up the first testers, on the M15 builds. Choices held
+      back for their feedback (key rebinding among them) are settled afterwards
 
 ---
 
