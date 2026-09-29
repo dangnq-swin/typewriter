@@ -1,0 +1,3 @@
+# LF everywhere, Windows checkouts included: include_str! embeds files byte for
+# byte, and the tests read them.
+* text=auto eol=lf
