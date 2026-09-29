@@ -10,10 +10,10 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # rodio's ALSA backend links against libasound.
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry

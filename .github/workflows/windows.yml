@@ -11,8 +11,8 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -27,7 +27,7 @@ jobs:
       - run: |
           New-Item -ItemType Directory dist
           Copy-Item target/release/typewriter.exe, target/release/typewriter-import.exe, LICENSE dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: typewriter-windows
           path: dist
