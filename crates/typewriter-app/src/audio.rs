@@ -14,7 +14,7 @@ use crate::render::feed::FeedMotion;
 use crate::render::feed::SETTLE_SECONDS;
 use crate::settings;
 
-/// Cut from their CC0 sources by `scripts/prepare-sounds.sh`.
+/// Clips cut from CC0 sources by `scripts/prepare-sounds.sh`.
 macro_rules! clip {
     ($name:literal) => {
         include_bytes!(concat!("../../../assets/sounds/", $name, ".wav"))
@@ -29,7 +29,7 @@ const KEYS: [&[u8]; 6] = [
     clip!("key-5"),
     clip!("key-6"),
 ];
-/// The lengths of the bundled feed clips.
+/// The bundled feed clips' lengths, if they fail to decode.
 const FALLBACK_WIND_OUT_SECONDS: f64 = 1.61;
 const FALLBACK_WIND_IN_SECONDS: f64 = 6.85;
 const BELLS: [&[u8]; 2] = [clip!("bell-1"), clip!("bell-2")];
@@ -41,7 +41,7 @@ const ROLLS: [&[u8]; 4] = [
 ];
 
 pub struct Audio {
-    // Playback stops when the device sink is dropped.
+    // Keep alive: dropping it stops playback.
     device: MixerDeviceSink,
     keys: Vec<SamplesBuffer>,
     bells: Vec<SamplesBuffer>,
@@ -59,12 +59,12 @@ pub struct Audio {
     key_variety: Variety,
     bell_variety: Variety,
     roll_variety: Variety,
-    /// Which mechanisms the machine in use sounds at all.
+    /// The machine's audible mechanisms. Silent ones stay silent.
     machine: Sounds,
     settings: settings::Sound,
 }
 
-/// Sounds that can be turned off together in the settings.
+/// Sounds switched off together in the settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Group {
     Keys,
@@ -100,8 +100,7 @@ impl Group {
     }
 }
 
-/// Loudness follows the square of the slider, which sounds more even than
-/// a straight line.
+/// Squares the slider: sounds more even than linear.
 fn gain(volume_percent: u8) -> f32 {
     let v = f32::from(volume_percent.min(settings::VOLUME_MAX)) / f32::from(settings::VOLUME_MAX);
     v * v
@@ -111,7 +110,7 @@ impl Audio {
     pub fn new(machine: Sounds, settings: settings::Sound) -> anyhow::Result<Self> {
         let mut device =
             DeviceSinkBuilder::open_default_sink().context("no audio output device")?;
-        // Dropped on quit, when stopping the sound is what should happen.
+        // Quiet on quit: stopping the sound then is expected.
         device.log_on_drop(false);
         Ok(Self {
             device,
@@ -136,7 +135,6 @@ impl Audio {
         })
     }
 
-    /// The machine in use changed: its silent mechanisms stay silent.
     pub fn set_machine(&mut self, machine: Sounds) {
         self.machine = machine;
     }
@@ -167,14 +165,14 @@ impl Audio {
             Event::Tab => Some(&self.tab),
             Event::Erase(EraseMode::Fluid) => Some(&self.fluid),
             Event::Erase(_) => Some(&self.erase),
-            // Strikes through the slip sound like any other.
+            // Silent: strikes through the slip sound like any strike.
             Event::SlipIn | Event::SlipOut => None,
             Event::CarriageReturn if self.machine.carriage_return => Some(&self.carriage_return),
             Event::LineFeed if self.machine.line_feed => self.roll_variety.pick(&self.rolls),
             Event::CarriageReturn | Event::LineFeed => None,
             Event::SheetFed => {
-                // Mixed together, so the new sheet's sound follows the
-                // clicks without a gap however the frames fall.
+                // Queue both now: a delay in the mixer is gapless,
+                // whatever the frame timing.
                 let after = self.wind_out.total_duration().unwrap_or_default();
                 self.add(self.wind_out.clone());
                 self.add(self.wind_in.clone().delay(after));
@@ -187,17 +185,14 @@ impl Audio {
             self.add(sound.clone());
         }
     }
-}
 
-impl Audio {
-    /// A finished sheet scrunched up into a ball.
     pub fn play_crumple(&self) {
         if self.is_on(Group::SheetFeed) {
             self.add(self.crumple.clone());
         }
     }
 
-    /// Only the new sheet winding in, for the first sheet of a document.
+    /// Just the wind-in, for a project's first sheet.
     pub fn play_wind_in(&self) {
         if self.is_on(Group::SheetFeed) {
             self.add(self.wind_in.clone());
@@ -205,9 +200,8 @@ impl Audio {
     }
 }
 
-/// A sheet feed lasts as long as its sounds and moves with them, even
-/// without a sound device: the finished sheet winds out during the clicks,
-/// the new one winds in with the knob turns.
+/// The feed's motion, timed from its clips (sound device or not): wind out
+/// during the clicks, wind in with the knob turns.
 pub fn sheet_feed_motion() -> FeedMotion {
     let wind_out = decode(clip!("feed-out"))
         .ok()
@@ -227,7 +221,7 @@ pub fn sheet_feed_motion() -> FeedMotion {
     wind_in.after_wind_out(wind_out)
 }
 
-/// Decoded once up front, so a key press only has to copy samples.
+/// Decode up front: a key press then only copies samples.
 fn decode(wav: &'static [u8]) -> anyhow::Result<SamplesBuffer> {
     let source = Decoder::new(Cursor::new(wav)).context("bundled sound is not a valid WAV")?;
     let (channels, rate) = (source.channels(), source.sample_rate());
@@ -248,8 +242,7 @@ fn seed() -> u64 {
         .map_or(0, |d| u64::from(d.subsec_nanos()))
 }
 
-/// Picks among sound variants so repeated keys do not sound mechanical in
-/// the wrong way. Never plays the same variant twice in a row.
+/// Picks sound variants at random, never the same twice in a row.
 struct Variety {
     state: u64,
     last: Option<usize>,
@@ -257,7 +250,7 @@ struct Variety {
 
 impl Variety {
     fn new(seed: u64) -> Self {
-        // xorshift gets stuck at zero.
+        // Never zero: xorshift sticks there.
         Self {
             state: seed | 1,
             last: None,
@@ -275,7 +268,7 @@ impl Variety {
         if len == 0 {
             return None;
         }
-        // The remainder is below `len`, so it fits back into usize.
+        // Safe cast: the remainder is below `len`.
         let mut i = (self.next() % len as u64) as usize;
         if Some(i) == self.last {
             i = (i + 1) % len;

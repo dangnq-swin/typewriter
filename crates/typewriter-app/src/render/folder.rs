@@ -1,8 +1,8 @@
-//! The folder of finished sheets, drawn as a neat stack in a manila folder
-//! on a tilted desk, and the read-only view of one sheet taken out of it.
+//! The folder view (a neat stack in a manila folder on a tilted desk) and
+//! the open, read-only sheet.
 //!
-//! egui cannot draw text in perspective, so sheets in the folder show their
-//! words as faint ink bars; a sheet becomes readable once it is picked up.
+//! egui can't draw text in perspective: sheets in the folder show words as
+//! faint ink bars until opened.
 
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Mesh, Pos2, Rect, Sense, Shape,
@@ -13,38 +13,37 @@ use typewriter_core::carriage::Carriage;
 use typewriter_core::page::Page;
 use typewriter_core::profile::Margins;
 
-use super::Metrics;
 use super::calm::Dimming;
 use super::note::{self, NoteArea};
 use super::paper::{self, INK};
+use super::{HIGHLIGHT, Metrics, SHEET};
 use crate::filing::ExportFormat;
 
 const TILT_DEGREES: f32 = 38.0;
-/// Camera distance in sheet heights. Smaller means stronger perspective.
+/// Camera distance, sheet heights. Smaller = stronger perspective.
 const CAMERA_DISTANCE: f32 = 2.6;
-/// Height of one sheet in the stack, in desk units, and the most the whole
-/// stack may rise, as a share of a sheet's height, however many sheets.
+/// One sheet's thickness, desk units.
 const SHEET_THICKNESS: f32 = 0.4;
+/// Stack height cap, share of a sheet's height. More sheets pack tighter.
 const MAX_STACK: f32 = 0.03;
-/// The chosen sheet slides out of the stack to the left by this share of a
-/// sheet's width, turning top-left by this much, and stays at its own
-/// height: the sheets above it still lie over it.
+/// The chosen sheet slides left this share of a sheet width, turning top-left,
+/// at its own height: sheets above still lie over it.
 const PULL: f32 = 1.0;
 const PULL_DEGREES: f32 = 45.0;
 const PULL_SECONDS: f32 = 0.25;
 
 const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
 const MANILA: Color32 = Color32::from_rgb(0xDD, 0xBF, 0x86);
+const MANILA_HOVER: Color32 = Color32::from_rgb(0xE8, 0xCD, 0x98);
 const MANILA_EDGE: Color32 = Color32::from_rgb(0xA3, 0x85, 0x52);
-const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
+/// Lighter than elsewhere: stacked edges must not read as lines.
 const SHEET_EDGE: Color32 = Color32::from_rgb(0xC9, 0xC2, 0xB4);
-const HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
 const SHADOW: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x30);
 const LABEL: Color32 = Color32::from_rgb(0xEE, 0xE8, 0xDC);
 const LABEL_DARK: Color32 = Color32::from_rgb(0x5A, 0x48, 0x2A);
 
-/// Perspective projection of the desk plane. Plane coordinates have `y`
-/// pointing away from the viewer; `lift` is height above the plane.
+/// Projects the desk plane. Plane `y` points away from the viewer; `lift` is
+/// height above it.
 struct Camera {
     centre: Pos2,
     distance: f32,
@@ -80,8 +79,7 @@ struct Placement {
 }
 
 impl Placement {
-    /// A point on the sheet, in sheet units with `y` down the page, on the
-    /// desk plane.
+    /// A sheet point (`y` down the page) on the desk plane.
     fn on_plane(&self, size: Vec2, local: Vec2) -> Vec2 {
         let d = vec2(local.x - size.x / 2.0, size.y / 2.0 - local.y);
         let (sin, cos) = self.angle.sin_cos();
@@ -99,8 +97,8 @@ impl Placement {
     }
 }
 
-/// Sheets stacked neatly in the folder, oldest at the bottom. A thick
-/// folder packs its sheets tighter rather than growing.
+/// The neat stack, oldest at the bottom. Thick folders pack tighter instead
+/// of growing.
 fn stack(count: usize, size: Vec2) -> Vec<Placement> {
     let thickness = if count > 1 {
         SHEET_THICKNESS.min(MAX_STACK * size.y / (count - 1) as f32)
@@ -116,13 +114,13 @@ fn stack(count: usize, size: Vec2) -> Vec<Placement> {
         .collect()
 }
 
-/// The highest sheet resting in the stack, given how far each is pulled
-/// out: the one seen on top, which is not the newest while that is out.
+/// The highest sheet still resting in the stack (not the newest while that
+/// one is pulled out).
 fn top_of_stack(pulls: &[f32]) -> Option<usize> {
     pulls.iter().rposition(|&amount| amount <= 0.0)
 }
 
-/// `base` slid `amount` (0 to 1) of the way out of the stack.
+/// `base` slid `amount` (0..=1) of the way out.
 fn pulled(base: Placement, size: Vec2, amount: f32) -> Placement {
     Placement {
         centre: base.centre - vec2(amount * PULL * size.x, 0.0),
@@ -166,51 +164,49 @@ fn word_runs(page: &Page) -> Vec<(u16, u16, u16)> {
     runs
 }
 
-/// What the controls around the folder ask for.
+/// What the folder's controls ask for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FolderAction {
     Save,
     SaveAs,
-    /// Start renaming the project on the folder's tab.
+    /// Start renaming on the tab.
     Rename,
     RenameTo(String),
     CancelRename,
     New,
     Open,
     Export(ExportFormat),
-    /// Start typing a new number for the chosen sheet.
+    /// Start typing the chosen sheet's new number.
     Renumber,
     RenumberTo(String),
     CancelRenumber,
-    /// Scrunch up the chosen sheet, once confirmed.
+    /// Ask to scrunch up the chosen sheet.
     Scrunch,
 }
 
 #[derive(Debug, Default)]
 pub struct FolderResponse {
-    /// The sheet clicked, to be read.
+    /// The sheet clicked open.
     pub opened: Option<usize>,
     pub action: Option<FolderAction>,
-    /// The chosen sheet's outline on screen, where it would be scrunched up.
+    /// The chosen sheet's outline: where a scrunch starts.
     pub pulled: Option<[Pos2; 4]>,
 }
 
-/// The project in the folder, as the folder view shows it.
+/// The project's labels in the folder view.
 pub struct ProjectLabel<'a> {
     /// On the folder's tab.
     pub name: &'a str,
     /// Where it is saved, above the folder.
     pub location: &'a str,
-    /// Saved under a name of its own, not an unsaved draft.
+    /// Not a draft.
     pub saved: bool,
-    /// Sessions written so far, below the location; empty if none.
+    /// Session totals below the location, `""` if none.
     pub stats: &'a str,
 }
 
-/// Draws the open folder of `project`, with the `selected` sheet (chosen
-/// with the keys) pulled out of the stack. While `renaming`, the tab holds a
-/// text field with the new name; while `renumbering`, the chosen sheet's
-/// number is a field for its new one.
+/// Draws the folder with sheet `selected` pulled out. `renaming` turns the
+/// tab into a name field; `renumbering`, the chosen sheet's number into one.
 #[allow(clippy::too_many_arguments)]
 pub fn show_folder(
     ui: &mut Ui,
@@ -229,16 +225,14 @@ pub fn show_folder(
     let aspect = metrics.paper_size.y / metrics.paper_size.x;
     let width = (view.width() * 0.30).min(view.height() * 0.40 / aspect);
     let size = vec2(width, width * aspect);
-    // Shifted right, so the folder and a sheet pulled out left of it are
-    // centred together.
+    // Shift right: centre the folder and the pulled-out sheet together.
     let camera = Camera::new(
         view.center() + vec2(0.45 * PULL * size.x, view.height() * 0.10),
         CAMERA_DISTANCE * size.y,
     );
     let placements = stack(sheets.len(), size);
 
-    // The folder's back cover with its tab, under everything. Its size does
-    // not depend on the number of sheets.
+    // Back cover and tab, under everything. Fixed size, whatever the count.
     let bottom = -0.55 * size.y;
     let top = 0.55 * size.y;
     let half = 0.6 * size.x;
@@ -296,8 +290,7 @@ pub fn show_folder(
     let pulls: Vec<f32> = (0..sheets.len()).map(pull).collect();
     let top_sheet = top_of_stack(&pulls);
 
-    // One shadow under the whole stack: sheets lying on each other cast
-    // none that shows.
+    // One shadow for the stack: stacked sheets cast none that shows.
     if let Some(last) = placements.last() {
         let shadow = Placement { lift: 0.0, ..*last }
             .quad(&camera, size, Vec2::ZERO, size, 0.0)
@@ -330,8 +323,8 @@ pub fn show_folder(
             pulled_quad = Some(outline);
         }
 
-        // Only the top of the stack and sheets sliding out show their words;
-        // the rest are covered.
+        // Only the top sheet and sliding ones show words; the rest are
+        // covered.
         if amount > 0.0 || top_sheet == Some(i) {
             let mut bars = Mesh::default();
             let ink = INK.gamma_multiply(0.35);
@@ -348,7 +341,7 @@ pub fn show_folder(
                 );
                 add_quad(&mut bars, quad, ink);
             }
-            // The note as faint pencil strokes, about as long as its lines.
+            // Notes as faint pencil strokes, about line length.
             let area = NoteArea::new(metrics, margins, i);
             let pencil = note::GRAPHITE.gamma_multiply(0.45);
             for (row, line) in page.note().lines().enumerate() {
@@ -383,8 +376,7 @@ pub fn show_folder(
         }
     }
 
-    // The pulled-out sheet opens with a click; sheets are chosen with the
-    // keys.
+    // Clicks only open the pulled-out sheet; choosing is keys only.
     let response = ui.interact(view, Id::new("folder"), Sense::click());
     let hovered = match (response.hover_pos(), pulled_quad, chosen) {
         (Some(pointer), Some(quad), Some(i)) if contains(&quad, pointer) => Some(i),
@@ -460,59 +452,45 @@ pub fn show_folder(
     }
 }
 
-/// The chosen sheet's new number, typed over its old one. Enter moves it,
-/// Esc or clicking elsewhere leaves it where it is.
+/// The chosen sheet's new number, over its old one. Enter moves it; Esc or
+/// clicking away leaves it.
 fn number_field(ui: &mut Ui, at: Pos2, number: &mut String, count: usize) -> Option<FolderAction> {
-    let rect = Rect::from_center_size(at, vec2(44.0, 18.0));
-    let field = ui.put(
-        rect,
-        egui::TextEdit::singleline(number)
-            .id(Id::new("renumber-field"))
-            .char_limit(count.to_string().len())
-            .hint_text(format!("1\u{2013}{count}"))
-            .font(FontId::proportional(11.0))
-            .horizontal_align(egui::Align::Center),
-    );
+    let edit = egui::TextEdit::singleline(number)
+        .id(Id::new("renumber-field"))
+        .char_limit(count.to_string().len())
+        .hint_text(format!("1\u{2013}{count}"))
+        .font(FontId::proportional(11.0));
+    let entered = inline_field(ui, Rect::from_center_size(at, vec2(44.0, 18.0)), edit);
     number.retain(|c| c.is_ascii_digit());
-    if !field.has_focus() && !field.lost_focus() {
-        field.request_focus();
-    }
-    if field.lost_focus() {
-        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
-        return Some(if entered {
-            FolderAction::RenumberTo(number.clone())
-        } else {
-            FolderAction::CancelRenumber
-        });
-    }
-    None
+    Some(match entered? {
+        true => FolderAction::RenumberTo(number.clone()),
+        false => FolderAction::CancelRenumber,
+    })
 }
 
-/// The new name, typed on the folder's tab. Enter renames, Esc or
-/// clicking elsewhere cancels.
+/// The new name, on the tab. Enter renames; Esc or clicking away cancels.
 fn rename_field(ui: &mut Ui, at: Pos2, name: &mut String) -> Option<FolderAction> {
-    let rect = Rect::from_center_size(at, vec2(180.0, 22.0));
-    let field = ui.put(
-        rect,
-        egui::TextEdit::singleline(name)
-            .font(FontId::proportional(12.0))
-            .horizontal_align(egui::Align::Center),
-    );
+    let edit = egui::TextEdit::singleline(name).font(FontId::proportional(12.0));
+    let entered = inline_field(ui, Rect::from_center_size(at, vec2(180.0, 22.0)), edit);
+    Some(match entered? {
+        true => FolderAction::RenameTo(name.trim().to_owned()),
+        false => FolderAction::CancelRename,
+    })
+}
+
+/// A focused, centred one-line field. `Some(entered)` once it loses focus:
+/// true by Enter, false by Esc or a click away.
+fn inline_field(ui: &mut Ui, rect: Rect, edit: egui::TextEdit<'_>) -> Option<bool> {
+    let field = ui.put(rect, edit.horizontal_align(egui::Align::Center));
     if !field.has_focus() && !field.lost_focus() {
         field.request_focus();
     }
-    if field.lost_focus() {
-        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
-        return Some(if entered {
-            FolderAction::RenameTo(name.trim().to_owned())
-        } else {
-            FolderAction::CancelRename
-        });
-    }
-    None
+    field
+        .lost_focus()
+        .then(|| ui.input(|i| i.key_pressed(egui::Key::Enter)))
 }
 
-/// Three plates on the desk below the folder, each opening a menu.
+/// Four plates below the folder, each opening a menu.
 fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<FolderAction> {
     let labels = [
         "Current project\u{2026}",
@@ -538,7 +516,7 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<Folde
         let plate = ui.interact(rect, Id::new(("desk-menu", index)), Sense::click());
         let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&plate));
         let (fill, edge) = if plate.hovered() || open {
-            (Color32::from_rgb(0xE8, 0xCD, 0x98), HIGHLIGHT)
+            (MANILA_HOVER, HIGHLIGHT)
         } else {
             (MANILA, MANILA_EDGE)
         };
@@ -619,18 +597,17 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<Folde
     chosen
 }
 
-/// What the reader did with the open sheet's note.
+/// What happened to the open sheet's note.
 #[derive(Debug, Default)]
 pub struct SheetResponse {
     /// Clicked the top margin: start writing.
     pub start_note: bool,
-    /// Finished writing: the note as written, line by line.
+    /// Finished writing: the note as written.
     pub note_written: Option<String>,
 }
 
-/// One sheet taken out of the folder, scaled to fit. Its typing is
-/// read-only, but a note can be pencilled in its top margin: `note` is the
-/// note being written, if one is.
+/// One sheet, scaled to fit, read-only except for its note. `note`: the
+/// note being written, if any.
 #[allow(clippy::too_many_arguments)]
 pub fn show_sheet(
     ui: &mut Ui,
@@ -724,8 +701,8 @@ pub fn show_sheet(
     response
 }
 
-/// Writing the note, straight on the paper. It stays within the lines the
-/// top margin has room for. Clicking elsewhere or Esc finishes it.
+/// The note being written on the paper. Refuses input past the margin's
+/// lines. Esc or a click away finishes.
 fn note_field(ui: &mut Ui, area: &NoteArea, paper: Pos2, text: &mut String) -> Option<String> {
     let before = text.clone();
     let rect = area.writing_rect(paper);
@@ -757,21 +734,21 @@ fn note_field(ui: &mut Ui, area: &NoteArea, paper: Pos2, text: &mut String) -> O
     })
 }
 
-/// A small folder on the desk, bottom left, that opens the folder view.
+/// A small folder, bottom left, that opens the folder view.
 pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize, opacity: f32) -> bool {
     if opacity <= 0.0 {
         return false;
     }
     let body = Rect::from_min_size(view.left_bottom() + vec2(16.0, -46.0), vec2(48.0, 30.0));
     let hit = body.expand2(vec2(0.0, 6.0)).translate(vec2(0.0, -3.0));
-    // Only reacts once fully shown, not while calm mode fades it.
+    // React only when fully shown, not mid-fade.
     let response = (opacity >= 1.0).then(|| {
         ui.interact(hit, Id::new("folder-icon"), Sense::click())
             .on_hover_text("Finished sheets (Page Up)")
     });
     let hovered = response.as_ref().is_some_and(|r| r.hovered());
     let (fill, edge) = if hovered {
-        (Color32::from_rgb(0xE8, 0xCD, 0x98), HIGHLIGHT)
+        (MANILA_HOVER, HIGHLIGHT)
     } else {
         (MANILA, MANILA_EDGE)
     };

@@ -1,5 +1,5 @@
-//! A PDF of the sheets as they look typed: one page per sheet, on white,
-//! with every overstrike and correction drawn as on screen.
+//! PDF export: one page per sheet, on white, drawn from the same marks as
+//! the screen.
 
 use anyhow::Context as _;
 use eframe::egui::{Color32, Pos2, Vec2, vec2};
@@ -14,10 +14,8 @@ use super::note::{self, NoteArea};
 use super::paper::{self, Drawn, RIM_WIDTH};
 use super::{COURIER_PRIME, Metrics};
 
-/// PDF units are points, 72 to the inch.
 const POINTS_PER_INCH: f32 = 72.0;
-/// Courier Prime's ascender as a share of the em. Glyphs are placed by
-/// their top on screen but by their baseline in a PDF.
+/// Courier Prime's ascender in em. Converts screen tops to PDF baselines.
 const ASCENT_EM: f32 = 1600.0 / 2048.0;
 const ELLIPSE_POINTS: u16 = 32;
 
@@ -32,7 +30,7 @@ pub fn render(
     let metrics = Metrics::new(profile, POINTS_PER_INCH);
     let mut pdf = PdfDocument::new(title);
     let font = PdfFontHandle::External(pdf.add_font(&font));
-    // Only embedded when there is a note to write with it.
+    // Embed Caveat only if some sheet has a note.
     let pencil = if export::sheets(document).any(|sheet| !sheet.note().is_empty()) {
         let parsed = ParsedFont::from_bytes(note::CAVEAT, 0, &mut Vec::new())
             .context("the handwriting font could not be read")?;
@@ -85,8 +83,8 @@ struct Page {
 }
 
 impl Page {
-    /// The pencilled note, each line from its baseline, turned with the note.
-    /// Page coordinates run upwards, so the turn is the other way round.
+    /// Each line from its baseline, turned with the note. PDF y runs up, so
+    /// negate the angle.
     fn note(&self, ops: &mut Vec<Op>, area: &NoteArea, note: &str) {
         let Some(pencil) = &self.pencil else {
             return;
@@ -94,23 +92,15 @@ impl Page {
         let (sin, cos) = (-area.angle).sin_cos();
         for (i, line) in note.lines().enumerate() {
             let at = area.baseline(Pos2::ZERO, i);
-            ops.extend([
-                Op::StartTextSection,
-                Op::SetFont {
-                    font: pencil.clone(),
-                    size: Pt(area.size),
-                },
-                Op::SetFillColor {
-                    col: on_white(note::GRAPHITE),
-                },
-                Op::SetTextMatrix {
-                    matrix: TextMatrix::Raw([cos, sin, -sin, cos, at.x, self.height - at.y]),
-                },
-                Op::ShowText {
-                    items: vec![TextItem::Text(line.to_owned())],
-                },
-                Op::EndTextSection,
-            ]);
+            let matrix = TextMatrix::Raw([cos, sin, -sin, cos, at.x, self.height - at.y]);
+            text(
+                ops,
+                pencil,
+                area.size,
+                note::GRAPHITE,
+                matrix,
+                line.to_owned(),
+            );
         }
     }
 
@@ -118,23 +108,8 @@ impl Page {
         match drawn {
             Drawn::Glyph { at, c, color } => {
                 let baseline = at.y + ASCENT_EM * self.size;
-                ops.extend([
-                    Op::StartTextSection,
-                    Op::SetFont {
-                        font: self.font.clone(),
-                        size: Pt(self.size),
-                    },
-                    Op::SetFillColor {
-                        col: on_white(color),
-                    },
-                    Op::SetTextMatrix {
-                        matrix: TextMatrix::Translate(Pt(at.x), Pt(self.height - baseline)),
-                    },
-                    Op::ShowText {
-                        items: vec![TextItem::Text(c.to_string())],
-                    },
-                    Op::EndTextSection,
-                ]);
+                let matrix = TextMatrix::Translate(Pt(at.x), Pt(self.height - baseline));
+                text(ops, &self.font, self.size, color, matrix, c.to_string());
             }
             Drawn::Patch { rect, color } => {
                 let corners = [
@@ -195,6 +170,31 @@ impl Page {
     }
 }
 
+fn text(
+    ops: &mut Vec<Op>,
+    font: &PdfFontHandle,
+    size: f32,
+    color: Color32,
+    matrix: TextMatrix,
+    text: String,
+) {
+    ops.extend([
+        Op::StartTextSection,
+        Op::SetFont {
+            font: font.clone(),
+            size: Pt(size),
+        },
+        Op::SetFillColor {
+            col: on_white(color),
+        },
+        Op::SetTextMatrix { matrix },
+        Op::ShowText {
+            items: vec![TextItem::Text(text)],
+        },
+        Op::EndTextSection,
+    ]);
+}
+
 fn ellipse(centre: Pos2, radius: Vec2) -> Vec<Pos2> {
     (0..ELLIPSE_POINTS)
         .map(|i| {
@@ -204,12 +204,12 @@ fn ellipse(centre: Pos2, radius: Vec2) -> Vec<Pos2> {
         .collect()
 }
 
-/// A translucent colour as it prints on white paper.
+/// A translucent colour as printed on white.
 fn on_white(color: Color32) -> Color {
     over(color, Color32::WHITE)
 }
 
-/// `top` (premultiplied, possibly translucent) laid over an opaque `below`.
+/// Premultiplied `top` over opaque `below`.
 fn over(top: Color32, below: Color32) -> Color {
     let clear = 1.0 - f32::from(top.a()) / 255.0;
     let channel = |t: u8, b: u8| (f32::from(t) + clear * f32::from(b)).min(255.0) / 255.0;

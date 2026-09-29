@@ -24,7 +24,7 @@ impl LineSpacing {
         }
     }
 
-    /// The next notch of the line-space lever, wrapping from 2 back to 1.
+    /// The lever's next notch: 1 → 1.5 → 2 → 1.
     pub fn next(self) -> Self {
         match self {
             Self::Single => Self::OneAndHalf,
@@ -34,34 +34,24 @@ impl LineSpacing {
     }
 }
 
-/// How far from the carriage, in columns, clearing a tab stop reaches.
+/// Columns either side of the carriage that clearing a tab stop reaches.
 pub const TAB_CLEAR_VICINITY: u16 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Carriage {
-    /// Column the next strike lands on. May equal the page width, which means
-    /// the carriage has run off the right edge of the paper.
+    /// Where the next strike lands. Equals the page width when run off the edge.
     pub column: u16,
     pub half_line: u16,
     pub left_margin: u16,
     /// First column the carriage locks at.
     pub right_margin: u16,
-    /// One-shot: lets the carriage pass both margins until the next return.
+    /// One-shot: pass both margins until the next return.
     pub margin_released: bool,
     pub line_spacing: LineSpacing,
     tab_stops: BTreeSet<u16>,
 }
 
 impl Carriage {
-    /// Fits a sheet `columns` wide and `half_lines` tall, e.g. after loading.
-    pub fn fits(&self, columns: u16, half_lines: u16) -> bool {
-        self.column <= columns
-            && self.half_line < half_lines
-            && self.left_margin < self.right_margin
-            && self.right_margin <= columns
-            && self.tab_stops.iter().all(|&stop| stop < columns)
-    }
-
     pub fn new(left_margin: u16, right_margin: u16, top_half_line: u16) -> Self {
         Self {
             column: left_margin,
@@ -74,6 +64,15 @@ impl Carriage {
         }
     }
 
+    /// Fits a sheet `columns` wide and `half_lines` tall. Check after loading.
+    pub fn fits(&self, columns: u16, half_lines: u16) -> bool {
+        self.column <= columns
+            && self.half_line < half_lines
+            && self.left_margin < self.right_margin
+            && self.right_margin <= columns
+            && self.tab_stops.iter().all(|&stop| stop < columns)
+    }
+
     pub fn tab_stops(&self) -> impl Iterator<Item = u16> + '_ {
         self.tab_stops.iter().copied()
     }
@@ -82,8 +81,8 @@ impl Carriage {
         self.tab_stops.insert(column);
     }
 
-    /// Removes the stop closest to the carriage, if one lies within
-    /// [`TAB_CLEAR_VICINITY`] columns. Returns the column that was cleared.
+    /// Clears the stop nearest the carriage within [`TAB_CLEAR_VICINITY`].
+    /// Ties go to the stop behind.
     pub fn clear_nearest_tab_stop(&mut self) -> Option<u16> {
         let low = self.column.saturating_sub(TAB_CLEAR_VICINITY);
         let high = self.column.saturating_add(TAB_CLEAR_VICINITY);
@@ -107,8 +106,7 @@ impl Carriage {
             .copied()
     }
 
-    /// The bell is tripped by the carriage passing a fixed point, so it rings
-    /// whenever a forward move crosses it, not once per line.
+    /// A fixed trip point: rings on every forward crossing, not once per line.
     pub fn crosses_bell(&self, from: u16, to: u16, bell_columns_before_margin: u16) -> bool {
         let bell = self.right_margin.saturating_sub(bell_columns_before_margin);
         from < bell && to >= bell

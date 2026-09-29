@@ -1,8 +1,5 @@
-//! Keeping the project in the machine saved: autosave, Save / Save As /
-//! Rename, opening another project and exporting it.
-//!
-//! A project is one folder file (`*.folder.ron`), shown as the manila
-//! folder.
+//! Keeps the project saved: autosave, Save / Save As / Rename, Open and
+//! Export. One project = one `*.folder.ron` file.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -16,10 +13,10 @@ use crate::machines::Machines;
 use crate::render::pdf;
 use crate::storage;
 
-/// Saved once typing has paused this long.
+/// Autosave after this pause in typing.
 const AUTOSAVE_AFTER_SECONDS: f64 = 2.0;
 const NOTICE_SECONDS: f64 = 4.0;
-/// How long the status dot shows a write, so it can be seen at all.
+/// Hold the dot amber this long after a write, so it shows at all.
 const WRITING_SECONDS: f64 = 0.4;
 const NOTICE_FADE_SECONDS: f64 = 0.5;
 
@@ -27,7 +24,6 @@ const NOTICE_FADE_SECONDS: f64 = 0.5;
 pub enum ExportFormat {
     Markdown,
     Text,
-    /// The sheets as they look typed.
     Pdf,
 }
 
@@ -38,22 +34,21 @@ enum Dialog {
     Open,
 }
 
-/// A path chosen in a desktop dialog, or the dialog closed without one.
+/// A desktop dialog's answer.
 pub enum Picked {
     SaveAs(PathBuf),
     Open(PathBuf),
     Cancelled,
 }
 
-/// How the project is being kept, for the Autosave plate.
+/// How the project is kept. Drives the Autosave plate.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Keeping {
-    /// Written to its own file after each pause, with how the last write
-    /// went.
+    /// Written to its file after each pause.
     Autosave(WriteStatus),
-    /// Not yet saved under a name: cached in the drafts folder.
+    /// Unnamed: cached in the drafts folder.
     Draft,
-    /// Autosave is off: written only by Save.
+    /// Written only by Save.
     Off { unsaved: bool },
 }
 
@@ -65,14 +60,13 @@ pub enum WriteStatus {
 }
 
 pub struct Filing {
-    /// The project's file, or its draft until it is saved under a name.
-    /// `None` only when there is no data directory to keep a draft in.
+    /// The project's file or draft. `None` only without a data directory.
     path: Option<PathBuf>,
-    /// When the machine last changed without being saved.
+    /// First unsaved change.
     changed_at: Option<f64>,
     dialog: Option<(Dialog, Receiver<Option<PathBuf>>)>,
     notice: Option<(String, f64)>,
-    /// When the project was last written, and why that failed if it did.
+    /// (when, error if it failed)
     last_write: Option<(f64, Option<String>)>,
 }
 
@@ -104,7 +98,7 @@ impl Filing {
             .map_or_else(|| storage::UNTITLED.to_owned(), storage::display_name)
     }
 
-    /// Where the project is saved, for the folder view.
+    /// Where it is saved, for the folder view.
     pub fn location(&self) -> String {
         match self.path.as_deref() {
             Some(path) if !storage::is_draft(path) => storage::home_relative(path),
@@ -117,24 +111,22 @@ impl Filing {
         }
     }
 
-    /// There is a file for the project, draft or not: it was opened, not
-    /// started new.
+    /// A file exists, draft or not: it was opened, not started new.
     pub fn is_saved_somewhere(&self) -> bool {
         self.path.as_deref().is_some_and(Path::exists)
     }
 
-    /// Saved under a name of its own, not a draft.
+    /// Saved under its own name, not a draft.
     pub fn is_saved(&self) -> bool {
         self.path.as_deref().is_some_and(|p| !storage::is_draft(p))
     }
 
-    /// A draft with something typed in it: worth asking about before it
-    /// is put away.
+    /// A draft with something typed: ask before putting it away.
     pub fn is_draft_with_work(&self, machine: &Typewriter) -> bool {
         !self.is_saved() && !is_untouched(machine)
     }
 
-    /// Changes not written to the project's own file yet.
+    /// Changes not yet written to the project's file.
     pub fn has_unsaved_changes(&self) -> bool {
         self.changed_at.is_some()
     }
@@ -155,7 +147,7 @@ impl Filing {
         })
     }
 
-    /// Throws the draft away, file and all. Nothing is written afterwards.
+    /// Deletes the draft file. Nothing is written afterwards.
     pub fn discard_draft(&mut self) {
         if let Some(path) = self.path.take().filter(|p| storage::is_draft(p)) {
             let _ = fs::remove_file(path);
@@ -167,8 +159,8 @@ impl Filing {
         self.changed_at.get_or_insert(now);
     }
 
-    /// Writes after a pause in typing. With autosave off, only a draft is
-    /// written (to the drafts folder), so a crash still loses nothing.
+    /// Writes after a pause in typing. With autosave off, still writes drafts:
+    /// a crash must lose nothing.
     pub fn autosave(&mut self, machine: &Typewriter, now: f64, autosave: bool) {
         if self
             .changed_at
@@ -178,51 +170,51 @@ impl Filing {
         }
     }
 
-    /// Writes now if autosave would (e.g. on a sheet feed or on quit).
+    /// Writes now if autosave would. Call on a sheet feed and on quit.
     pub fn keep(&mut self, machine: &Typewriter, now: f64, autosave: bool) {
         if autosave || !self.is_saved() {
             self.save(machine, now);
         }
     }
 
-    /// Writes the project if anything changed. A draft is not written until
-    /// something has been typed, so drafts do not pile up.
-    pub fn save(&mut self, machine: &Typewriter, now: f64) {
+    /// Writes if anything changed. Skips untouched drafts so they don't
+    /// pile up. False if the write failed.
+    pub fn save(&mut self, machine: &Typewriter, now: f64) -> bool {
         if self.changed_at.is_none() {
-            return;
+            return true;
         }
         let Some(path) = self.path.clone() else {
-            return;
+            return true;
         };
-        if is_untouched(machine) && storage::is_draft(&path) && !path.exists() {
-            self.changed_at = None;
-            return;
-        }
-        // Tried again after the next change if it fails.
+        // On failure too: retry after the next change.
         self.changed_at = None;
-        let written = write_project(machine, &path);
-        self.last_write = Some((now, written.as_ref().err().map(|err| format!("{err:#}"))));
-        if let Err(err) = written {
-            self.notify(format!("Could not save the project: {err:#}"), now);
+        if is_untouched(machine) && storage::is_draft(&path) && !path.exists() {
+            return true;
         }
+        let error = write_project(machine, &path)
+            .err()
+            .map(|err| format!("{err:#}"));
+        if let Some(err) = &error {
+            self.notify(format!("Could not save the project: {err}"), now);
+        }
+        let saved = error.is_none();
+        self.last_write = Some((now, error));
+        saved
     }
 
-    /// Save, from the menu: writes now, or asks for a name and place if the
-    /// project is still a draft.
+    /// The Save command: writes now, or Save As for a draft.
     pub fn save_now(&mut self, machine: &Typewriter, ctx: &egui::Context, now: f64) {
         if !self.is_saved() {
             self.ask(Dialog::SaveAs, ctx);
             return;
         }
         self.changed(now);
-        self.save(machine, now);
-        if self.changed_at.is_none() {
+        if self.save(machine, now) {
             self.notify("Saved".to_owned(), now);
         }
     }
 
-    /// Saves the project under a chosen name and place. A draft moves there.
-    /// Returns whether it was saved.
+    /// Saves under a chosen path; a draft moves there. True if saved.
     pub fn save_as(&mut self, machine: &Typewriter, chosen: PathBuf, now: f64) -> bool {
         let path = storage::with_extension(chosen);
         if let Err(err) = write_project(machine, &path) {
@@ -234,7 +226,7 @@ impl Filing {
             && storage::is_draft(&old)
             && old != path
         {
-            // Only a draft: the project is safe in its new place.
+            // Safe: only a draft, and the project is now written elsewhere.
             let _ = fs::remove_file(old);
         }
         self.changed_at = None;
@@ -313,7 +305,7 @@ impl Filing {
         self.ask(Dialog::Open, ctx);
     }
 
-    /// Opens the desktop's own dialog without holding up the window.
+    /// Opens the desktop dialog on a thread, so the window keeps drawing.
     fn ask(&mut self, dialog: Dialog, ctx: &egui::Context) {
         if self.dialog.is_some() {
             return;
@@ -345,7 +337,7 @@ impl Filing {
         self.dialog = Some((dialog, receiver));
     }
 
-    /// What was chosen in the dialog, once it has closed.
+    /// The dialog's answer, once it has closed.
     pub fn picked(&mut self) -> Option<Picked> {
         let (dialog, receiver) = self.dialog.as_ref()?;
         let picked = match receiver.try_recv() {
@@ -387,7 +379,7 @@ impl Filing {
                 .is_some_and(|(_, at)| now - at < NOTICE_SECONDS)
     }
 
-    /// A short note at the bottom of the window, fading out.
+    /// A short fading note at the bottom of the window.
     pub fn paint_notice(&self, ctx: &egui::Context, view: Rect, now: f64) {
         let Some((text, at)) = &self.notice else {
             return;
@@ -416,13 +408,13 @@ impl Filing {
     }
 }
 
-/// Nothing typed yet: no finished sheets and a blank one in the machine.
+/// Nothing typed yet.
 fn is_untouched(machine: &Typewriter) -> bool {
     let document = machine.document();
     document.finished().is_empty() && document.current().is_blank()
 }
 
-/// Reads a project file into the machine it was typed on.
+/// Reads a project into the machine it was typed on.
 pub fn open(machines: &Machines, path: &Path) -> anyhow::Result<Typewriter> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     Ok(Typewriter::from_folder_ron(&text, |name| {

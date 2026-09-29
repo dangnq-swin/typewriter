@@ -1,6 +1,5 @@
-//! The carriage scale below the typing line, with margin and tab stop marks,
-//! the line spacing indicator, the zoom plate, the correction plate and the
-//! goal plate.
+//! The carriage scale (margin and tab marks) and the plates below it:
+//! Spacing, Zoom, Correct, Goal and Autosave.
 
 use std::f32::consts::PI;
 
@@ -9,16 +8,15 @@ use eframe::egui::{
 };
 use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
-
-use crate::filing::{Keeping, WriteStatus};
 use typewriter_core::{EraseMode, Goal, LineSpacing};
 
 use super::Metrics;
+use crate::filing::{Keeping, WriteStatus};
 
 pub const HEIGHT: f32 = 20.0;
-/// Space between the bottom of the typing line and the scale.
+/// Typing line bottom to scale.
 const GAP: f32 = 10.0;
-/// Space between the scale and the plates below it, and between plates.
+/// Scale to plates, and plate to plate.
 const PLATE_GAP: f32 = 4.0;
 const PLATE_PADDING: f32 = 6.0;
 const PLATE_FONT_SIZE: f32 = 10.0;
@@ -34,13 +32,13 @@ const WRITING: Color32 = Color32::from_rgb(0xD0, 0x90, 0x20);
 const FAILED: Color32 = Color32::from_rgb(0xB0, 0x30, 0x1C);
 const DOT_RADIUS: f32 = 3.5;
 
-/// Top edge of the scale for a given strike point.
+/// The scale's top edge for a strike point.
 pub fn top(metrics: &Metrics, strike_point: Pos2) -> f32 {
     strike_point.y + metrics.cell_size().y + GAP
 }
 
-/// The scale travels with the carriage, so it is laid out from the paper's
-/// left edge, like the one on the SM9's paper bail.
+/// Laid out from the paper's left edge: it travels with the carriage, like
+/// the SM9's.
 pub fn paint_scale(
     painter: &Painter,
     metrics: &Metrics,
@@ -50,13 +48,7 @@ pub fn paint_scale(
     top: f32,
 ) {
     let rect = Rect::from_min_size(pos2(paper_left, top), vec2(metrics.paper_size.x, HEIGHT));
-    painter.rect(
-        rect,
-        CornerRadius::same(2),
-        SCALE,
-        Stroke::new(1.0, SCALE_EDGE),
-        eframe::egui::StrokeKind::Inside,
-    );
+    paint_plate(painter, rect);
 
     let column_left =
         |column: u16| paper_left + metrics.grid_origin.x + f32::from(column) * metrics.column_width;
@@ -93,8 +85,7 @@ pub fn paint_scale(
     paint_margin_mark(painter, column_left(carriage.right_margin), rect, -1.0);
 }
 
-/// A bracket opening towards the writing area: `direction` is 1 for the left
-/// margin and -1 for the right.
+/// A bracket opening toward the writing area. `direction`: 1 left, -1 right.
 fn paint_margin_mark(painter: &Painter, x: f32, rect: Rect, direction: f32) {
     let stroke = Stroke::new(2.0, MARGIN);
     let foot = 4.0 * direction;
@@ -109,7 +100,7 @@ fn paint_margin_mark(painter: &Painter, x: f32, rect: Rect, direction: f32) {
     ));
 }
 
-/// A small downward pointer hanging from the top of the scale.
+/// A small pointer hanging from the scale's top.
 fn paint_tab_mark(painter: &Painter, x: f32, rect: Rect) {
     let w = 3.5;
     let top = rect.top() + 1.0;
@@ -120,10 +111,8 @@ fn paint_tab_mark(painter: &Painter, x: f32, rect: Rect) {
     ));
 }
 
-/// Labelled plate just below the scale, flush with its left end. Two
-/// circles: the first is always filled, the second is empty for single
-/// spacing, filled on its left half for 1.5 and full for double.
-/// Returns the plate's outline, which can be clicked to change the spacing.
+/// Below the scale, flush left. Two circles: first filled; second empty (1),
+/// half (1.5) or full (2). Returns the plate's rect.
 pub fn paint_spacing_indicator(
     painter: &Painter,
     spacing: LineSpacing,
@@ -174,14 +163,12 @@ pub fn paint_spacing_indicator(
     rect
 }
 
-/// The zoom level on a plate right of `after` (the spacing plate). Returns
-/// the plate's outline.
+/// Right of `after`. Returns the plate's rect (so do the plates below).
 pub fn paint_zoom_plate(painter: &Painter, percent: u16, after: Rect) -> Rect {
     paint_text_plate(painter, format!("{percent} %"), after)
 }
 
-/// How mistakes are fixed, on a plate right of `after` (the zoom plate).
-/// Returns the plate's outline.
+/// The correction method, right of `after`.
 pub fn paint_correction_plate(
     painter: &Painter,
     mode: EraseMode,
@@ -198,8 +185,7 @@ pub fn paint_correction_plate(
     paint_text_plate(painter, format!("Correct: {method}"), after)
 }
 
-/// The session goal and how far along it is, on a plate right of `after`
-/// (the correction plate). Returns the plate's outline.
+/// The session goal's progress, right of `after`.
 pub fn paint_goal_plate(painter: &Painter, progress: Option<Progress>, after: Rect) -> Rect {
     paint_text_plate(painter, goal_text(progress), after)
 }
@@ -226,10 +212,8 @@ fn goal_text(progress: Option<Progress>) -> String {
     format!("Goal: {target}{check}")
 }
 
-/// How the project is being kept, on a plate flush with the scale's right
-/// end (`right`), in the row of plates that starts at `left_row` (the
-/// spacing plate). If that row reaches too far, it goes on a row of its
-/// own below. Returns the plate's outline.
+/// Flush with the scale's right end (`right`), in `left_row`'s row; drops a
+/// row if the left plates reach `row_end`.
 pub fn paint_autosave_plate(
     painter: &Painter,
     keeping: &Keeping,
@@ -303,7 +287,7 @@ fn left_half_disc(centre: Pos2, radius: f32) -> Vec<Pos2> {
     const STEPS: u16 = 16;
     (0..=STEPS)
         .map(|i| {
-            // From the top, round the left side, to the bottom.
+            // Top, round the left, to the bottom.
             let angle = PI / 2.0 + PI * f32::from(i) / f32::from(STEPS);
             pos2(
                 centre.x + radius * angle.cos(),

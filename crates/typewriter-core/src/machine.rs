@@ -11,36 +11,33 @@ use crate::session::SessionStats;
 pub enum Command {
     Type(char),
     Backspace,
-    /// Fix a mistake, per [`EraseMode`]: cover the character before the
-    /// carriage, or put the correction slip in or take it out.
+    /// Per [`EraseMode`]: cover the character before the carriage, or put
+    /// the slip in or out.
     Erase,
     SetEraseMode(EraseMode),
-    /// Correction fluid dabbed on this cell of the sheet in the machine has
-    /// dried. The core has no clock, so the app says when.
+    /// Fluid on this cell has dried. The core has no clock: the app says when.
     FluidDried {
         half_line: u16,
         column: u16,
     },
-    /// Carriage return and line feed in one throw of the lever.
+    /// Return and line feed, one throw of the lever.
     Return,
-    /// Turning the platen knob: the paper rolls on by the line spacing and
-    /// the carriage stays where it is.
+    /// Platen knob: roll on by the line spacing; the carriage stays put.
     LineFeed,
-    /// Turning the platen knob one notch: the paper rolls on by a half-line,
-    /// e.g. winding a sheet back to where typing stopped.
+    /// Platen knob, one notch (a half-line). Winds a reopened sheet down.
     PlatenNotch,
     Tab,
     SetTabStop,
-    /// Clears the tab stop nearest the carriage, within a few columns.
+    /// Clear the stop nearest the carriage, within a few columns.
     ClearTabStop,
     ClearAllTabStops,
     SetLeftMargin,
     SetRightMargin,
     MarginRelease,
     SetLineSpacing(LineSpacing),
-    /// Carriage release lever / platen knob. Vertical moves are in half lines.
+    /// Release lever / platen knob. Vertical steps are half-lines.
     Move(Direction),
-    /// Takes the sheet out and feeds a blank one, carriage at the top margin.
+    /// File the sheet and feed a blank one, carriage at the top margin.
     FeedSheet,
 }
 
@@ -52,24 +49,23 @@ pub enum Direction {
     Down,
 }
 
-/// What happened, for the app to turn into sound and animation.
+/// What happened. The app turns these into sound and animation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Event {
     KeyStrike(char),
     Space,
     Backspace,
     Tab,
-    /// The eraser or the fluid covered the character before the carriage.
+    /// Eraser or fluid covered the character before the carriage.
     Erase(EraseMode),
-    /// The correction slip went in front of the ribbon: strikes now cover
-    /// in chalk instead of printing.
+    /// Slip in front of the ribbon: strikes now print chalk.
     SlipIn,
     SlipOut,
     Bell,
     CarriageReturn,
-    /// The platen rolled on a line without a carriage return.
+    /// Rolled on without a return.
     LineFeed,
-    /// A line feed would roll the paper past its bottom edge.
+    /// A feed would roll past the bottom edge. The app feeds a new sheet.
     PageEnd,
     SheetFed,
     Blocked(BlockReason),
@@ -93,7 +89,7 @@ pub struct Typewriter {
     carriage: Carriage,
     document: Document,
     slip_in: bool,
-    /// Sessions written in this project, oldest first.
+    /// This project's sessions, oldest first.
     sessions: Vec<SessionStats>,
 }
 
@@ -105,7 +101,7 @@ impl Typewriter {
         for &stop in &profile.tab_stops {
             carriage.set_tab_stop(stop);
         }
-        let document = Document::new(Page::new(profile.columns(), profile.half_lines()));
+        let document = Document::new(blank_sheet(&profile));
         Ok(Self {
             profile,
             constraints,
@@ -116,7 +112,7 @@ impl Typewriter {
         })
     }
 
-    /// The folder file for this document, as RON text.
+    /// The project as folder-file RON.
     pub fn to_folder_ron(&self) -> Result<String, FolderError> {
         FolderFile {
             version: FORMAT_VERSION,
@@ -129,9 +125,8 @@ impl Typewriter {
         .to_ron()
     }
 
-    /// Puts a saved document back into the machine it was typed on, found
-    /// by name with `machine`, where typing stopped. The correction slip,
-    /// being held by hand, is out.
+    /// Loads a project into its own machine (found by name via `machine`),
+    /// where typing stopped. The hand-held slip starts out.
     pub fn from_folder_ron(
         text: &str,
         machine: impl FnOnce(&str) -> Option<Profile>,
@@ -159,9 +154,8 @@ impl Typewriter {
         Ok(machine)
     }
 
-    /// Puts the sheet back in the way a typist resumes: carriage at the left
-    /// margin, paper at the top margin, ready to be wound down line by line.
-    /// Returns the half-line typing stopped at, where winding should end.
+    /// Reinserts the sheet as a typist would: carriage at the left margin,
+    /// paper at the top margin. Returns where typing stopped: wind down to it.
     pub fn reinsert(&mut self) -> u16 {
         let c = &mut self.carriage;
         let stopped_at = c.half_line;
@@ -188,18 +182,17 @@ impl Typewriter {
         &self.document
     }
 
-    /// Scrunches up the finished sheet `index`. Returns it, for the
-    /// animation, or `None` if there is no such sheet.
+    /// Scrunches up finished sheet `index`. Returns it for the animation.
     pub fn scrunch(&mut self, index: usize) -> Option<Page> {
         self.document.remove(index)
     }
 
-    /// Gives the finished sheet `from` the position `to` in the folder.
+    /// Moves finished sheet `from` to position `to`.
     pub fn renumber(&mut self, from: usize, to: usize) -> bool {
         self.document.move_sheet(from, to)
     }
 
-    /// Pencils a note in the top margin of the finished sheet `index`.
+    /// Pencils a note in finished sheet `index`'s top margin.
     pub fn annotate(&mut self, index: usize, note: &str) -> bool {
         self.document.annotate(index, note)
     }
@@ -208,8 +201,7 @@ impl Typewriter {
         &self.sessions
     }
 
-    /// Keeps the session's stats with the project, updating the entry of a
-    /// session already recorded.
+    /// Records the session, replacing its entry if already recorded.
     pub fn record_session(&mut self, stats: SessionStats) {
         match self.sessions.last_mut() {
             Some(last) if last.started == stats.started => *last = stats,
@@ -217,7 +209,7 @@ impl Typewriter {
         }
     }
 
-    /// The correction slip is held in front of the ribbon.
+    /// The correction slip is in front of the ribbon.
     pub fn slip_in(&self) -> bool {
         self.slip_in
     }
@@ -277,7 +269,7 @@ impl Typewriter {
         }
     }
 
-    /// Column the carriage cannot type at or pass, and why.
+    /// First column the carriage can't type at, and why.
     fn right_limit(&self) -> (u16, BlockReason) {
         let c = &self.carriage;
         if self.constraints.lock_at_right_margin && !c.margin_released {
@@ -296,7 +288,7 @@ impl Typewriter {
         }
     }
 
-    /// Moves the carriage right, ringing the bell if it passes the trip point.
+    /// Moves right, ringing the bell on passing the trip point.
     fn advance_to(&mut self, column: u16, events: &mut Vec<Event>) {
         let from = self.carriage.column;
         self.carriage.column = column;
@@ -331,7 +323,7 @@ impl Typewriter {
         events
     }
 
-    /// Steps the carriage back one column, or says why it cannot.
+    /// One column back, or why not.
     fn step_back(&mut self) -> Result<(), BlockReason> {
         let (limit, reason) = self.left_limit();
         if self.carriage.column <= limit {
@@ -393,8 +385,7 @@ impl Typewriter {
         }
     }
 
-    /// Rolls the paper on by the line spacing. False, without moving, when
-    /// the next line would be past the bottom of the sheet.
+    /// Rolls on by the line spacing. False, not moving, past the bottom.
     fn roll_one_line(&mut self) -> bool {
         let c = &mut self.carriage;
         let next = c.half_line + c.line_spacing.half_lines();
@@ -411,7 +402,7 @@ impl Typewriter {
         if column >= limit {
             return vec![Event::Blocked(reason)];
         }
-        // With no stop ahead the carriage flies until the margin stops it.
+        // No stop ahead: fly to the margin.
         let target = self
             .carriage
             .next_tab_stop()
@@ -453,10 +444,9 @@ impl Typewriter {
 
     fn feed_sheet(&mut self) -> Vec<Event> {
         let mut events = self.take_slip_out();
-        // Filed away, it has all the time it needs to dry.
+        // Filed sheets have time to dry.
         self.document.current_mut().dry_all();
-        let fresh = Page::new(self.profile.columns(), self.profile.half_lines());
-        self.document.feed(fresh);
+        self.document.feed(blank_sheet(&self.profile));
         let c = &mut self.carriage;
         c.column = c.left_margin;
         c.half_line = self.profile.margins.top_lines * 2;
@@ -488,6 +478,10 @@ impl Typewriter {
             None => vec![Event::Blocked(BlockReason::PaperEdge)],
         }
     }
+}
+
+fn blank_sheet(profile: &Profile) -> Page {
+    Page::new(profile.columns(), profile.half_lines())
 }
 
 #[cfg(test)]
@@ -581,7 +575,7 @@ mod tests {
         tw.apply(Command::Backspace);
         assert_eq!(tw.apply(Command::Erase), [Event::SlipIn]);
         assert!(tw.slip_in());
-        // The wrong letter again, through the slip: a strike that prints chalk.
+        // Retype the wrong letter through the slip: it prints chalk.
         assert_eq!(type_str(&mut tw, "a"), [Event::KeyStrike('a')]);
         assert_eq!(tw.apply(Command::Erase), [Event::SlipOut]);
         tw.apply(Command::Backspace);

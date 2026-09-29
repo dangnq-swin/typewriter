@@ -8,18 +8,16 @@ use eframe::egui::{
 };
 use eframe::egui::{Pos2, Rect};
 
+use super::{HIGHLIGHT, SHEET, SHEET_EDGE};
 use crate::machines::{self, Machines};
 use crate::settings::{self, Settings};
 
 const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
-const CARD: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
-const CARD_EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
 const TEXT: Color32 = Color32::from_rgb(0x2A, 0x26, 0x22);
 const QUIET: Color32 = Color32::from_rgb(0x6E, 0x66, 0x5A);
 const PROBLEM: Color32 = Color32::from_rgb(0xA0, 0x2C, 0x1C);
 const ICON_FILL: Color32 = Color32::from_rgb(0xDC, 0xD8, 0xCE);
 const ICON_EDGE: Color32 = Color32::from_rgb(0x7A, 0x72, 0x66);
-const ICON_HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
 const CARD_WIDTH: f32 = 520.0;
 
 #[derive(Debug, Default)]
@@ -27,7 +25,7 @@ pub struct SettingsResponse {
     pub close: bool,
 }
 
-/// Draws the card. Changes are made to `settings` straight away.
+/// Draws the card. Edits `settings` in place: changes apply at once.
 pub fn show_settings(
     ui: &mut Ui,
     view: Rect,
@@ -46,8 +44,8 @@ pub fn show_settings(
         ui.style_mut().visuals = egui::Visuals::light();
         ui.style_mut().visuals.override_text_color = Some(TEXT);
         egui::Frame::new()
-            .fill(CARD)
-            .stroke(Stroke::new(1.0, CARD_EDGE))
+            .fill(SHEET)
+            .stroke(Stroke::new(1.0, SHEET_EDGE))
             .corner_radius(CornerRadius::same(4))
             .inner_margin(Margin::same(20))
             .show(ui, |ui| {
@@ -200,8 +198,7 @@ fn machine(ui: &mut Ui, machine: &mut settings::Machine, machines: &Machines) {
     }
 }
 
-/// A small gear right of the calm mode icon. Fades with the other chrome in
-/// calm mode.
+/// A small gear right of the calm mode icon. Fades with the chrome.
 pub fn gear_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
     if opacity <= 0.0 {
         return false;
@@ -213,15 +210,15 @@ pub fn gear_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
             .on_hover_text("Settings")
     });
     let hovered = response.as_ref().is_some_and(|r| r.hovered());
-    let edge = if hovered { ICON_HIGHLIGHT } else { ICON_EDGE };
+    let edge = if hovered { HIGHLIGHT } else { ICON_EDGE };
     let mut painter = ui.painter_at(view);
     painter.multiply_opacity(opacity);
     let outline = gear(centre, 12.0, 9.0, 8);
-    // The outline is not convex: filled as a disc and a quad per tooth.
+    // Not convex: fill as a disc plus a quad per tooth.
     painter.circle_filled(centre, 9.0, ICON_FILL);
     let n = outline.len();
     for i in (0..n).step_by(4) {
-        // Its root in the gap before, its two tips, its root in the gap after.
+        // Root before, two tips, root after.
         let quad = vec![
             outline[(i + n - 1) % n],
             outline[i],
@@ -238,13 +235,13 @@ pub fn gear_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
     response.is_some_and(|r| r.clicked())
 }
 
-/// A gear's outline: `teeth` flat-topped teeth between two radii.
+/// A gear outline: `teeth` flat-topped teeth between two radii.
 fn gear(centre: Pos2, outer: f32, inner: f32, teeth: u16) -> Vec<Pos2> {
     let steps = teeth * 4;
     (0..steps)
         .map(|i| {
             let angle = TAU * f32::from(i) / f32::from(steps);
-            // Two points out on the tooth, two in the gap.
+            // Two points on the tooth, two in the gap.
             let radius = if i % 4 < 2 { outer } else { inner };
             pos2(
                 centre.x + radius * angle.cos(),

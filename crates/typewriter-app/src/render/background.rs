@@ -8,7 +8,7 @@ use eframe::egui::{
 
 use super::feed::convex_mesh;
 
-/// Evened out and re-encoded from `assets/paper/` by the build script.
+/// Evened out and re-encoded by `build.rs`.
 const PAPER_JPEG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/paper.jpg"));
 const FALLBACK: Color32 = Color32::from_rgb(0xF4, 0xF0, 0xE6);
 
@@ -40,12 +40,9 @@ impl Background {
             }
         }
     }
-}
 
-impl Background {
-    /// Covers a convex polygon with exactly the paper behind it, so a sheet
-    /// held over the background hides what is under it without showing a
-    /// seam.
+    /// Fills a convex polygon with exactly the background behind it: hides
+    /// what's under a lifted sheet without a seam.
     pub fn paint_polygon(&self, painter: &Painter, view: Rect, points: &[Pos2]) {
         let mesh = match &self.texture {
             Some(texture) => {
@@ -71,7 +68,7 @@ impl Background {
     }
 }
 
-/// Scales down to `max_side` if the GPU cannot take the bundled size.
+/// Decodes, scaling down to the GPU's `max_side` if needed.
 fn decode(bytes: &[u8], max_side: usize) -> image::ImageResult<ColorImage> {
     let mut paper = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)?;
     let max_side = u32::try_from(max_side).unwrap_or(u32::MAX);
@@ -84,16 +81,15 @@ fn decode(bytes: &[u8], max_side: usize) -> image::ImageResult<ColorImage> {
 }
 
 fn texture_options() -> TextureOptions {
-    // Mipmaps keep the grain from shimmering when the window is smaller
-    // than the photo.
+    // Mipmaps: stop the grain shimmering when the window is smaller than
+    // the photo.
     TextureOptions {
         mipmap_mode: Some(TextureFilter::Linear),
         ..TextureOptions::LINEAR
     }
 }
 
-/// The part of the image that fills `view` without distortion, cropping the
-/// overflowing sides equally.
+/// Cover-fit UVs: fill `view` undistorted, cropping both sides equally.
 fn cover_uv(image: Vec2, view: Vec2) -> Rect {
     let image_aspect = image.x / image.y;
     let view_aspect = view.x / view.y;

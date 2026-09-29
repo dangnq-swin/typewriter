@@ -12,7 +12,7 @@ pub struct Profile {
     /// Characters per inch (Pica = 10, Elite = 12).
     pub pitch_cpi: u16,
     pub lines_per_inch: u16,
-    /// How many columns before the right margin the bell rings.
+    /// Columns before the right margin at which the bell rings.
     pub bell_columns_before_margin: u16,
     #[serde(default)]
     pub tab_stops: Vec<u16>,
@@ -33,20 +33,19 @@ pub struct Paper {
 #[serde(deny_unknown_fields)]
 pub struct Margins {
     pub left_column: u16,
-    /// First column the carriage locks at. Typing stops *before* this column.
+    /// First column the carriage locks at; typing stops before it.
     pub right_column: u16,
-    /// Blank lines above the first typed line when a sheet is inserted.
+    /// Blank lines above the first typed line of a fresh sheet.
     pub top_lines: u16,
 }
 
-/// Which of the machine's actions make a sound. Some machines have silent
-/// mechanisms, such as the SM9's carriage return.
+/// Which mechanisms make a sound (e.g. the SM9's return is silent).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sounds {
     #[serde(default = "audible")]
     pub carriage_return: bool,
-    /// The platen ratchet when the paper is rolled on by hand.
+    /// The platen ratchet when the paper is rolled by hand.
     #[serde(default = "audible")]
     pub line_feed: bool,
 }
@@ -122,8 +121,8 @@ impl Profile {
         cells_across(self.paper.width_mm, self.pitch_cpi)
     }
 
-    /// Vertical positions on the paper, in half-line steps. The platen ratchet
-    /// advances in half lines, which is what makes 1.5 spacing possible.
+    /// Vertical positions in half-line steps, the ratchet's notch (allows 1.5
+    /// spacing).
     pub fn half_lines(&self) -> u16 {
         cells_across(self.paper.height_mm, self.lines_per_inch.saturating_mul(2))
     }
@@ -131,7 +130,7 @@ impl Profile {
 
 fn cells_across(length_mm: f64, per_inch: u16) -> u16 {
     let cells = (length_mm / MM_PER_INCH * f64::from(per_inch)).floor();
-    // Float-to-int `as` saturates, and paper is validated to be positive.
+    // `as` saturates; paper is validated positive.
     cells as u16
 }
 

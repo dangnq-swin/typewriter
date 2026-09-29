@@ -5,14 +5,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Constraints {
-    /// Backspace moves the carriage back one column without erasing, so the
-    /// next strike lands on top of the previous one.
+    /// Backspace steps back without erasing; the next strike overtypes.
     pub backspace: bool,
     pub erase: EraseMode,
-    /// The carriage locks at the right margin until the margin release is used.
+    /// Lock at the right margin until the margin release is used.
     pub lock_at_right_margin: bool,
-    /// Move the carriage and roll the platen freely (carriage release lever,
-    /// platen knob) instead of only via typing, backspace, tab and return.
+    /// Move the carriage and platen freely (release lever, platen knob), not
+    /// only by typing, backspace, tab and return.
     pub free_movement: bool,
 }
 
@@ -27,25 +26,22 @@ impl Default for Constraints {
     }
 }
 
-/// How mistakes are fixed. Corrections cover what was struck, which stays
-/// in the cell's stack.
+/// How mistakes are fixed. Corrections cover the strike; it stays in the stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum EraseMode {
     Off,
-    /// A correction slip held in front of the ribbon: Erase puts it in and
-    /// takes it out, and characters struck meanwhile are covered in chalk.
+    /// Correction slip before the ribbon: Erase puts it in or out; strikes
+    /// meanwhile leave chalk.
     Paper,
-    /// A typewriter eraser rubs out the character before the carriage.
+    /// Rub out the character before the carriage.
     Eraser,
-    /// Correction fluid is dabbed on the character before the carriage. It
-    /// smudges what is struck on it until it dries.
+    /// Dab fluid on the character before the carriage. Smudges strikes until dry.
     Fluid,
 }
 
 impl EraseMode {
-    /// The next method, for a control that cycles through them. Off is
-    /// not one of them.
+    /// The next method in the cycle. Off is never in it.
     pub fn next(self) -> Self {
         match self {
             Self::Paper => Self::Eraser,

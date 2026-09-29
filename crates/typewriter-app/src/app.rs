@@ -1,3 +1,5 @@
+//! The app: views, input routing, feeding, projects and dialogs.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,19 +25,15 @@ use crate::render::{COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, paper, ru
 use crate::settings::{SettingsFile, ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
 use crate::{render, settings, storage};
 
-/// Screen points per inch at 100% zoom.
+/// Screen points per inch at 100 % zoom.
 const POINTS_PER_INCH: f32 = 96.0;
-/// Scrolled distance that counts as one zoom step: about one wheel notch.
+/// Scroll per zoom step: about one wheel notch.
 const SCROLL_POINTS_PER_STEP: f32 = 40.0;
-
-/// Correction fluid smudges what is typed on it until it has dried.
+/// Fluid smudges strikes until dry.
 const FLUID_DRY_SECONDS: f64 = 3.0;
-
-/// A reopened sheet is wound back to where typing stopped a notch at a
-/// time, at the pace of the ratchet clicks that wind a finished sheet out.
+/// Wind-back pace per notch: match the wind-out clicks.
 const WIND_BACK_NOTCH_SECONDS: f64 = 0.06;
-
-/// Room beyond the window's edge for a moving sheet's shadow.
+/// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
 
 /// What fills the window.
@@ -43,15 +41,15 @@ const SHADOW_ROOM: f32 = 30.0;
 enum View {
     Typing,
     Folder,
-    /// A finished sheet taken out of the folder, by index.
+    /// A finished sheet, open, by index.
     Sheet(usize),
     Settings,
 }
 
-/// A reopened sheet being wound back down to the line typing stopped at.
+/// A reopened sheet winding down to where typing stopped.
 struct WindBack {
     to_half_line: u16,
-    /// When the next notch turns. Set once the sheet has wound in.
+    /// Next notch time. Set once the sheet has wound in.
     next_notch: Option<f64>,
 }
 
@@ -64,7 +62,7 @@ impl WindBack {
     }
 }
 
-/// Where the machine goes once the project in it has been dealt with.
+/// Where to go once the project is dealt with.
 #[derive(Debug, Clone)]
 enum Leaving {
     Quit,
@@ -72,99 +70,89 @@ enum Leaving {
     Open(PathBuf),
 }
 
-/// A finished sheet being scrunched up: its outline on screen when it went.
+/// A sheet being scrunched: its on-screen outline when it went.
 struct Scrunching {
     outline: [Pos2; 4],
     started: f64,
     seed: u64,
 }
 
-/// A new sheet being wound in, and the finished one rolling out.
+/// A feed in progress.
 struct Feeding {
     started: f64,
-    /// The finished sheet and the half-line it was at, if there was one.
+    /// The finished sheet rolling out and its half-line, if any.
     outgoing: Option<(Page, u16)>,
     motion: FeedMotion,
 }
 
 pub struct TypewriterApp {
     machine: Typewriter,
-    /// Where the project in the machine is saved.
     filing: Filing,
-    /// Words and typing time since the project was put in, and the goal.
     session: Session,
-    /// The new name being typed on the folder's tab.
+    /// Text fields in progress; each keeps keys from the machine.
     renaming: Option<String>,
-    /// The note being pencilled on the open sheet.
     annotating: Option<String>,
-    /// The chosen sheet's new number, being typed.
     renumbering: Option<String>,
-    /// The finished sheet waiting for a yes before it is scrunched up.
+    /// The sheet awaiting a yes to scrunch.
     confirm_scrunch: Option<usize>,
     scrunching: Option<Scrunching>,
-    /// Waiting for an answer about the draft or unsaved changes before
-    /// leaving the project.
+    /// The leave dialog is open for this.
     leaving: Option<Leaving>,
-    /// Leaving once the Save As dialog has saved the draft.
+    /// Leave once Save As has saved the draft.
     leaving_after_save_as: Option<Leaving>,
-    /// The window may close: whatever needed asking was answered.
+    /// Everything was answered: let the window close.
     quitting: bool,
-    /// When the window was last told to enter or leave fullscreen, until it
-    /// has: meanwhile its state does not overrule the setting.
+    /// When fullscreen was last switched. Until the window catches up, its
+    /// state must not overrule the setting.
     fullscreen_sent: Option<f64>,
-    /// Where the chosen sheet is drawn in the folder, as of the last frame.
+    /// The chosen sheet's outline in the folder, last frame.
     pulled: Option<[Pos2; 4]>,
     metrics: Metrics,
     platen: PlatenView,
     input: Input,
     background: Background,
-    /// `None` without a working output device: the machine stays silent.
+    /// `None` without an output device: silent.
     audio: Option<Audio>,
-    /// Winding a sheet in takes as long as its sound, and the machine takes
-    /// no input until it is done.
+    /// Timed from the feed sound. Input is locked until it ends.
     feed_motion: FeedMotion,
     feeding: Option<Feeding>,
-    /// A project, new or reopened, starts by winding its sheet in.
+    /// Every project, new or reopened, starts by winding its sheet in...
     first_sheet_pending: bool,
-    /// Then a reopened one winds down to where typing stopped.
+    /// ...and a reopened one then winds down to where typing stopped.
     wind_back: Option<WindBack>,
-    /// Cells of the sheet in the machine with correction fluid still drying,
-    /// and when it was dabbed on.
+    /// Drying fluid on the current sheet: cell → when dabbed.
     wet: HashMap<(u16, u16), f64>,
     view: View,
-    /// Distraction-free: the chrome fades away and lines dim around the
-    /// typing line.
     calm: bool,
-    /// The sheet chosen in the folder, by index.
+    /// The chosen sheet in the folder.
     selected: usize,
     zoom_percent: u16,
+    /// Scroll not yet turned into zoom steps.
     scroll_zoom: f32,
     settings: settings::Settings,
     settings_file: SettingsFile,
-    /// The machines a project can be typed on.
     machines: Machines,
 }
 
 impl TypewriterApp {
-    /// `settings` as loaded by [`SettingsFile::load`], before the window
-    /// opened.
+    /// `settings`: from [`SettingsFile::load`], before the window opened.
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         settings: (settings::Settings, SettingsFile, Option<String>),
     ) -> anyhow::Result<Self> {
         install_fonts(&cc.egui_ctx);
-        // No Ctrl shortcuts on a typewriter, egui's interface zoom included.
+        // No Ctrl shortcuts, egui's zoom keys included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
         let machines = Machines::load()?;
-        let (mut machine, filing, trouble) = first_project(&machines, &settings.machine.profile)?;
+        let (mut machine, mut filing, trouble) =
+            first_project(&machines, &settings.machine.profile)?;
         let zoom_percent = settings.look.zoom_percent;
         let metrics = Metrics::new(machine.profile(), points_per_inch(zoom_percent));
         let audio = Audio::new(machine.profile().sounds.clone(), settings.sound.clone())
             .inspect_err(|err| eprintln!("sound unavailable, typing silently: {err:#}"))
             .ok();
         let wind_back = filing.is_saved_somewhere().then(|| machine.reinsert());
-        let mut filing = filing;
         let crashed = storage::mark_running();
         let recovered = (crashed && filing.is_saved_somewhere()).then(|| {
             "Recovered your work from when Typewriter last closed unexpectedly.".to_owned()
@@ -187,8 +175,7 @@ impl TypewriterApp {
             leaving: None,
             leaving_after_save_as: None,
             quitting: false,
-            // The window was built fullscreen or not; the desktop may take a
-            // moment to show it.
+            // Grace for the desktop to show the window as built.
             fullscreen_sent: Some(0.0),
             pulled: None,
             metrics,
@@ -216,10 +203,7 @@ impl TypewriterApp {
         let now = ctx.input(|i| i.time);
         let (events, shift_down, scrolled) =
             ctx.input(|i| (i.events.clone(), i.modifiers.shift, i.smooth_scroll_delta.y));
-        // Keys still go through the input state (e.g. Shift+Tab counting),
-        // they just do nothing while a sheet is being wound in.
-        // A name being typed on the folder's tab, or a note being written,
-        // is not for the machine.
+        // Text fields and dialogs own the keys.
         if self.renaming.is_some()
             || self.annotating.is_some()
             || self.renumbering.is_some()
@@ -228,12 +212,12 @@ impl TypewriterApp {
         {
             return;
         }
+        // Run the gesture state even while busy (Shift+Tab counting).
         let actions = self.input.actions(&events, shift_down);
-        // Esc closes an open menu (egui does that) before it closes a view.
+        // egui closes an open menu on Esc: don't also close the view.
         let menu_open = egui::Popup::is_any_open(ctx);
         if self.view == View::Settings {
-            // Keys are for the card's fields. Esc closes it unless a field
-            // is being edited (Esc leaves the field first).
+            // Keys belong to the card. Esc leaves a focused field first.
             let editing = ctx.memory(|m| m.focused().is_some());
             for action in actions {
                 match action {
@@ -248,16 +232,11 @@ impl TypewriterApp {
         let feeding = self.is_busy(now);
         for action in actions {
             match action {
-                // The window is not part of the machine.
+                // Not the machine's: allowed while feeding.
                 Action::Fullscreen => self.toggle_fullscreen(ctx, now),
                 Action::Save => self.filing.save_now(&self.machine, ctx, now),
                 _ if feeding => {}
-                Action::Machine(command) => {
-                    if !self.browse_command(command) {
-                        self.apply(command, now);
-                        self.typed(now);
-                    }
-                }
+                Action::Machine(command) => self.key(command, now),
                 Action::PageUp => self.page_up(),
                 Action::PageDown => self.page_down(),
                 Action::Escape if menu_open => {}
@@ -266,26 +245,17 @@ impl TypewriterApp {
                 Action::Delete if self.view == View::Folder => {
                     self.folder_action(FolderAction::Scrunch, ctx, now);
                 }
-                Action::Delete => {
-                    self.apply(Command::Erase, now);
-                    self.typed(now);
+                Action::Delete => self.key(Command::Erase, now),
+                Action::ShiftArrow(direction) if self.view == View::Folder => {
+                    self.move_chosen(direction, now);
                 }
-                Action::ShiftArrow(direction) => match self.view {
-                    View::Folder => self.move_chosen(direction, now),
-                    _ => {
-                        let command = Command::Move(direction);
-                        if !self.browse_command(command) {
-                            self.apply(command, now);
-                            self.typed(now);
-                        }
-                    }
-                },
+                Action::ShiftArrow(direction) => self.key(Command::Move(direction), now),
             }
         }
         if feeding {
             return;
         }
-        // The paper never scrolls freely, so the wheel zooms: up is closer.
+        // The paper never scrolls, so the wheel zooms: up is closer.
         self.scroll_zoom += scrolled;
         if self.scroll_zoom.abs() >= SCROLL_POINTS_PER_STEP {
             self.zoom(if self.scroll_zoom > 0.0 { 1 } else { -1 });
@@ -293,11 +263,19 @@ impl TypewriterApp {
         }
     }
 
-    /// Typing always goes to the machine, so it also brings the view back.
+    /// A key for the machine: browses in the folder views, else types and
+    /// counts towards the session.
+    fn key(&mut self, command: Command, now: f64) {
+        if !self.browse_command(command) {
+            self.apply(command, now);
+            self.typed(now);
+        }
+    }
+
+    /// Applies a command. Any machine command returns to the typing view.
     fn apply(&mut self, command: Command, now: f64) {
         self.view = View::Typing;
-        // The finished sheet is still seen rolling out after the machine
-        // has filed it.
+        // Keep a copy: the filed sheet is still seen rolling out.
         let outgoing = (command == Command::FeedSheet).then(|| {
             (
                 self.machine.page().clone(),
@@ -308,8 +286,8 @@ impl TypewriterApp {
         self.filing.changed(now);
         for event in self.machine.apply(command) {
             match event {
-                // Many keyboards have no Insert key, so a return on the last
-                // line feeds the next sheet.
+                // Feed on a return at the page end: many keyboards lack
+                // Insert.
                 Event::PageEnd => page_end = true,
                 Event::Blocked(_) => self.platen.jolt(now),
                 Event::Erase(EraseMode::Fluid) => {
@@ -337,14 +315,17 @@ impl TypewriterApp {
         }
     }
 
-    /// Counts a key towards the session, ringing the bell once its goal is
-    /// reached, and keeps the session's stats with the project.
+    /// Counts a key towards the session; rings the bell on reaching the goal.
     fn typed(&mut self, now: f64) {
         if self.session.typed(self.machine.document(), now)
             && let Some(audio) = &mut self.audio
         {
             audio.play(Event::Bell);
         }
+        self.record_session();
+    }
+
+    fn record_session(&mut self) {
         if let Some(stats) = self.session.stats() {
             self.machine.record_session(stats);
         }
@@ -356,7 +337,7 @@ impl TypewriterApp {
         self.settings.goals.goal = goal;
     }
 
-    /// A custom goal being aimed for changes as it is edited.
+    /// Editing the chosen custom goal changes the chosen goal with it.
     fn follow_custom_goal(&mut self, before: &settings::Goals) {
         let goals = &mut self.settings.goals;
         let (old, new) = (before.custom(), goals.custom());
@@ -366,7 +347,6 @@ impl TypewriterApp {
         }
     }
 
-    /// Puts changed settings into effect.
     fn toggle_fullscreen(&mut self, ctx: &egui::Context, now: f64) {
         self.settings.look.fullscreen = !self.settings.look.fullscreen;
         self.set_fullscreen(ctx, now);
@@ -380,9 +360,8 @@ impl TypewriterApp {
         }
     }
 
-    /// The desktop can switch fullscreen on its own (its shortcut, a window
-    /// menu): the setting follows the window, except just after the app
-    /// switched it, while the window catches up.
+    /// The setting follows the window (the desktop can switch it too),
+    /// except within 1 s of the app switching it.
     fn follow_fullscreen(&mut self, ctx: &egui::Context, now: f64) {
         let Some(actual) = ctx.input(|i| i.viewport().fullscreen) else {
             return;
@@ -396,6 +375,7 @@ impl TypewriterApp {
         }
     }
 
+    /// Puts changed settings into effect.
     fn apply_settings(&mut self) {
         self.platen.carriage_travel = self.settings.look.carriage_travel;
         if let Some(audio) = &mut self.audio {
@@ -408,7 +388,7 @@ impl TypewriterApp {
     }
 
     fn open_settings(&mut self) {
-        // Profiles added since are listed too.
+        // Reload: list profiles added since start.
         match Machines::load() {
             Ok(machines) => self.machines = machines,
             Err(err) => eprintln!("could not reload the machines: {err:#}"),
@@ -421,7 +401,7 @@ impl TypewriterApp {
         self.apply(Command::SetEraseMode(next), now);
     }
 
-    /// Tells the machine which dabs of fluid have dried by now.
+    /// Tells the machine which fluid dabs have dried.
     fn dry_fluid(&mut self, now: f64) {
         let dried: Vec<(u16, u16)> = self
             .wet
@@ -437,14 +417,13 @@ impl TypewriterApp {
         }
     }
 
-    /// Puts another project in the machine, winding its sheet in. The one
-    /// there is saved first.
+    /// Swaps in another project and winds its sheet in. Saves the old one
+    /// first; anything needing a question was asked before.
     fn put_in(&mut self, mut machine: Typewriter, filing: Filing, reopened: bool, now: f64) {
-        // Anything that needed asking about was answered before this.
         let autosave = self.settings.saving.autosave;
         self.filing.keep(&self.machine, now, autosave);
         self.wind_back = reopened.then(|| WindBack::to(machine.reinsert()));
-        // A new session, still aiming for the same goal.
+        // New session, same goal.
         let goal = self.session.goal();
         self.session = Session::start(machine.document(), unix_now());
         self.session.set_goal(goal);
@@ -461,7 +440,7 @@ impl TypewriterApp {
         self.renumbering = None;
         self.confirm_scrunch = None;
         self.scrunching = None;
-        // Another machine may type at another pitch, on other paper.
+        // Another machine may have another pitch and paper.
         self.metrics = Metrics::new(self.machine.profile(), self.points_per_inch());
         self.platen.snap();
         if let Some(audio) = &mut self.audio {
@@ -499,10 +478,9 @@ impl TypewriterApp {
         }
     }
 
-    /// Gives the chosen sheet the typed number, the others shifting along.
+    /// Moves the chosen sheet to the typed number. Out of range: no change.
     fn renumber(&mut self, number: &str, now: f64) {
         let count = self.machine.document().finished().len();
-        // A number that is not a sheet's changes nothing.
         if let Ok(n) = number.parse::<usize>()
             && (1..=count).contains(&n)
             && self.machine.renumber(self.selected, n - 1)
@@ -512,7 +490,7 @@ impl TypewriterApp {
         }
     }
 
-    /// Shift+arrows move the chosen sheet one place: up or left is older.
+    /// Moves the chosen sheet one place: up/left is older.
     fn move_chosen(&mut self, direction: Direction, now: f64) {
         let count = self.machine.document().finished().len();
         let to = match direction {
@@ -542,18 +520,16 @@ impl TypewriterApp {
         if let Some(audio) = &self.audio {
             audio.play_crumple();
         }
-        // The sheet that takes its place slides out, not starts out.
+        // Reset the slot's pull: the next sheet must slide out, not start out.
         ctx.animate_value_with_time(egui::Id::new(("folder-pull", index)), 0.0, 0.0);
         let count = self.machine.document().finished().len();
         self.selected = self.selected.min(count.saturating_sub(1));
         self.session.recount(self.machine.document());
-        if let Some(stats) = self.session.stats() {
-            self.machine.record_session(stats);
-        }
+        self.record_session();
         self.filing.changed(now);
     }
 
-    /// "Scrunch up sheet N?", over everything, until answered.
+    /// The "Scrunch up sheet N?" modal, until answered.
     fn confirm_scrunch(&mut self, ctx: &egui::Context, now: f64) {
         let Some(index) = self.confirm_scrunch else {
             return;
@@ -595,8 +571,8 @@ impl TypewriterApp {
         }
     }
 
-    /// Something typed would be put away unsaved: a draft with work in it,
-    /// or changes while autosave is off.
+    /// Work would be put away unsaved: a draft with work, or changes with
+    /// autosave off.
     fn must_ask(&self) -> bool {
         self.filing.is_draft_with_work(&self.machine)
             || (!self.settings.saving.autosave
@@ -604,7 +580,7 @@ impl TypewriterApp {
                 && self.filing.has_unsaved_changes())
     }
 
-    /// Leaves the project, asking first if work would be put away unsaved.
+    /// Leaves the project, asking first if needed.
     fn leave(&mut self, leaving: Leaving, ctx: &egui::Context, now: f64) {
         if self.must_ask() {
             self.leaving = Some(leaving);
@@ -636,8 +612,7 @@ impl TypewriterApp {
         }
     }
 
-    /// Asks what to do with a draft, or with unsaved changes, before
-    /// leaving the project.
+    /// The leave dialog: what to do with a draft or unsaved changes.
     fn leaving_dialog(&mut self, ctx: &egui::Context, now: f64) {
         let Some(leaving) = self.leaving.clone() else {
             return;
@@ -701,12 +676,8 @@ impl TypewriterApp {
             }
             Answer::Save => {
                 self.filing.changed(now);
-                self.filing.save(&self.machine, now);
-                let failed = matches!(
-                    self.filing.keeping(true, now),
-                    Keeping::Autosave(WriteStatus::Failed(_))
-                );
-                if !failed {
+                // Stay if it failed: the notice says why.
+                if self.filing.save(&self.machine, now) {
                     self.go(leaving, ctx, now);
                 }
             }
@@ -719,20 +690,20 @@ impl TypewriterApp {
         }
     }
 
-    /// 1 for fluid just dabbed on, falling to 0 as it dries.
+    /// 1 just dabbed, falling to 0 as it dries.
     fn wetness(&self, now: f64, half_line: u16, column: u16) -> f32 {
         self.wet.get(&(half_line, column)).map_or(0.0, |&dabbed| {
             (1.0 - (now - dabbed) / FLUID_DRY_SECONDS).clamp(0.0, 1.0) as f32
         })
     }
 
-    /// The machine takes no input while a sheet goes in or winds back.
+    /// Input is locked while a sheet feeds or winds back.
     fn is_busy(&self, now: f64) -> bool {
         self.is_feeding(now) || self.wind_back.is_some()
     }
 
-    /// Turns the platen a notch at a time once a reopened sheet is in, with
-    /// a ratchet click each, until it reaches the line typing stopped at.
+    /// Once a reopened sheet is in, turns the platen a notch (and click) at a
+    /// time down to where typing stopped.
     fn wind_back(&mut self, now: f64) {
         if self.feeding.is_some() {
             return;
@@ -759,8 +730,7 @@ impl TypewriterApp {
             .is_some_and(|f| now - f.started < f.motion.duration())
     }
 
-    /// There is no finished sheet to wind out yet, so the first sheet only
-    /// winds in.
+    /// The first sheet only winds in: nothing to wind out.
     fn load_first_sheet(&mut self, now: f64) {
         self.feeding = Some(Feeding {
             started: now,
@@ -772,7 +742,7 @@ impl TypewriterApp {
         }
     }
 
-    /// Zooms `steps` steps in (positive) or out (negative).
+    /// Zooms `steps` in (positive) or out (negative).
     fn zoom(&mut self, steps: i32) {
         self.set_zoom(zoomed(self.zoom_percent, steps));
     }
@@ -790,7 +760,7 @@ impl TypewriterApp {
         points_per_inch(self.zoom_percent)
     }
 
-    /// Calm mode's dimming around `half_line`, `amount` of the way on.
+    /// Calm dimming around `half_line`, `amount` of the way on.
     fn dimming(&self, half_line: u16, amount: f32) -> Dimming {
         let look = &self.settings.look;
         Dimming::calm(
@@ -807,7 +777,7 @@ impl TypewriterApp {
         self.selected = self.machine.document().finished().len().saturating_sub(1);
     }
 
-    /// Moves through the finished sheets, `-1` towards older ones.
+    /// Steps through finished sheets; negative is older.
     fn browse(&mut self, step: isize) {
         let count = self.machine.document().finished().len();
         match self.view {
@@ -817,8 +787,8 @@ impl TypewriterApp {
         }
     }
 
-    /// In the folder and the open sheet, arrows and Enter browse instead of
-    /// reaching the machine. Returns whether the command was used up.
+    /// Outside the typing view, arrows and Enter browse instead. True if
+    /// used up.
     fn browse_command(&mut self, command: Command) -> bool {
         if self.view == View::Typing {
             return false;
@@ -826,7 +796,7 @@ impl TypewriterApp {
         match command {
             Command::Move(Direction::Up | Direction::Left) => self.browse(-1),
             Command::Move(Direction::Down | Direction::Right) => self.browse(1),
-            // A held Enter that opened a sheet must not reach the machine.
+            // Swallow a held Enter that opened a sheet.
             Command::LineFeed => {}
             Command::Return if self.view == View::Folder => {
                 if !self.machine.document().finished().is_empty() {
@@ -842,7 +812,7 @@ impl TypewriterApp {
         match self.view {
             View::Typing => self.open_folder(),
             View::Folder | View::Sheet(_) => self.browse(-1),
-            // Keys do not reach here from the card.
+            // Unreachable: the card keeps the keys.
             View::Settings => {}
         }
     }
@@ -894,7 +864,7 @@ impl TypewriterApp {
                 let dimming = self.dimming(*old_half_line, calm);
                 self.paint_page(&painter, old_page, old_origin, dimming, &paper::dry);
             }
-            // Rises from below the window until its top margin reaches the
+            // Rise from below the window until the top margin meets the
             // typing line.
             let placed = layout.strike_point.y - cell.y;
             let below = view.bottom() + SHADOW_ROOM;
@@ -971,7 +941,7 @@ impl TypewriterApp {
             goal_plate.right(),
         );
         let next_spacing = carriage.line_spacing.next();
-        // Plates only react once fully shown, not while calm mode fades them.
+        // React only when fully shown, not mid-fade.
         if chrome < 1.0 {
             return;
         }
@@ -1028,9 +998,7 @@ impl TypewriterApp {
             self.filing.save_now(&self.machine, &ctx, now);
         }
     }
-}
 
-impl TypewriterApp {
     fn paint_page(
         &self,
         painter: &Painter,
@@ -1084,7 +1052,7 @@ impl eframe::App for TypewriterApp {
         self.take_picked(&ctx, now);
         self.filing
             .autosave(&self.machine, now, self.settings.saving.autosave);
-        // Closing the window puts the project away too: ask first if needed.
+        // Closing puts the project away too: hold it back to ask if needed.
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting && self.must_ask() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if self.leaving.is_none() && self.leaving_after_save_as.is_none() {
@@ -1222,8 +1190,8 @@ impl eframe::App for TypewriterApp {
     }
 
     fn on_exit(&mut self) {
-        // Saved whatever the pause, so nothing typed is lost, unless the
-        // user chose not to (autosave off, or a discarded draft).
+        // Save regardless of the pause, unless the user opted out
+        // (autosave off, or a discarded draft).
         let autosave = self.settings.saving.autosave;
         if autosave || !self.filing.is_saved() {
             self.filing.changed(0.0);
@@ -1236,9 +1204,8 @@ impl eframe::App for TypewriterApp {
     }
 }
 
-/// The project to start with: the one named on the command line, else the
-/// one open last time, else a new one on the `new_machine`. Also says why a
-/// project could not be opened.
+/// The starting project: the command line's, else last run's, else a new one
+/// on `new_machine`. Plus why an open failed, if one did.
 fn first_project(
     machines: &Machines,
     new_machine: &str,
@@ -1265,7 +1232,7 @@ fn unix_now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// "4 sessions · 2 h 10 min · 1,840 words", or nothing before the first.
+/// "4 sessions · 2 h 10 min · 1,840 words", `""` before the first.
 fn sessions_line(totals: Totals) -> String {
     if totals.sessions == 0 {
         return String::new();
@@ -1300,7 +1267,7 @@ fn thousands(n: i64) -> String {
     if n < 0 { format!("-{out}") } else { out }
 }
 
-/// A plate below the scale that reacts to the pointer.
+/// Makes a plate clickable, with a tooltip.
 fn plate_button(ui: &mut egui::Ui, rect: Rect, id: &str, tip: &str) -> egui::Response {
     let response = ui
         .interact(rect, egui::Id::new(id), egui::Sense::click())
@@ -1313,11 +1280,11 @@ fn plate_button(ui: &mut egui::Ui, rect: Rect, id: &str, tip: &str) -> egui::Res
 
 fn zoomed(percent: u16, steps: i32) -> u16 {
     let target = i32::from(percent) + steps * i32::from(ZOOM_STEP);
-    // Clamped to ZOOM_MIN..=ZOOM_MAX, so it fits in u16.
+    // Safe cast: clamped to the zoom range.
     target.clamp(i32::from(ZOOM_MIN), i32::from(ZOOM_MAX)) as u16
 }
 
-/// Index `step` sheets away from `index`, kept within `count` sheets.
+/// `index` moved `step`, kept within `count`.
 fn stepped(index: usize, step: isize, count: usize) -> usize {
     index
         .saturating_add_signed(step)
@@ -1326,38 +1293,30 @@ fn stepped(index: usize, step: isize, count: usize) -> usize {
 
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert(
-        FONT_FAMILY.into(),
-        Arc::new(FontData::from_static(COURIER_PRIME)),
+    add_family(
+        &mut fonts,
+        FONT_FAMILY,
+        COURIER_PRIME,
+        FontFamily::Monospace,
     );
-    // Default fonts stay behind Courier Prime as a fallback for glyphs it lacks.
-    let mut family = vec![FONT_FAMILY.to_owned()];
-    family.extend(
-        fonts
-            .families
-            .get(&FontFamily::Monospace)
-            .cloned()
-            .unwrap_or_default(),
+    add_family(
+        &mut fonts,
+        note::PENCIL_FAMILY,
+        note::CAVEAT,
+        FontFamily::Proportional,
     );
-    fonts
-        .families
-        .insert(FontFamily::Name(FONT_FAMILY.into()), family);
-    fonts.font_data.insert(
-        note::PENCIL_FAMILY.into(),
-        Arc::new(FontData::from_static(note::CAVEAT)),
-    );
-    let mut pencil = vec![note::PENCIL_FAMILY.to_owned()];
-    pencil.extend(
-        fonts
-            .families
-            .get(&FontFamily::Proportional)
-            .cloned()
-            .unwrap_or_default(),
-    );
-    fonts
-        .families
-        .insert(FontFamily::Name(note::PENCIL_FAMILY.into()), pencil);
     ctx.set_fonts(fonts);
+}
+
+/// A named family: `font` first, `fallback`'s fonts behind it for glyphs it
+/// lacks.
+fn add_family(fonts: &mut FontDefinitions, name: &str, font: &'static [u8], fallback: FontFamily) {
+    fonts
+        .font_data
+        .insert(name.into(), Arc::new(FontData::from_static(font)));
+    let mut family = vec![name.to_owned()];
+    family.extend(fonts.families.get(&fallback).cloned().unwrap_or_default());
+    fonts.families.insert(FontFamily::Name(name.into()), family);
 }
 
 #[cfg(test)]

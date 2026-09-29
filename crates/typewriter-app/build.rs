@@ -1,5 +1,5 @@
-//! Bundles the paper texture. The original photo in `assets/paper/` is kept
-//! untouched; the binary gets a smaller, evened-out, re-encoded copy.
+//! Bundles the paper texture: a smaller, evened-out, re-encoded copy. Never
+//! touch the original in `assets/paper/`.
 
 use std::env;
 use std::error::Error;
@@ -13,11 +13,9 @@ use image::{Rgb, RgbImage};
 
 const PAPER: &str = "../../assets/paper/ivory-off-white-paper-texture.jpg";
 const QUALITY: u8 = 70;
-/// The largest texture egui's GPU backends accept everywhere. The grain is
-/// soft, so upscaling for large windows on 2x displays is not noticeable.
+/// egui's safe GPU texture limit. The grain is soft: upscaling won't show.
 const MAX_SIDE: u32 = 2048;
-/// Size of the blurred copy that captures the photo's lighting. Small enough
-/// to hold nothing of the grain.
+/// The blurred lighting copy's size. Keep it small enough to lose the grain.
 const SHADING_SIDE: u32 = 16;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -33,8 +31,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Removes the camera's vignetting (darker corners, brighter centre) so the
-/// sheet has one tone everywhere, keeping the average colour and the grain.
+/// Removes the vignetting: divides by the blurred lighting, keeping the mean
+/// colour and the grain.
 fn even_out(photo: &RgbImage) -> RgbImage {
     let (width, height) = photo.dimensions();
     let small = imageops::resize(photo, SHADING_SIDE, SHADING_SIDE, FilterType::Triangle);

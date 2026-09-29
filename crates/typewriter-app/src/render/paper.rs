@@ -7,36 +7,34 @@ use typewriter_core::carriage::Carriage;
 use typewriter_core::page::{Correction, Mark, Page};
 
 use super::calm::Dimming;
-use super::{MM_PER_INCH, Metrics};
+use super::{MM_PER_INCH, Metrics, splitmix64, unit};
 
 pub const INK: Color32 = Color32::from_rgba_premultiplied(0x1C, 0x1A, 0x18, 0xEB);
-/// Chalk from a correction slip: a slightly cool, matt white.
+/// Slip chalk: a slightly cool, matt white.
 const CHALK: Color32 = Color32::from_rgb(0xF6, 0xF5, 0xF0);
-/// How far chalk spreads past the type's strokes, in points at 96 per inch.
+/// Chalk spread past the strokes, points at 96 ppi.
 const CHALK_SPREAD: f32 = 0.6;
-/// Dry correction fluid, a touch whiter than the paper, and wet.
+/// Fluid, dry (a touch whiter than paper) and wet.
 const FLUID: Color32 = Color32::from_rgb(0xFA, 0xF9, 0xF4);
 const FLUID_WET: Color32 = Color32::from_rgb(0xFE, 0xFE, 0xFD);
 const FLUID_RIM: Color32 = Color32::from_rgba_premultiplied(0x40, 0x3C, 0x34, 0x22);
-/// What an eraser leaves of the ink it rubs out.
+/// Ink left after an eraser.
 const ERASER_GHOST: f32 = 0.12;
 const SCUFF: Color32 = Color32::from_rgba_premultiplied(0x40, 0x40, 0x3E, 0x40);
 const SCUFF_STREAK: Color32 = Color32::from_rgba_premultiplied(0x10, 0x0F, 0x0E, 0x18);
-/// How far smudged ink runs, in points at 96 per inch.
+/// How far smudged ink runs, points at 96 ppi.
 const SMUDGE_SPREAD: f32 = 1.2;
 const FRAME: Color32 = Color32::from_rgba_premultiplied(0x4A, 0x46, 0x40, 0x8C);
 const FRAME_EXTENSION: Color32 = Color32::from_rgba_premultiplied(0x25, 0x23, 0x20, 0x46);
-/// Clearance between the margins and the frame, so type never touches it.
+/// Frame clearance outside the margins: type must never touch it.
 pub const FRAME_PADDING_MM: f32 = 1.0;
-/// Ink realism: how far a strike may land off its cell (in points at 96 per
-/// inch) and how much lighter it may print.
+/// Ink realism: max strike offset (points at 96 ppi) and max lightening.
 const INK_MAX_OFFSET: f32 = 0.4;
 const INK_DENSITY_VARIANCE: f32 = 0.1;
 
-/// The sheet has no fill of its own. Its extent is shown by a frame around
-/// the writing area whose sides run out to the paper's edges. The profile
-/// has no bottom margin (the SM9 types down to the last line), so the frame
-/// runs to the bottom of the sheet.
+/// The sheet has no fill: a frame round the writing area, sides extended to
+/// the paper's edges, shows it. No bottom margin: the frame runs to the
+/// sheet's bottom.
 pub fn paint_margin_frame(
     painter: &Painter,
     metrics: &Metrics,
@@ -66,7 +64,7 @@ pub fn paint_margin_frame(
     );
 }
 
-/// How freshly correction fluid was dabbed on a cell: 1 just now, 0 dry.
+/// Fluid wetness per cell: 1 just dabbed, 0 dry.
 pub type Wetness<'a> = &'a dyn Fn(u16, u16) -> f32;
 
 /// A sheet with no fluid drying on it.
@@ -74,11 +72,10 @@ pub fn dry(_: u16, _: u16) -> f32 {
     0.0
 }
 
-/// One thing to draw for a sheet, whatever it is drawn on: the window or a
-/// PDF. Positions are in the sheet's points, `y` down.
+/// One drawing op, for the window or a PDF alike. Sheet points, `y` down.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Drawn {
-    /// A character with its top-left corner at `at`.
+    /// `at` is the glyph's top-left.
     Glyph {
         at: Pos2,
         c: char,
@@ -94,7 +91,7 @@ pub enum Drawn {
         width: f32,
         color: Color32,
     },
-    /// With a thin rim of another colour just inside its edge.
+    /// `rim`: a thin line just inside the edge.
     Ellipse {
         centre: Pos2,
         radius: Vec2,
@@ -103,7 +100,7 @@ pub enum Drawn {
     },
 }
 
-/// Width of the rim on a dab of correction fluid, in points.
+/// Fluid rim width, points.
 pub const RIM_WIDTH: f32 = 0.8;
 
 /// Draws a sheet in the window. See [`sheet_marks`].
@@ -161,13 +158,11 @@ pub fn paint_sheet(
     }
 }
 
-/// Everything struck or painted on a sheet whose top-left is at `origin`,
-/// in the order it was made, so a correction covers whatever was struck
-/// before it. Cells for which `visible` is false are left out.
+/// Every mark on a sheet at `origin`, in the order made, so corrections
+/// cover what came before. Skips cells where `visible` is false.
 ///
-/// `ink_realism` varies each strike slightly, like uneven key pressure and
-/// type slugs that do not land exactly in place. `dimming` fades the ink,
-/// but not the corrections: a faded patch would show what it covers.
+/// `ink_realism` varies each strike (uneven pressure, slugs off true).
+/// `dimming` fades ink only: a faded correction would show what it covers.
 pub fn sheet_marks(
     metrics: &Metrics,
     page: &Page,
@@ -184,7 +179,7 @@ pub fn sheet_marks(
             origin + metrics.cell_offset(half_line, column),
             metrics.cell_size(),
         );
-        // Fluid spills a little past its cell.
+        // Pad the test: fluid spills past its cell.
         if !visible(cell_rect.expand(metrics.column_width)) {
             continue;
         }
@@ -200,7 +195,7 @@ pub fn sheet_marks(
             let at = cell_rect.min + offset * scale;
             match mark {
                 Mark::Glyph(c) | Mark::Smudged(c) => {
-                    // An eraser never gets all the ink out.
+                    // Each eraser pass leaves a ghost.
                     let rubbed = marks[index + 1..]
                         .iter()
                         .filter(|m| matches!(m, Mark::Correction(Correction::Eraser)))
@@ -223,8 +218,7 @@ pub fn sheet_marks(
     out
 }
 
-/// The fibres the eraser roughed up catch the light: a paler patch with a
-/// few streaks along the rubbing.
+/// Roughed-up fibres catch the light: a pale patch, streaked along the rub.
 fn scuff(out: &mut Vec<Drawn>, cell: Rect, scale: f32, seed: u64) {
     let patch = cell.expand2(vec2(1.5, -1.0) * scale);
     out.push(Drawn::Patch {
@@ -232,7 +226,7 @@ fn scuff(out: &mut Vec<Drawn>, cell: Rect, scale: f32, seed: u64) {
         color: SCUFF,
     });
     for i in 0..3_u32 {
-        let unit = ((seed >> (i * 16)) & 0xFFFF) as f32 / 65535.0;
+        let unit = unit(seed, i * 16);
         let y = patch.top() + patch.height() * (0.2 + 0.6 * unit);
         let inset = patch.width() * 0.15 * unit;
         out.push(Drawn::Line {
@@ -244,9 +238,8 @@ fn scuff(out: &mut Vec<Drawn>, cell: Rect, scale: f32, seed: u64) {
     }
 }
 
-/// The chalk goes on in the shape of the character struck through the slip,
-/// a little fuller than the type, so a slightly misaligned strike leaves the
-/// edges of the ink below.
+/// Chalk in the struck character's shape, a little fuller than the type:
+/// covers a slightly misaligned strike.
 fn chalk(out: &mut Vec<Drawn>, at: Pos2, c: char, scale: f32) {
     let spread = CHALK_SPREAD * scale;
     for offset in [
@@ -264,8 +257,8 @@ fn chalk(out: &mut Vec<Drawn>, at: Pos2, c: char, scale: f32) {
     }
 }
 
-/// A few overlapping dabs of fluid, uneven and slightly past the cell. While
-/// wet it is glossy: brighter, with a highlight.
+/// Overlapping uneven dabs, slightly past the cell. Wet: brighter, with a
+/// highlight.
 fn fluid(out: &mut Vec<Drawn>, cell: Rect, wet: f32, seed: u64) {
     let unit = |shift: u32| ((seed >> shift) & 0xFF) as f32 / 255.0 - 0.5;
     let size = cell.size();
@@ -283,7 +276,7 @@ fn fluid(out: &mut Vec<Drawn>, cell: Rect, wet: f32, seed: u64) {
             rim: Some(FLUID_RIM),
         });
     }
-    // Painted over again inside, so only the blob's outer rim shows.
+    // Refill inside: only the blob's outer rim may show.
     for (centre, radius) in dabs {
         out.push(Drawn::Ellipse {
             centre,
@@ -302,8 +295,7 @@ fn fluid(out: &mut Vec<Drawn>, cell: Rect, wet: f32, seed: u64) {
     }
 }
 
-/// Ink that ran on wet fluid: the letter blurred out in a few directions,
-/// fainter overall.
+/// Ink run on wet fluid: faint copies scattered a little.
 fn smudged(out: &mut Vec<Drawn>, at: Pos2, c: char, color: Color32, scale: f32, seed: u64) {
     let unit = |shift: u32| ((seed >> shift) & 0xFF) as f32 / 255.0 - 0.5;
     for i in 0..4_u32 {
@@ -326,27 +318,19 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
-/// Offset and density for one strike. Derived from its place on the page, so
-/// it never changes between redraws.
+/// Offset and density for one strike. Seeded by position: stable across
+/// redraws.
 fn ink_variation(half_line: u16, column: u16, index: usize) -> (Vec2, f32) {
     let bits = mark_seed(half_line, column, index);
-    let unit = |shift: u32| ((bits >> shift) & 0xFFFF) as f32 / 65535.0;
+    let unit = |shift| unit(bits, shift);
     let offset = vec2(unit(0) - 0.5, unit(16) - 0.5) * (2.0 * INK_MAX_OFFSET);
     let density = 1.0 - INK_DENSITY_VARIANCE * unit(32);
     (offset, density)
 }
 
-/// Random bits for one mark, the same on every redraw.
+/// Stable random bits for one mark.
 fn mark_seed(half_line: u16, column: u16, index: usize) -> u64 {
     splitmix64((u64::from(half_line) << 40) ^ (u64::from(column) << 20) ^ index as u64)
-}
-
-/// A well-mixed hash, so neighbouring cells do not vary in step.
-pub fn splitmix64(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^ (x >> 31)
 }
 
 #[cfg(test)]

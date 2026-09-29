@@ -1,4 +1,4 @@
-//! Drawing the sheet and the platen view.
+//! Everything drawn: sheets, platen view, folder, plates, settings, PDF.
 
 pub mod background;
 pub mod calm;
@@ -12,26 +12,32 @@ pub mod ruler;
 pub mod scrunch;
 pub mod settings;
 
-use eframe::egui::{FontFamily, FontId, Vec2, vec2};
+use eframe::egui::{Color32, FontFamily, FontId, Vec2, vec2};
 use typewriter_core::Profile;
 
 pub const FONT_FAMILY: &str = "typewriter";
 pub const COURIER_PRIME: &[u8] =
     include_bytes!("../../../../assets/fonts/courier-prime/CourierPrime-Regular.ttf");
 
-/// Courier's advance width is 0.6 em for every glyph.
+/// Every Courier glyph advances 0.6 em.
 const COURIER_ADVANCE_EM: f32 = 0.6;
 pub const MM_PER_INCH: f32 = 25.4;
 
-/// Physical page geometry converted to screen points.
+/// A sheet drawn flat (folder, icons, cards).
+pub const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
+pub const SHEET_EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
+/// Hovered controls and the typing pointer.
+pub const HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
+
+/// Page geometry in screen points.
 #[derive(Debug, Clone)]
 pub struct Metrics {
     pub points_per_inch: f32,
     pub column_width: f32,
     pub half_line_height: f32,
     pub paper_size: Vec2,
-    /// Offset of cell (0, 0) from the paper's top-left. The grid is centred
-    /// because whole columns never fill the sheet exactly.
+    /// Cell (0, 0) from the paper's top-left. Centred: whole columns never
+    /// fill the sheet exactly.
     pub grid_origin: Vec2,
     pub font: FontId,
 }
@@ -61,8 +67,7 @@ impl Metrics {
         }
     }
 
-    /// Top-left of a cell relative to the paper's top-left. A cell is one
-    /// column wide and one full line (two half-lines) tall.
+    /// A cell's top-left from the paper's. Cells are a column by a full line.
     pub fn cell_offset(&self, half_line: u16, column: u16) -> Vec2 {
         self.grid_origin
             + vec2(
@@ -74,6 +79,25 @@ impl Metrics {
     pub fn cell_size(&self) -> Vec2 {
         vec2(self.column_width, self.half_line_height * 2.0)
     }
+}
+
+/// Eases 0..=1 in and out. Clamps `t`.
+pub fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Bits `shift..shift + 16` of `bits` as 0..=1.
+pub fn unit(bits: u64, shift: u32) -> f32 {
+    ((bits >> shift) & 0xFFFF) as f32 / 65535.0
+}
+
+/// A well-mixed hash: neighbouring seeds must not vary in step.
+pub fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    x ^ (x >> 31)
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
-//! The user's settings, kept in `$XDG_CONFIG_HOME/typewriter/config.toml`.
+//! User settings in `$XDG_CONFIG_HOME/typewriter/config.toml`.
 //!
-//! Every field has a default, so a missing file, section or key is fine, and
-//! keys from a newer version are ignored.
+//! Give every field a default: missing keys must load, unknown ones are
+//! ignored.
 
 use std::fs;
 use std::path::PathBuf;
@@ -12,8 +12,8 @@ use typewriter_core::Goal;
 use crate::render::calm;
 use crate::storage;
 
-/// Written once the settings have stopped changing for this long, so
-/// dragging a slider does not write on every frame.
+/// Write once settings rest this long: a dragged slider mustn't write every
+/// frame.
 const WRITE_AFTER_SECONDS: f64 = 0.5;
 
 pub const ZOOM_MIN: u16 = 50;
@@ -39,7 +39,7 @@ pub struct Settings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Saving {
-    /// A saved project is written after each pause. Drafts are always kept.
+    /// Write saved projects after each pause. Drafts are always kept.
     pub autosave: bool,
 }
 
@@ -52,19 +52,18 @@ impl Default for Saving {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Sound {
-    /// 0 to 100 %.
+    /// Percent.
     pub volume: u8,
     pub mute: bool,
-    /// Key strikes, space bar, backspace and tab.
+    /// Strikes, space bar, backspace, tab.
     pub keys: bool,
-    /// The margin bell, and the bell for a reached goal.
+    /// Margin bell and goal bell.
     pub bell: bool,
-    /// Platen ratchet clicks and the carriage return, where the machine
-    /// makes them.
+    /// Ratchet clicks and carriage return.
     pub platen: bool,
-    /// Sheets fed, and finished ones scrunched up.
+    /// Sheet feed and scrunching up.
     pub sheet_feed: bool,
-    /// Eraser and correction fluid.
+    /// Eraser and fluid.
     pub corrections: bool,
     pub blocked: bool,
 }
@@ -90,14 +89,13 @@ pub struct Look {
     pub ink_realism: bool,
     /// The paper slides sideways with the carriage.
     pub carriage_travel: bool,
-    /// The window fills the screen. F11 switches it too.
+    /// Shared with F11.
     pub fullscreen: bool,
-    /// Lines away from the typing line at which calm mode's dimming is
-    /// strongest.
+    /// Calm mode: lines from the typing line to the faintest ink.
     pub calm_falloff_lines: u8,
-    /// The faintest a dimmed line gets, in percent of full ink.
+    /// Calm mode: the faintest ink, percent.
     pub calm_minimum_percent: u8,
-    /// Remembered as the mouse wheel leaves it.
+    /// As the mouse wheel left it.
     pub zoom_percent: u16,
 }
 
@@ -117,13 +115,12 @@ impl Default for Look {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Goals {
-    /// The user's own goal, ending the Goal plate's cycle: a word target, a
-    /// time target, or both (reached by whichever comes first).
+    /// The custom goal, last in the plate's cycle. Both on: whichever first.
     pub custom_words_on: bool,
     pub custom_words: u32,
     pub custom_minutes_on: bool,
     pub custom_minutes: u32,
-    /// The goal chosen on the Goal plate, kept for the next session.
+    /// The plate's goal, carried to the next session.
     pub goal: Option<Goal>,
 }
 
@@ -155,7 +152,7 @@ impl Goals {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Machine {
-    /// The machine new projects are typed on, by profile name.
+    /// New projects' profile name.
     pub profile: String,
 }
 
@@ -168,7 +165,7 @@ impl Default for Machine {
 }
 
 impl Settings {
-    /// Brings hand-edited values back within what the controls allow.
+    /// Clamps hand-edited values to what the controls allow.
     fn within_limits(mut self) -> Self {
         let sound = &mut self.sound;
         sound.volume = sound.volume.min(VOLUME_MAX);
@@ -195,17 +192,16 @@ impl Settings {
 /// Keeps `config.toml` in step with the settings.
 pub struct SettingsFile {
     path: Option<PathBuf>,
-    /// What is in the file, as far as this run knows.
+    /// What this run believes is in the file.
     written: Settings,
-    /// When the settings last differed from `written`.
+    /// When the settings started differing from `written`.
     changed_at: Option<f64>,
-    /// The file could not be read. It is kept aside, not overwritten.
+    /// Unreadable file: move it aside before the first write, never overwrite.
     unreadable: bool,
 }
 
 impl SettingsFile {
-    /// Loads the settings, falling back to the defaults. Also says what went
-    /// wrong, if anything.
+    /// Loads the settings (defaults on failure), plus a notice if one failed.
     pub fn load() -> (Settings, Self, Option<String>) {
         let path = storage::config_path();
         let mut file = Self {
@@ -245,8 +241,7 @@ impl SettingsFile {
         }
     }
 
-    /// Writes `settings` once they have settled. `force` writes any change
-    /// now, e.g. on quit.
+    /// Writes `settings` once settled. `force` writes now (on quit).
     pub fn keep(&mut self, settings: &Settings, now: f64, force: bool) -> Result<(), String> {
         if *settings == self.written {
             self.changed_at = None;
@@ -257,7 +252,7 @@ impl SettingsFile {
             return Ok(());
         }
         self.changed_at = None;
-        // Not tried again until the next change.
+        // On failure, retry only after the next change.
         self.written = settings.clone();
         let Some(path) = &self.path else {
             return Ok(());

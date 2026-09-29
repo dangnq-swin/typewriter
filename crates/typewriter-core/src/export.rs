@@ -1,11 +1,10 @@
-//! Plain text and Markdown copies of a document, keeping only what reads on
-//! the sheets: corrected letters are left out.
+//! Plain text and Markdown exports. Only what reads on the sheets: corrected
+//! letters are left out.
 
 use crate::document::Document;
-use crate::page::{Cell, Page};
+use crate::page::Page;
 
-/// Plain text, with a form feed between sheets as a printer would take it.
-/// A sheet's note comes first, in square brackets.
+/// Plain text: a form feed between sheets, each note first in brackets.
 pub fn plain_text(document: &Document) -> String {
     let sheets: Vec<String> = sheets(document)
         .map(|page| {
@@ -19,9 +18,8 @@ pub fn plain_text(document: &Document) -> String {
     finish(sheets.join("\n\u{c}\n"))
 }
 
-/// Markdown, with `---` between sheets. Typed lines run on into paragraphs;
-/// an indented line starts a new one, since Markdown would take a deep
-/// indent for code. A sheet's note comes first, quoted.
+/// Markdown: `---` between sheets, each note first as a quote. Lines run on
+/// into paragraphs; an indent starts a new one (never code: indents are cut).
 pub fn markdown(document: &Document) -> String {
     let sheets: Vec<String> = sheets(document)
         .map(|page| {
@@ -55,7 +53,7 @@ fn finish(mut text: String) -> String {
     text
 }
 
-/// The filed sheets, then the one in the machine unless it is blank.
+/// The filed sheets, then the one in the machine unless blank.
 pub fn sheets(document: &Document) -> impl Iterator<Item = &Page> {
     let current = document.current();
     document
@@ -64,11 +62,10 @@ pub fn sheets(document: &Document) -> impl Iterator<Item = &Page> {
         .chain((!current.is_blank()).then_some(current))
 }
 
-/// A sheet's typed lines, with a blank line for every empty line's worth of
-/// space between them, and the left margin trimmed.
+/// Typed lines, a blank per empty line of space between, margin trimmed.
 fn lines(page: &Page) -> Vec<String> {
     let rows: Vec<(u16, String)> = (0..page.half_lines())
-        .map(|half_line| (half_line, row_text(page, half_line)))
+        .map(|half_line| (half_line, page.line_text(half_line)))
         .filter(|(_, text)| !text.is_empty())
         .collect();
     let margin = rows
@@ -80,37 +77,15 @@ fn lines(page: &Page) -> Vec<String> {
     let mut previous: Option<u16> = None;
     for (half_line, text) in rows {
         if let Some(previous) = previous {
-            // A line is two half-lines, so 1.5 spacing adds no blank line.
+            // Two half-lines per line: 1.5 spacing adds no blank.
             let blanks = ((half_line - previous) / 2).saturating_sub(1);
             out.extend((0..blanks).map(|_| String::new()));
         }
-        // The margin is spaces only, so it is whole characters.
+        // Safe to slice: the margin is ASCII spaces.
         out.push(text[margin..].to_owned());
         previous = Some(half_line);
     }
     out
-}
-
-fn row_text(page: &Page, half_line: u16) -> String {
-    let mut text: String = (0..page.columns())
-        .map(|column| {
-            page.cell(half_line, column)
-                .and_then(cell_char)
-                .unwrap_or(' ')
-        })
-        .collect();
-    text.truncate(text.trim_end().len());
-    text
-}
-
-/// What a cell reads as. Overstrikes read as their top glyph, except the
-/// typewriter's exclamation mark: an apostrophe over a full stop.
-pub(crate) fn cell_char(cell: &Cell) -> Option<char> {
-    let visible: Vec<char> = cell.visible_glyphs().collect();
-    if visible.contains(&'\'') && visible.contains(&'.') {
-        return Some('!');
-    }
-    visible.last().copied()
 }
 
 #[cfg(test)]

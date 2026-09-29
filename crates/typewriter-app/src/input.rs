@@ -1,40 +1,33 @@
-//! Keyboard events to typewriter commands.
+//! Keyboard events → actions. The full key map.
 //!
-//! A typewriter has no Control key, so no binding uses one, except Ctrl+S
-//! (save), kept for muscle memory. Default bindings:
-//! - printable keys: type, except 1 and ! (no such key on a typewriter)
-//! - Enter: carriage return; held, it rolls the paper on line by line
-//!   (at the keyboard's repeat rate)
+//! No Ctrl bindings (a typewriter has none), except Ctrl+S. Keys don't repeat
+//! unless a real machine would: only letters, arrows and Enter do.
+//!
+//! - printable keys: type, except 1 and ! (no such keys)
+//! - Enter: return; held, rolls the paper a line per key repeat
 //! - Insert: feed a new sheet
-//! - Backspace: carriage back one column (no erase)
-//! - Shift+Backspace, Delete: erase; in the folder, Delete scrunches up the
-//!   chosen sheet (after asking)
+//! - Backspace: carriage back (no erase)
+//! - Shift+Backspace, Delete: erase (in the folder, Delete scrunches up)
 //! - Tab: tabulate
-//! - hold Shift and tap Tab: once sets a tab stop at the carriage, twice clears
-//!   the nearest stop, three times clears all stops. Acts when Shift is released.
+//! - hold Shift, tap Tab: 1× set a stop, 2× clear the nearest, 3× clear all;
+//!   acts on Shift release
 //! - F1 / F2 / F3: line spacing 1 / 1.5 / 2
-//! - F4: next way of fixing mistakes (correction paper, eraser, fluid)
-//! - arrows: move the carriage and platen (only if free movement is allowed)
-//! - Page Up: open the folder of finished sheets; there, arrows or Page Up /
-//!   Page Down choose or flip sheets (up/left = older), Shift+arrows move the
-//!   chosen sheet one place (no repeat), Enter opens the chosen one and Esc
-//!   goes back. The app redirects these; see `app.rs`.
-//! - Esc (typing view): calm mode on / off
+//! - F4: next correction method
+//! - arrows: free movement (if allowed)
+//! - Page Up / Page Down, arrows, Shift+arrows, Enter, Esc: the folder;
+//!   `app.rs` redirects them there
+//! - Esc: calm mode (typing view)
 //! - F11: fullscreen
 //! - Ctrl+S: save (Save As for a draft)
-//!
-//! A typewriter's keys do not repeat, so held keys that act on the machine
-//! only act once, except Enter (above), the arrows and the letters.
 
 use eframe::egui::{Event, Key, Modifiers};
 use typewriter_core::{Command, Direction, LineSpacing};
 
-/// Typewriters have no 1 or ! key: 1 is typed as a lowercase l, and ! as
-/// ' and . struck over each other (with Backspace between). The key is kept
-/// free for the scratchpad.
+/// No such keys: type 1 as l, and ! as ' Backspace . (overstruck). Keep the
+/// key free for the scratchpad.
 const RESERVED: [char; 2] = ['1', '!'];
 
-/// What a key asks for: a machine command, or something for the app.
+/// A machine command, or something for the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Machine(Command),
@@ -44,10 +37,9 @@ pub enum Action {
     Fullscreen,
     NextCorrection,
     Save,
-    /// Erase at the machine; in the folder, scrunch up the chosen sheet.
+    /// Erase; in the folder, scrunch up the chosen sheet.
     Delete,
-    /// An arrow with Shift held: in the folder it moves the chosen sheet
-    /// one place; elsewhere it is a plain arrow.
+    /// In the folder, moves the chosen sheet; elsewhere a plain arrow.
     ShiftArrow(Direction),
 }
 
@@ -57,11 +49,11 @@ pub struct Input {
 }
 
 impl Input {
-    /// Translates one frame of events. `shift_down` is the Shift state at the
-    /// end of the frame; releasing it completes a Shift+Tab gesture.
+    /// Translates one frame of events. `shift_down`: Shift at frame end
+    /// (releasing it completes a Shift+Tab gesture).
     pub fn actions(&mut self, events: &[Event], shift_down: bool) -> Vec<Action> {
         let mut actions = Vec::new();
-        // The space bar arrives as text, alongside its key event.
+        // Space arrives as text too: drop it when its key is repeating.
         let space_held = events.iter().any(|e| {
             matches!(
                 e,
@@ -87,8 +79,7 @@ impl Input {
                     }
                     continue;
                 }
-                // Any other key finishes the gesture first, so the stop is set
-                // where the carriage was when Tab was tapped.
+                // Finish the gesture first: the stop goes where Tab was tapped.
                 Event::Key { pressed: true, .. } | Event::Text(_) => {
                     actions.extend(self.finish_gesture().map(Action::Machine));
                 }
@@ -137,42 +128,32 @@ fn action_for(event: &Event) -> Vec<Action> {
 }
 
 fn key_action(key: Key, m: Modifiers, repeat: bool) -> Option<Action> {
-    let app = match key {
+    let once = |action| (!repeat).then_some(action);
+    if m.shift
+        && let Some(direction) = arrow(key)
+    {
+        // No repeat: held, it would shuffle a sheet through the whole folder.
+        return once(Action::ShiftArrow(direction));
+    }
+    match key {
         Key::PageUp => Some(Action::PageUp),
         Key::PageDown => Some(Action::PageDown),
-        Key::Escape if !repeat => Some(Action::Escape),
-        Key::F11 if !repeat => Some(Action::Fullscreen),
-        Key::F4 if !repeat => Some(Action::NextCorrection),
-        Key::S if m.command && !repeat => Some(Action::Save),
-        Key::S if m.command => return None,
-        Key::Delete if !repeat => Some(Action::Delete),
-        Key::Delete => return None,
-        Key::Escape | Key::F11 | Key::F4 => return None,
-        Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown if m.shift => {
-            // Held, it would shuffle a sheet through the whole folder.
-            return (!repeat)
-                .then(|| key_command(key, m, false))
-                .flatten()
-                .and_then(|command| match command {
-                    Command::Move(direction) => Some(Action::ShiftArrow(direction)),
-                    _ => None,
-                });
-        }
-        _ => None,
-    };
-    app.or_else(|| key_command(key, m, repeat).map(Action::Machine))
+        Key::Escape => once(Action::Escape),
+        Key::F11 => once(Action::Fullscreen),
+        Key::F4 => once(Action::NextCorrection),
+        Key::Delete => once(Action::Delete),
+        Key::S if m.command => once(Action::Save),
+        _ => key_command(key, m, repeat).map(Action::Machine),
+    }
 }
 
 fn key_command(key: Key, m: Modifiers, repeat: bool) -> Option<Command> {
+    if let Some(direction) = arrow(key) {
+        return Some(Command::Move(direction));
+    }
     if repeat {
-        return match key {
-            // Holding Return is like winding the platen knob.
-            Key::Enter => Some(Command::LineFeed),
-            Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown => {
-                key_command(key, m, false)
-            }
-            _ => None,
-        };
+        // Held Return winds the platen knob.
+        return (key == Key::Enter).then_some(Command::LineFeed);
     }
     let command = match key {
         Key::Insert => Command::FeedSheet,
@@ -183,13 +164,19 @@ fn key_command(key: Key, m: Modifiers, repeat: bool) -> Option<Command> {
         Key::F1 => Command::SetLineSpacing(LineSpacing::Single),
         Key::F2 => Command::SetLineSpacing(LineSpacing::OneAndHalf),
         Key::F3 => Command::SetLineSpacing(LineSpacing::Double),
-        Key::ArrowLeft => Command::Move(Direction::Left),
-        Key::ArrowRight => Command::Move(Direction::Right),
-        Key::ArrowUp => Command::Move(Direction::Up),
-        Key::ArrowDown => Command::Move(Direction::Down),
         _ => return None,
     };
     Some(command)
+}
+
+fn arrow(key: Key) -> Option<Direction> {
+    Some(match key {
+        Key::ArrowLeft => Direction::Left,
+        Key::ArrowRight => Direction::Right,
+        Key::ArrowUp => Direction::Up,
+        Key::ArrowDown => Direction::Down,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

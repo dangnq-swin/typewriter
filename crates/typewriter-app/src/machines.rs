@@ -1,5 +1,5 @@
-//! The machines to type on: the built-in ones, and the user's own profiles
-//! in `$XDG_DATA_HOME/typewriter/profiles/*.toml`.
+//! The machines: built-in profiles, then the user's own in
+//! `$XDG_DATA_HOME/typewriter/profiles/*.toml`.
 
 use std::fs;
 
@@ -7,7 +7,7 @@ use typewriter_core::Profile;
 
 use crate::storage;
 
-/// The machine a new project is typed on unless settings choose another.
+/// New projects' machine unless the settings choose another.
 pub const DEFAULT: &str = "Olympia SM9";
 
 const BUILT_IN: [(&str, &str); 1] = [(
@@ -17,13 +17,13 @@ const BUILT_IN: [(&str, &str); 1] = [(
 
 pub struct Machines {
     profiles: Vec<Profile>,
-    /// User profiles that could not be used, and why.
+    /// Unusable user profiles, and why.
     pub problems: Vec<String>,
 }
 
 impl Machines {
-    /// The built-in machines, then the user's, in file name order. A user
-    /// profile cannot take a name already used.
+    /// Built-in machines, then the user's in file name order. Taken names
+    /// are refused.
     pub fn load() -> anyhow::Result<Self> {
         let mut machines = Self {
             profiles: Vec::new(),
@@ -52,10 +52,7 @@ impl Machines {
         };
         files.sort();
         for path in files {
-            let file = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            let file = storage::file_name(&path);
             let loaded = fs::read_to_string(&path)
                 .map_err(|err| err.to_string())
                 .and_then(|text| Profile::from_toml_str(&text).map_err(|err| err.to_string()));
@@ -78,17 +75,17 @@ impl Machines {
         self.profiles.iter().find(|p| p.name == name).cloned()
     }
 
-    /// The machine for a new project: `name`, or the default if it is gone.
+    /// A new project's machine: `name`, or the default if it is gone.
     pub fn for_new(&self, name: &str) -> Profile {
         self.find(name)
             .or_else(|| self.find(DEFAULT))
             .or_else(|| self.profiles.first().cloned())
-            // `load` always adds the built-in machines.
+            // Can't happen: `load` always adds the built-ins.
             .unwrap_or_else(|| unreachable!("no machines"))
     }
 }
 
-/// "10 cpi · 6 lpi · 210 × 297 mm · 82 × 70", for the settings.
+/// "10 cpi · 6 lpi · 210 × 297 mm · 82 columns × 70 lines".
 pub fn describe(profile: &Profile) -> String {
     format!(
         "{} cpi \u{b7} {} lpi \u{b7} {} \u{d7} {} mm \u{b7} {} columns \u{d7} {} lines",

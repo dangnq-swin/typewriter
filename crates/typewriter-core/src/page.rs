@@ -1,5 +1,4 @@
-//! A sheet of paper: a grid of character cells, each holding everything ever
-//! struck or painted onto it.
+//! A sheet: a grid of cells, each keeping every mark ever made on it.
 
 use std::collections::BTreeMap;
 
@@ -9,20 +8,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mark {
     Glyph(char),
-    /// Struck onto correction fluid that had not dried: the ink ran.
+    /// Struck on wet fluid: the ink ran.
     Smudged(char),
     Correction(Correction),
 }
 
-/// Covers everything struck before it, which stays in the stack.
+/// Covers what was struck before it; that stays in the stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Correction {
-    /// Rubbed out with a typewriter eraser. A faint ghost of the ink stays.
+    /// Rubbed out. A faint ghost of the ink stays.
     Eraser,
-    /// Chalk from a correction slip, pressed on in the shape of the character
-    /// struck through it. Striking the wrong character again covers it.
+    /// Slip chalk in the shape of the character struck through it. Hides only
+    /// that character.
     Chalk(char),
-    /// A dab of correction fluid, `wet` until it has dried.
+    /// A fluid dab, `wet` until dry.
     Fluid { wet: bool },
 }
 
@@ -37,10 +36,10 @@ impl Cell {
         &self.marks
     }
 
-    /// Glyphs not hidden under a correction, bottom first. The eraser and
-    /// fluid cover the whole cell; chalk only lands in the shape of the
-    /// character struck through the slip, so it hides only that character
-    /// (an overstruck `'` and `.` need both struck again).
+    /// Glyphs not hidden by a correction, bottom first.
+    ///
+    /// Eraser and fluid hide the whole cell; chalk hides only its own
+    /// character (an overstruck `'` and `.` need both struck again).
     pub fn visible_glyphs(&self) -> impl Iterator<Item = char> + '_ {
         let start = self
             .marks
@@ -62,7 +61,7 @@ impl Cell {
         })
     }
 
-    /// Wet fluid on top of the cell, so a strike now would smudge.
+    /// Wet fluid on top: a strike now smudges.
     fn is_wet(&self) -> bool {
         self.marks.iter().rev().find_map(|m| match m {
             Mark::Correction(Correction::Fluid { wet }) => Some(*wet),
@@ -74,16 +73,25 @@ impl Cell {
     pub fn top_glyph(&self) -> Option<char> {
         self.visible_glyphs().last()
     }
+
+    /// What the cell reads as: its top glyph, except `'` over `.` reads `!`.
+    pub fn reads_as(&self) -> Option<char> {
+        let visible: Vec<char> = self.visible_glyphs().collect();
+        if visible.contains(&'\'') && visible.contains(&'.') {
+            return Some('!');
+        }
+        visible.last().copied()
+    }
 }
 
-/// Rows are addressed in half-line steps, matching the platen ratchet.
+/// Rows are half-line steps, like the platen ratchet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
     columns: u16,
     half_lines: u16,
     cells: BTreeMap<(u16, u16), Cell>,
-    /// Pencilled in the top margin once the sheet is filed, one written line
-    /// per text line. Absent before format version 3.
+    /// Pencilled in the top margin once filed, one text line per written
+    /// line. Absent before format 3.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     note: String,
 }
@@ -98,13 +106,12 @@ impl Page {
         }
     }
 
-    /// The pencilled note, `""` if there is none.
+    /// The note, `""` if none.
     pub fn note(&self) -> &str {
         &self.note
     }
 
-    /// Pencils `note` in, replacing any before. Blank space at the ends of
-    /// its lines, and blank lines at its end, are not kept.
+    /// Replaces the note. Drops trailing spaces and trailing blank lines.
     pub fn set_note(&mut self, note: &str) {
         let lines: Vec<&str> = note.lines().map(str::trim_end).collect();
         let written = lines
@@ -122,7 +129,7 @@ impl Page {
         self.half_lines
     }
 
-    /// Has this size and nothing outside it, e.g. after loading.
+    /// Has this size and nothing outside it. Check after loading.
     pub fn fits(&self, columns: u16, half_lines: u16) -> bool {
         self.columns == columns
             && self.half_lines == half_lines
@@ -131,7 +138,7 @@ impl Page {
             })
     }
 
-    /// Nothing was ever struck on it (or everything was erased).
+    /// Nothing was ever struck on it.
     pub fn is_blank(&self) -> bool {
         self.cells.is_empty()
     }
@@ -157,8 +164,7 @@ impl Page {
         !wet
     }
 
-    /// Covers the cell's glyphs. Returns false (and does nothing) if there was
-    /// nothing visible to cover.
+    /// Covers the cell's glyphs. Returns false, changing nothing, if none show.
     pub fn cover(&mut self, half_line: u16, column: u16, correction: Correction) -> bool {
         let has_visible = self
             .cell(half_line, column)
@@ -169,7 +175,7 @@ impl Page {
         has_visible
     }
 
-    /// Correction fluid in the cell has dried.
+    /// Marks the cell's fluid dry.
     pub fn dry(&mut self, half_line: u16, column: u16) {
         if let Some(cell) = self.cells.get_mut(&(half_line, column)) {
             dry_cell(cell);
@@ -180,14 +186,16 @@ impl Page {
         self.cells.values_mut().for_each(dry_cell);
     }
 
-    /// Top visible glyph per column for one half-line, blanks as spaces and
-    /// trailing blanks trimmed.
+    /// One half-line as read ([`Cell::reads_as`]), blanks as spaces, trailing
+    /// blanks trimmed.
     pub fn line_text(&self, half_line: u16) -> String {
-        let mut text = String::new();
-        for column in 0..self.columns {
-            let glyph = self.cell(half_line, column).and_then(Cell::top_glyph);
-            text.push(glyph.unwrap_or(' '));
-        }
+        let mut text: String = (0..self.columns)
+            .map(|column| {
+                self.cell(half_line, column)
+                    .and_then(Cell::reads_as)
+                    .unwrap_or(' ')
+            })
+            .collect();
         text.truncate(text.trim_end().len());
         text
     }

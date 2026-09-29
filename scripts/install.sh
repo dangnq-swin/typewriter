@@ -15,14 +15,13 @@ BIN="$PREFIX/bin/typewriter"
 DESKTOP="$PREFIX/share/applications/typewriter.desktop"
 ICON="$PREFIX/share/icons/hicolor/scalable/apps/typewriter.svg"
 
-# The desktop's menus and icons pick up the change sooner with these, if
-# they are there.
+# Refresh desktop menus and icons, if the tools exist.
 refresh() {
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database -q "$PREFIX/share/applications" || true
     fi
-    # Only a cache that is already there: a new one would hide icons other
-    # programs install later without refreshing it.
+    # Only refresh an existing cache: a new one would hide icons others
+    # install later without refreshing it.
     if [ -f "$PREFIX/share/icons/hicolor/icon-theme.cache" ] &&
         command -v gtk-update-icon-cache >/dev/null 2>&1; then
         gtk-update-icon-cache -q -t "$PREFIX/share/icons/hicolor" || true
@@ -46,8 +45,8 @@ cargo build --release --locked -p typewriter-app
 install -Dm755 target/release/typewriter "$BIN"
 install -Dm644 assets/icons/typewriter.svg "$ICON"
 mkdir -p "$(dirname "$DESKTOP")"
-# Exec is the full path: ~/.local/bin is not always on the desktop's PATH.
-# The file name matches the window's app id, so the desktop pairs them.
+# Exec: full path, since ~/.local/bin is not always on the desktop's PATH.
+# File name = the window's app id, so the desktop pairs them.
 cat >"$DESKTOP" <<DESKTOP
 [Desktop Entry]
 Type=Application

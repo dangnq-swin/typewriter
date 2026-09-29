@@ -69,7 +69,7 @@ fn backspacing_and_retyping_rings_the_bell_again() {
 #[test]
 fn page_ends_after_the_last_line() {
     let mut tw = sm9();
-    // Single spacing from half-line 12 on a 140 half-line page: 64 feeds fit.
+    // Single spacing from half-line 12 on a 140 half-line page: 63 returns fit.
     for _ in 0..63 {
         assert_eq!(tw.apply(Command::Return), [Event::CarriageReturn]);
     }

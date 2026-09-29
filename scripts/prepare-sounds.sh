@@ -26,7 +26,7 @@ declare -A sources=(
     [fluid-brush.mp3]=$fs/482/482891_4023776-hq.mp3
 )
 for name in "${!sources[@]}"; do
-    # Renamed only when complete, so an interrupted download is not reused.
+    # Rename only when complete: never reuse an interrupted download.
     [[ -s $cache/$name ]] || {
         curl -sfL -o "$cache/$name.part" "${sources[$name]}"
         mv "$cache/$name.part" "$cache/$name"
@@ -47,8 +47,8 @@ clip() {
     normalize "$tmp" "$name" "$peak"
 }
 
-# normalize <temporary wav> <output> <peak dBFS>: writes the output at that
-# peak level and removes the temporary file.
+# normalize <temporary wav> <output> <peak dBFS>: writes at that peak, removes
+# the temporary.
 normalize() {
     local tmp=$1 name=$2 peak=$3 max gain
     max=$(ffmpeg -i "$tmp" -af volumedetect -f null - 2>&1 | sed -n 's/.*max_volume: \(-\?[0-9.]*\) dB/\1/p')
@@ -62,8 +62,8 @@ duration() {
     ffprobe -v error -show_entries format=duration -of csv=p=0 "$1"
 }
 
-# Key strikes start just before the typebar hits, so there is no lag after
-# the key press. Each keeps the typebar's return click.
+# Key strikes: start just before the typebar hits (no lag after the press);
+# keep the typebar's return click.
 clip key-1.wav hermes-key.flac 0.150 0.430 -6
 clip key-2.wav hermes-typing.flac 0.380 0.660 -6
 clip key-3.wav hermes-typing.flac 1.425 1.705 -6
@@ -89,10 +89,9 @@ clip roll-4.wav platen-ratchet.mp3 2.430 2.530 -14
 # Feeding a sheet is two clips played back to back: the finished sheet
 # winding out, then the new one winding in.
 
-# feed-in.wav: winding the new sheet in, from Gate13 1:49-1:57 (picked by ear:
-# the take narrates each action). Its three parts (paper going in, the page
-# turning over the platen, the ratchet run) are kept, with the pauses between
-# them tightened to 0.15 s and 0.25 s. Cuts are in the quiet between parts.
+# feed-in.wav: Gate13 1:49-1:57 (picked by ear; the take narrates each
+# action). Three parts (paper in, page over the platen, ratchet run), pauses
+# tightened to 0.15 s and 0.25 s. Cut only in the quiet between parts.
 part() { # part <start> <end> <pause after>
     echo "atrim=$1:$2,asetpts=PTS-STARTPTS,afade=t=in:d=0.01,areverse,afade=t=in:d=0.03,areverse,apad=pad_dur=$3"
 }
@@ -105,15 +104,14 @@ ffmpeg -v error -y -i "$cache/gate13.mp3" -filter_complex "
     [a][b][c]concat=n=3:v=0:a=1" -c:a pcm_f32le "$tmp"
 normalize "$tmp" feed-in.wav -12
 
-# feed-out.wav: the finished sheet wound out, a steady ratchet click every
-# CLICK_SECONDS. It lasts as long as the pauses tightened in feed-in.wav gave
-# back (8 s less feed-in.wav), stretched by WIND_OUT_STRETCH so the sheet does
-# not rush out.
+# feed-out.wav: a ratchet click every CLICK_SECONDS, as long as the time the
+# tightened pauses gave back (8 s less feed-in.wav), stretched by
+# WIND_OUT_STRETCH so the sheet doesn't rush out.
 CLICK_SECONDS=0.06
 WIND_OUT_STRETCH=1.4
 out_seconds=$(awk -v i="$(duration "$out/feed-in.wav")" -v s="$WIND_OUT_STRETCH" 'BEGIN { print (8.0 - i) * s }')
 clicks=$(awk -v d="$out_seconds" -v c="$CLICK_SECONDS" 'BEGIN { print int((d - 0.1) / c) + 1 }')
-order=(1 3 2 4 2 1 4 3) # the variants in an uneven order, so no pattern is heard
+order=(1 3 2 4 2 1 4 3) # uneven, so no pattern is heard
 inputs=() graph="" mix=""
 for ((i = 0; i < clicks; i++)); do
     inputs+=(-i "$out/roll-${order[i % ${#order[@]}]}.wav")
@@ -126,8 +124,8 @@ ffmpeg -v error -y "${inputs[@]}" -filter_complex \
     "${graph}${mix}amix=inputs=$clicks:normalize=0,apad,atrim=0:$out_seconds" -c:a pcm_f32le "$tmp"
 normalize "$tmp" feed-out.wav -14
 clip erase.wav eraser.mp3 1.000 1.650 -18
-# A dab of correction fluid: the wet brush pressed onto the paper (the take's
-# louder moments are the brush knocking, so they are left out).
+# Fluid dab: the wet brush on paper. Skip the take's loud moments (the brush
+# knocking).
 clip fluid.wav fluid-brush.mp3 9.700 10.200 -18 "highpass=f=150"
 # A sheet scrunched up into a ball: one burst of newspaper crumpling.
 clip crumple.wav newspaper-ball.mp3 23.250 24.150 -14

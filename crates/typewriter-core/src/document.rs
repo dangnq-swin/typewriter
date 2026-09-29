@@ -1,5 +1,5 @@
-//! The sheets typed so far: a folder of finished ones and the one in the
-//! machine, and the folder file they are saved in.
+//! The sheets typed so far (filed ones and the one in the machine) and the
+//! folder file that saves them.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -9,8 +9,7 @@ use crate::constraints::Constraints;
 use crate::page::Page;
 use crate::session::SessionStats;
 
-/// Bumped whenever the folder file changes in a way older versions cannot
-/// read. 2 added the session stats, 3 the notes on sheets.
+/// Bump when older versions can't read the file. 2: session stats. 3: notes.
 pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,13 +40,13 @@ impl Document {
         &mut self.current
     }
 
-    /// Scrunches up the finished sheet `index`: it is gone for good.
+    /// Scrunches up finished sheet `index`, for good.
     pub fn remove(&mut self, index: usize) -> Option<Page> {
         (index < self.finished.len()).then(|| self.finished.remove(index))
     }
 
-    /// Moves the finished sheet `from` to position `to`, the sheets between
-    /// shifting along. Returns false if either is not a finished sheet.
+    /// Moves finished sheet `from` to `to`; those between shift along.
+    /// False if either is out of range.
     pub fn move_sheet(&mut self, from: usize, to: usize) -> bool {
         let count = self.finished.len();
         if from >= count || to >= count {
@@ -58,20 +57,15 @@ impl Document {
         true
     }
 
-    /// Pencils a note on the finished sheet `index` (oldest is 0). Returns
-    /// false if there is no such sheet.
+    /// Pencils a note on finished sheet `index` (oldest 0). False if none.
     pub fn annotate(&mut self, index: usize, note: &str) -> bool {
-        match self.finished.get_mut(index) {
-            Some(page) => {
-                page.set_note(note);
-                true
-            }
-            None => false,
-        }
+        self.finished
+            .get_mut(index)
+            .map(|page| page.set_note(note))
+            .is_some()
     }
 
-    /// Takes the sheet out and puts `fresh` in. A blank sheet is not worth
-    /// keeping, so it simply stays in the machine.
+    /// Files the sheet and puts `fresh` in. A blank sheet just stays in.
     pub fn feed(&mut self, fresh: Page) {
         if !self.current.is_blank() {
             self.finished
@@ -80,12 +74,12 @@ impl Document {
     }
 }
 
-/// A folder file (`*.folder.ron`): the document and the state of the
-/// machine it is in, so typing carries on where it stopped.
+/// A folder file (`*.folder.ron`): the document plus the machine's state, so
+/// typing resumes where it stopped.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FolderFile {
     pub version: u32,
-    /// The profile's name. Only the built-in machines exist for now.
+    /// Profile name, looked up on load.
     pub profile: String,
     pub constraints: Constraints,
     pub carriage: Carriage,
@@ -118,8 +112,8 @@ impl FolderFile {
     }
 
     pub fn from_ron(text: &str) -> Result<Self, FolderError> {
-        /// Read first, so a newer file gets a clear error instead of a
-        /// confusing one about a field this version does not know.
+        // Check the version first: a newer file should say so, not fail on
+        // an unknown field.
         #[derive(Deserialize)]
         struct Version {
             version: u32,

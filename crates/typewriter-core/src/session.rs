@@ -1,16 +1,14 @@
-//! Focus goals and session stats: words written and time spent typing, from
-//! opening a project until it is put away.
+//! Focus goals and session stats: words written and time typed, from opening
+//! a project until it is put away.
 //!
-//! The core has no clock: the app passes the time of each key and the wall
-//! clock time a session started.
+//! No clock here: the app passes key times and the session's start time.
 
 use serde::{Deserialize, Serialize};
 
 use crate::document::Document;
-use crate::export;
 use crate::page::Page;
 
-/// A pause longer than this between keys is not counted as typing.
+/// Longer gaps between keys don't count as typing.
 pub const IDLE_SECONDS: f64 = 60.0;
 
 /// What a session aims for.
@@ -27,7 +25,7 @@ pub enum Goal {
 }
 
 impl Goal {
-    /// The user's own goal from its two targets, each `None` when turned off.
+    /// The user's own goal from its two targets (`None` = off).
     pub fn custom(words: Option<u32>, minutes: Option<u32>) -> Option<Goal> {
         match (words, minutes) {
             (Some(words), Some(minutes)) => Some(Goal::WordsOrMinutes { words, minutes }),
@@ -37,8 +35,8 @@ impl Goal {
         }
     }
 
-    /// The goals the Goal plate cycles through after off: the word presets,
-    /// the time presets, then the user's own goal unless it is a preset.
+    /// The Goal plate's cycle after off: word presets, time presets, then the
+    /// custom goal unless it is a preset.
     pub fn cycle(custom: Option<Goal>) -> Vec<Goal> {
         let mut goals: Vec<Goal> = [250, 500, 1000]
             .map(Goal::Words)
@@ -51,8 +49,8 @@ impl Goal {
         goals
     }
 
-    /// The goal after `goal` in `cycle`, with off before the first and after
-    /// the last. A goal no longer in the cycle is followed by the first.
+    /// The goal after `goal`, with off at both ends. A goal no longer in
+    /// `cycle` moves on to the first.
     pub fn next(goal: Option<Goal>, cycle: &[Goal]) -> Option<Goal> {
         match goal {
             None => cycle.first().copied(),
@@ -67,12 +65,11 @@ impl Goal {
 /// One session, as kept in the project file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionStats {
-    /// When it started, in seconds since the Unix epoch.
+    /// Unix seconds.
     pub started: u64,
-    /// Time spent typing, pauses left out.
+    /// Typing time, long pauses left out.
     pub seconds: u32,
-    /// Words on the sheets at the end less those at the start: corrected
-    /// words drop out.
+    /// Net words: at the end less at the start (corrections subtract).
     pub words: i64,
 }
 
@@ -98,9 +95,8 @@ impl Totals {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Progress {
     pub goal: Goal,
-    /// Words written so far, never below zero.
+    /// Net words, floored at zero.
     pub words: u32,
-    /// Whole minutes typed so far.
     pub minutes: u32,
     pub reached: bool,
 }
@@ -110,8 +106,7 @@ pub struct Progress {
 pub struct Session {
     started: u64,
     words_at_start: usize,
-    /// Finished sheets never change, so their words are counted once:
-    /// (sheets counted, their words).
+    /// (sheets counted, their words). Filed sheets don't change: count once.
     filed: (usize, usize),
     words: usize,
     seconds: f64,
@@ -138,8 +133,8 @@ impl Session {
         session
     }
 
-    /// A key was struck at `now` (seconds, on any steady clock). Returns true
-    /// if this reached the goal.
+    /// A key was struck at `now` (any steady clock, seconds). True if this key
+    /// reached the goal.
     pub fn typed(&mut self, document: &Document, now: f64) -> bool {
         if let Some(last) = self.last_key {
             let gap = now - last;
@@ -154,8 +149,7 @@ impl Session {
         self.reached && !was_reached
     }
 
-    /// Counts the words again from scratch, after sheets were taken out of
-    /// the folder.
+    /// Recounts from scratch. Call after removing sheets.
     pub fn recount(&mut self, document: &Document) {
         self.filed = (0, 0);
         self.count(document);
@@ -165,7 +159,7 @@ impl Session {
         self.goal
     }
 
-    /// A goal already met is reached at once, without ceremony.
+    /// A goal already met counts as reached at once, without a bell.
     pub fn set_goal(&mut self, goal: Option<Goal>) {
         self.goal = goal;
         self.reached = self.is_met();
@@ -180,7 +174,7 @@ impl Session {
         })
     }
 
-    /// The session so far, or `None` if nothing was written or typed.
+    /// The session so far, `None` if nothing happened.
     pub fn stats(&self) -> Option<SessionStats> {
         let stats = SessionStats {
             started: self.started,
@@ -205,12 +199,12 @@ impl Session {
     }
 
     fn net_words(&self) -> i64 {
-        // Word counts are far below i64::MAX.
+        // Word counts never near i64::MAX.
         self.words as i64 - self.words_at_start as i64
     }
 
     fn whole_seconds(&self) -> u32 {
-        // Floored and clamped: fits in u32.
+        // Clamped first, so the cast can't wrap.
         self.seconds.clamp(0.0, f64::from(u32::MAX)) as u32
     }
 
@@ -228,15 +222,14 @@ impl Session {
     }
 }
 
-/// Words that read on a sheet: runs of visible characters along a line,
-/// counted if they hold a letter or digit (a lone dash is not a word).
+/// Words on a sheet: runs of visible characters along a line holding a
+/// letter or digit (a lone dash is not a word).
 pub fn words_on(page: &Page) -> usize {
     let mut words = 0;
-    // (half-line, column) of the last visible character, and whether the run
-    // it ends holds a letter or digit.
+    // (position of the run's last character, run has a letter or digit)
     let mut run: Option<((u16, u16), bool)> = None;
     for ((half_line, column), cell) in page.cells() {
-        let Some(c) = export::cell_char(cell).filter(|c| !c.is_whitespace()) else {
+        let Some(c) = cell.reads_as().filter(|c| !c.is_whitespace()) else {
             continue;
         };
         let alphanumeric = c.is_alphanumeric();

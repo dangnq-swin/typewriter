@@ -1,26 +1,25 @@
-//! A sheet scrunched up into a ball and tossed off the desk.
+//! A sheet scrunched into a ball and tossed off the desk.
 
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, Vec2, vec2};
 
-use super::paper::splitmix64;
+use super::{SHEET, SHEET_EDGE, smoothstep, splitmix64, unit};
 
-/// As long as the crumpling sound.
+/// Keep equal to the crumple sound's length.
 pub const SECONDS: f64 = 0.9;
-/// The share of the time spent crumpling; the rest is the toss.
+/// Share of the time crumpling; the rest is the toss.
 const CRUMPLE: f32 = 0.65;
+/// Outline points. The outline is star-shaped around the centre.
 const RAYS: usize = 48;
 const CREASES: usize = 9;
 
-const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
-const EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
 const CREASE: Color32 = Color32::from_rgba_premultiplied(0x50, 0x4A, 0x40, 0x50);
 const SHADOW: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x30);
 
-/// Draws the sheet whose outline was `quad`, `t` seconds into being
-/// scrunched up. `seed` varies the folds from one sheet to the next.
+/// Draws the sheet that was `quad`, `t` seconds into scrunching. `seed`
+/// varies the folds per sheet.
 pub fn paint(painter: &Painter, quad: [Pos2; 4], t: f64, seed: u64) {
     let t = (t / SECONDS).clamp(0.0, 1.0) as f32;
-    let crumple = smoothstep((t / CRUMPLE).min(1.0));
+    let crumple = smoothstep(t / CRUMPLE);
     let toss = ((t - CRUMPLE) / (1.0 - CRUMPLE)).max(0.0);
 
     let centre = quad.iter().fold(Vec2::ZERO, |sum, p| sum + p.to_vec2()) / 4.0;
@@ -30,7 +29,7 @@ pub fn paint(painter: &Painter, quad: [Pos2; 4], t: f64, seed: u64) {
         .map(|p| (*p - centre).length())
         .fold(0.0_f32, f32::max);
     let ball = 0.16 * span;
-    // Up and away to the lower left, off the desk.
+    // A parabola: up, then away to the lower left.
     let flight = vec2(-2.2 * span * toss, span * (-0.9 * toss + 3.2 * toss * toss));
     let centre = centre + flight;
 
@@ -40,9 +39,9 @@ pub fn paint(painter: &Painter, quad: [Pos2; 4], t: f64, seed: u64) {
             let direction = Vec2::angled(angle);
             let flat = distance_to_edge(&quad, centre - flight, direction);
             let bits = splitmix64(seed ^ k as u64);
-            let noise = |shift: u32| ((bits >> shift) & 0xFFFF) as f32 / 65535.0;
+            let noise = |shift| unit(bits, shift);
             let lumpy = ball * (0.75 + 0.5 * noise(0));
-            // Folds bite in and out while it is being crushed.
+            // Folds bite in and out mid-crush, gone at both ends.
             let wrinkle = (std::f32::consts::PI * crumple).sin() * 0.18 * flat * (noise(16) - 0.5);
             let radius = flat + (lumpy - flat) * crumple + wrinkle;
             centre + direction * radius.max(1.0)
@@ -58,8 +57,11 @@ pub fn paint(painter: &Painter, quad: [Pos2; 4], t: f64, seed: u64) {
         SHADOW,
     );
     fan(painter, centre, &outline, Vec2::ZERO, SHEET);
-    painter.add(Shape::closed_line(outline.clone(), Stroke::new(1.0, EDGE)));
-    // Creases show as it crumples.
+    painter.add(Shape::closed_line(
+        outline.clone(),
+        Stroke::new(1.0, SHEET_EDGE),
+    ));
+    // Creases darken as it crumples.
     let crease = Stroke::new(1.0, CREASE.gamma_multiply(crumple));
     for c in 0..CREASES {
         let bits = splitmix64(seed.rotate_left(17) ^ c as u64);
@@ -70,8 +72,7 @@ pub fn paint(painter: &Painter, quad: [Pos2; 4], t: f64, seed: u64) {
     }
 }
 
-/// How far from `from` the quad's edge is along `direction`. `from` is
-/// inside the quad.
+/// Distance from `from` (inside the quad) to its edge along `direction`.
 fn distance_to_edge(quad: &[Pos2; 4], from: Pos2, direction: Vec2) -> f32 {
     (0..4)
         .filter_map(|i| {
@@ -90,7 +91,7 @@ fn distance_to_edge(quad: &[Pos2; 4], from: Pos2, direction: Vec2) -> f32 {
         .min(1e4)
 }
 
-/// A filled outline that is star-shaped around `centre`, as a triangle fan.
+/// Fills an outline star-shaped around `centre`, as a triangle fan.
 fn fan(painter: &Painter, centre: Pos2, outline: &[Pos2], offset: Vec2, color: Color32) {
     let mut mesh = Mesh::default();
     mesh.colored_vertex(centre, color);
@@ -102,10 +103,6 @@ fn fan(painter: &Painter, centre: Pos2, outline: &[Pos2], offset: Vec2, color: C
         mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
     }
     painter.add(Shape::mesh(mesh));
-}
-
-fn smoothstep(t: f32) -> f32 {
-    t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]

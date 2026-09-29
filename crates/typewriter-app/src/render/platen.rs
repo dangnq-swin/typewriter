@@ -1,4 +1,4 @@
-//! Keeps the typing point still and moves the paper around it.
+//! The platen view: the typing point stays still, the paper moves.
 
 use std::f32::consts::TAU;
 
@@ -6,9 +6,9 @@ use eframe::egui::{
     Color32, CornerRadius, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2, pos2, vec2,
 };
 
-use super::Metrics;
+use super::{HIGHLIGHT, Metrics};
 
-/// Fraction of the view height where the typing line sits.
+/// The typing line's height, as a share of the view.
 const TYPING_LINE_HEIGHT: f32 = 0.62;
 const JOLT_SECONDS: f64 = 0.18;
 const JOLT_AMPLITUDE: f32 = 3.0;
@@ -16,8 +16,8 @@ const JOLT_HZ: f32 = 28.0;
 
 #[derive(Debug)]
 pub struct PlatenView {
-    /// Slide the paper sideways with the carriage. When off, the paper stays
-    /// centred and the strike-point marker moves instead.
+    /// Slide the paper with the carriage. Off: the paper stays centred and
+    /// the pointer moves instead.
     pub carriage_travel: bool,
     glide: Glide,
     jolt_started: Option<f64>,
@@ -37,8 +37,7 @@ impl PlatenView {
         }
     }
 
-    /// Jumps straight to the carriage position, e.g. after a zoom change,
-    /// instead of gliding there.
+    /// Jumps to the carriage without gliding. Call after a zoom change.
     pub fn snap(&mut self) {
         self.glide = Glide::default();
     }
@@ -54,7 +53,7 @@ impl PlatenView {
                 .is_some_and(|start| now - start < JOLT_SECONDS)
     }
 
-    /// `cell` is the carriage's cell offset on the paper.
+    /// `cell`: the carriage's cell offset on the paper.
     pub fn layout(&mut self, view: Rect, metrics: &Metrics, cell: Vec2, now: f64) -> Layout {
         let carriage = self.glide.follow(cell, metrics, now);
         let fixed = pos2(
@@ -90,13 +89,13 @@ impl PlatenView {
     }
 }
 
-/// A small pointer just below the typing line, like the type guide. Only
-/// below, so it never overlaps the line typed before.
+/// A small pointer below the typing line, like the type guide. Keep it below:
+/// it must never cover the line above.
 pub fn paint_strike_marker(painter: &Painter, metrics: &Metrics, strike_point: Pos2, opacity: f32) {
     if opacity <= 0.0 {
         return;
     }
-    let color = Color32::from_rgba_unmultiplied(0x80, 0x30, 0x20, 0xB0).gamma_multiply(opacity);
+    let color = HIGHLIGHT.gamma_multiply(0.69 * opacity);
     let w = metrics.column_width * 0.45;
     let line = metrics.cell_size().y;
     let gap = 2.0;
@@ -112,8 +111,7 @@ pub fn paint_strike_marker(painter: &Painter, metrics: &Metrics, strike_point: P
     ));
 }
 
-/// Eased movement between carriage positions. Long moves (a carriage return)
-/// take longer than a single escapement step.
+/// Eased carriage movement. Long moves (a return) take longer than a step.
 #[derive(Debug, Default)]
 struct Glide {
     from: Vec2,
@@ -157,8 +155,8 @@ impl Glide {
     }
 }
 
-/// The correction slip, held between the ribbon and the paper over the
-/// typing point. Translucent enough to see what is struck through it.
+/// The correction slip over the typing point. Keep it translucent: strikes
+/// through it must show.
 pub fn paint_slip(painter: &Painter, metrics: &Metrics, strike_point: Pos2) {
     let line = metrics.cell_size().y;
     let slip = Rect::from_center_size(

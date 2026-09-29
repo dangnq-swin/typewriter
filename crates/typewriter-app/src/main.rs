@@ -8,7 +8,7 @@ mod settings;
 mod storage;
 
 fn main() -> anyhow::Result<()> {
-    // Read before the window opens, so it opens fullscreen straight away.
+    // Load before the window opens: it must open fullscreen at once.
     let settings = settings::SettingsFile::load();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()

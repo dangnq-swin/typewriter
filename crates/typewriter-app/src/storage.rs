@@ -1,39 +1,37 @@
-//! Where project files live and how they are written.
+//! XDG paths and crash-safe writes.
 //!
-//! A project file is wherever the user saved it. Until then it is a draft in
-//! `$XDG_DATA_HOME/typewriter/drafts/`, so nothing typed is ever lost.
+//! A project lives wherever the user saved it; until then it is a draft in
+//! `$XDG_DATA_HOME/typewriter/drafts/`, so nothing typed is lost.
 
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// A project is shown as a manila folder, and its file is RON inside.
+/// A project file: a manila folder on screen, RON inside.
 pub const EXTENSION: &str = ".folder.ron";
-/// The name of a project not yet saved under one.
+/// A draft's name.
 pub const UNTITLED: &str = "Untitled";
 
-/// `$XDG_DATA_HOME/typewriter`, or `~/.local/share/typewriter`.
-fn data_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_DATA_HOME")
+/// `$<variable>/typewriter`, or `~/<fallback>/typewriter`. XDG says to
+/// ignore relative paths.
+fn xdg_dir(variable: &str, fallback: &str) -> Option<PathBuf> {
+    let base = std::env::var_os(variable)
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
-        })?;
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(fallback)))?;
     Some(base.join("typewriter"))
 }
 
-/// `$XDG_CONFIG_HOME/typewriter/config.toml`, or under `~/.config`.
-pub fn config_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(base.join("typewriter").join("config.toml"))
+fn data_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_DATA_HOME", ".local/share")
 }
 
-/// Where the user's own machine profiles are.
+pub fn config_path() -> Option<PathBuf> {
+    xdg_dir("XDG_CONFIG_HOME", ".config").map(|dir| dir.join("config.toml"))
+}
+
+/// The user's machine profiles.
 pub fn profiles_dir() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("profiles"))
 }
@@ -42,7 +40,7 @@ fn drafts_dir() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("drafts"))
 }
 
-/// A new, unused draft path, named by when it was started (UTC).
+/// A fresh draft path, named by its start time (UTC).
 pub fn new_draft_path() -> Option<PathBuf> {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -55,19 +53,23 @@ pub fn is_draft(path: &Path) -> bool {
     drafts_dir().is_some_and(|dir| path.starts_with(dir))
 }
 
+/// The file name, lossily, `""` if none.
+pub fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 /// The project's name, as on the folder's tab.
 pub fn display_name(path: &Path) -> String {
     if is_draft(path) {
         return UNTITLED.to_owned();
     }
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let name = file_name(path);
     name.strip_suffix(EXTENSION).unwrap_or(&name).to_owned()
 }
 
-/// `~/…` for paths in the home directory, which are shorter to read.
+/// Shortens home paths to `~/…`.
 pub fn home_relative(path: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     match home
@@ -79,13 +81,9 @@ pub fn home_relative(path: &Path) -> String {
     }
 }
 
-/// Makes a chosen path a project file: `novel` or `novel.ron` becomes
-/// `novel.folder.ron`.
+/// `novel` or `novel.ron` → `novel.folder.ron`.
 pub fn with_extension(path: PathBuf) -> PathBuf {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let name = file_name(&path);
     if name.ends_with(EXTENSION) {
         return path;
     }
@@ -99,31 +97,26 @@ pub fn export_path(folder: &Path, extension: &str) -> PathBuf {
     folder.with_file_name(format!("{name}.{extension}"))
 }
 
-/// Writes a temporary file beside `path` and renames it over `path`, so a
-/// crash mid-write never leaves a half-written file.
+/// Writes a temp file beside `path`, then renames it over: a crash never
+/// leaves a half-written file.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let temporary = path.with_file_name(format!(".{name}.tmp"));
+    let temporary = path.with_file_name(format!(".{}.tmp", file_name(path)));
     let mut file = fs::File::create(&temporary)?;
     file.write_all(contents.as_ref())?;
     file.sync_all()?;
     fs::rename(&temporary, path)
 }
 
-/// Holds the process id of a running app. Removed on a clean exit, so one
-/// found at start means the last run crashed.
+/// Holds the running app's PID. Removed on a clean exit: found at start, the
+/// last run crashed.
 fn running_marker() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("running"))
 }
 
-/// Marks this run as in progress. Returns true if the last run ended
-/// without closing cleanly (and is not still running).
+/// Marks this run. True if the last run crashed (not merely still running).
 pub fn mark_running() -> bool {
     let Some(marker) = running_marker() else {
         return false;
@@ -138,7 +131,7 @@ pub fn mark_running() -> bool {
     crashed
 }
 
-/// The app closed cleanly.
+/// Call on a clean exit.
 pub fn clear_running() {
     if let Some(marker) = running_marker() {
         let _ = fs::remove_file(marker);
@@ -149,7 +142,7 @@ fn last_project_record() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("last-folder"))
 }
 
-/// The project that was open last time, if it is still there.
+/// Last run's project, if it still exists.
 pub fn last_project() -> Option<PathBuf> {
     let record = fs::read_to_string(last_project_record()?).ok()?;
     let path = PathBuf::from(record.trim_end_matches('\n'));
@@ -163,7 +156,7 @@ pub fn remember_last(path: &Path) -> io::Result<()> {
     write_atomic(&record, format!("{}\n", path.display()))
 }
 
-/// `YYYY-MM-DD-HHMMSS` for seconds since the Unix epoch, in UTC.
+/// Unix seconds as `YYYY-MM-DD-HHMMSS`, UTC.
 fn timestamp(seconds: u64) -> String {
     let days = (seconds / 86_400) as i64;
     let rest = seconds % 86_400;
@@ -176,7 +169,7 @@ fn timestamp(seconds: u64) -> String {
     )
 }
 
-/// Days since 1970-01-01 to a calendar date (Howard Hinnant's algorithm).
+/// Days since 1970-01-01 → (year, month, day). Howard Hinnant's algorithm.
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -184,7 +177,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
-    // Both fit in u32: day is 1..=31 and month is 1..=12.
+    // Casts are safe: day is 1..=31, month 1..=12.
     let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
     let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
     let year = yoe + era * 400 + i64::from(month <= 2);

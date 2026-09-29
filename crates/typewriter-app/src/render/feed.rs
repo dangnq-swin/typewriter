@@ -1,32 +1,31 @@
-//! Feeding a new sheet. The finished sheet winds up and out at a steady
-//! speed while the ratchet clicks, then the new one rises from the platen in
-//! step with the knob turns heard in its sound.
+//! Sheet feed motion. The finished sheet winds out steadily during the
+//! clicks; the new one rises in step with the knob turns heard in its sound.
 
 use eframe::egui::epaint::{Mesh, Shadow, Vertex};
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
 
 use super::background::Background;
+use super::smoothstep;
 
-/// Once the new sheet lands, its shadow fades out while the typing pointer
-/// fades in, together over this long; then the feed is over. The sheet always
-/// lands at least this long before its sound ends.
+/// After landing: shadow out, pointer in, together over this; then the feed
+/// ends. Landing is always at least this long before the sound ends.
 pub const SETTLE_SECONDS: f64 = 0.25;
+/// Loudness analysis window.
 const WINDOW_SECONDS: f64 = 0.05;
-/// Loudness below the clip's loudest window at which the knob counts as
-/// still (0) or fully turning (1), in dB.
+/// dB below the loudest window at which the knob counts as still (0) or
+/// fully turning (1).
 const STILL_DB: f32 = 36.0;
 const TURNING_DB: f32 = 20.0;
-/// Curl of the leading edge at full strength, in inches.
+/// Leading-edge curl at full strength, inches.
 const CURL_DEPTH_IN: f32 = 0.4;
 const CURL_INSET_IN: f32 = 0.06;
 
-/// The timing of a sheet feed. Winding the finished sheet out takes as long
-/// as its clicks; winding the new one in follows the loudness of its sound,
-/// moving while the knob is heard and resting in between.
+/// A feed's timing: wind-out lasts as long as the clicks; wind-in moves only
+/// while the knob is heard.
 #[derive(Debug, Clone)]
 pub struct FeedMotion {
     wind_out: f64,
-    /// Wind-in progress (0 to 1) at the end of each window.
+    /// Wind-in progress (0..=1) at the end of each window.
     progress: Vec<f32>,
 }
 
@@ -47,7 +46,7 @@ impl FeedMotion {
             .iter()
             .map(|d| ((d - loudest + STILL_DB) / (STILL_DB - TURNING_DB)).clamp(0.0, 1.0))
             .collect();
-        // Averaging neighbours eases each turn in and out.
+        // Average neighbours: eases each turn in and out.
         let smoothed: Vec<f32> = (0..turning.len())
             .map(|i| {
                 let near = &turning[i.saturating_sub(1)..(i + 2).min(turning.len())];
@@ -57,7 +56,7 @@ impl FeedMotion {
         Self::from_speeds(duration, &smoothed)
     }
 
-    /// Winds in evenly, for when the sound cannot be read.
+    /// Even wind-in, for when the sound can't be read.
     pub fn even(duration: f64) -> Self {
         let windows = (duration / WINDOW_SECONDS).ceil() as usize;
         Self::from_speeds(duration, &vec![1.0; windows])
@@ -87,7 +86,7 @@ impl FeedMotion {
         }
     }
 
-    /// Winds the finished sheet out for `seconds` before the new one goes in.
+    /// Winds the finished sheet out for `seconds` first.
     pub fn after_wind_out(self, seconds: f64) -> Self {
         Self {
             wind_out: seconds.max(0.0),
@@ -95,19 +94,17 @@ impl FeedMotion {
         }
     }
 
-    /// The whole feed, from the first click until the pointer is back. The
-    /// quiet end of the sound may still be playing.
+    /// First click to pointer back. The sound's quiet tail may still play.
     pub fn duration(&self) -> f64 {
         self.settled_at() + SETTLE_SECONDS
     }
 
-    /// How far the finished sheet has wound out (0 to 1), at a steady speed.
-    /// `None` once it is gone.
+    /// Wind-out progress (0..=1, steady). `None` once gone.
     pub fn roll_out(&self, t: f64) -> Option<f32> {
         (t < self.wind_out).then(|| (t / self.wind_out) as f32)
     }
 
-    /// How far the new sheet has wound in (0 to 1).
+    /// Wind-in progress (0..=1).
     pub fn progress(&self, t: f64) -> f32 {
         let at = (t - self.wind_out) / WINDOW_SECONDS;
         if at <= 0.0 {
@@ -121,36 +118,29 @@ impl FeedMotion {
         start + (end - start) * (at - at.floor()) as f32
     }
 
-    /// When the new sheet stops moving for good.
+    /// When the new sheet stops for good.
     fn settled_at(&self) -> f64 {
         let windows = self.progress.iter().take_while(|&&p| p < 1.0).count() + 1;
         self.wind_out + windows as f64 * WINDOW_SECONDS
     }
 
-    /// Shadow strength of the new sheet: lifted while it moves, fading out
-    /// exactly as the pointer fades in.
+    /// Shadow strength: full while moving, fading as the pointer fades in.
     pub fn lift(&self, t: f64) -> f32 {
         1.0 - self.pointer_opacity(t)
     }
 
-    /// The leading edge stays curled while it winds and flattens on landing.
+    /// Leading-edge curl: curled while winding, flat on landing.
     pub fn curl(&self, t: f64) -> f32 {
-        1.0 - smoothstep(0.7, 1.0, self.progress(t))
+        1.0 - smoothstep((self.progress(t) - 0.7) / 0.3)
     }
 
     pub fn pointer_opacity(&self, t: f64) -> f32 {
-        let landed = self.settled_at();
-        smoothstep(landed as f32, (landed + SETTLE_SECONDS) as f32, t as f32)
+        smoothstep(((t - self.settled_at()) / SETTLE_SECONDS) as f32)
     }
 }
 
-fn smoothstep(from: f32, to: f32, x: f32) -> f32 {
-    let t = ((x - from) / (to - from)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-/// A sheet held off the desk: its shadow, then its body filled with the same
-/// paper as the background, so only its edges, curl and shadow show.
+/// A sheet held off the desk: shadow, then a body of the background paper,
+/// so only edges, curl and shadow show.
 pub fn paint_lifted_sheet(
     painter: &Painter,
     background: &Background,
@@ -170,8 +160,7 @@ pub fn paint_lifted_sheet(
         painter.add(shadow.as_shape(sheet, 0));
     }
 
-    // Curling back towards the platen, the leading edge is foreshortened
-    // and seen slightly narrower.
+    // Curled back toward the platen, the edge foreshortens and narrows.
     let depth = curl * CURL_DEPTH_IN * points_per_inch;
     let inset = curl * CURL_INSET_IN * points_per_inch;
     let lip = [
@@ -213,7 +202,7 @@ pub fn paint_lifted_sheet(
     }
 }
 
-/// Fan-triangulated mesh over a convex polygon.
+/// A triangle fan over a convex polygon.
 pub fn convex_mesh(points: &[Pos2], mut vertex: impl FnMut(Pos2) -> Vertex) -> Mesh {
     let mut mesh = Mesh::default();
     mesh.vertices.extend(points.iter().map(|&p| vertex(p)));

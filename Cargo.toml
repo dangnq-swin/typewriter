@@ -22,8 +22,8 @@ rfd = "0.17"
 printpdf = { version = "0.12", default-features = false }
 rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
 
-# Decoding and resizing the paper texture is painfully slow unoptimised,
-# both in the build script and at startup of debug builds.
+# Optimise image decoding even in debug: the paper texture is painfully slow
+# to decode and resize otherwise (build script and startup).
 [profile.dev.build-override]
 opt-level = 3
 
