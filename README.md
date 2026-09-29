@@ -53,6 +53,8 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 | Tab | Jump to the next tab stop |
 | Shift + Tab (tap while holding Shift) | Once: set a tab stop at the carriage. Twice: clear the nearest stop. Three times: clear all stops |
 | Insert | Take the sheet out and feed a new one. Enter on the last line does the same |
+| Home | Margin release: type past the margins until the next return (or click a margin stop) |
+| Shift+Home / Shift+End | Set the left / right margin at the carriage (or drag the stops on the scale) |
 | F1/F2/F3 | Line spacing 1/1.5/2 |
 | F4 | Change correction method |
 | 1 or ! | Open the scratchpad (Esc or a click away puts it back) |
@@ -74,6 +76,7 @@ You can then write over your mistakes. Shift+Backspace again to remove the corre
 
 | Control | Does |
 |---|---|
+| Red margin stops on the scale | Drag: move the margin. Click: margin release |
 | **Spacing** plate | Click: next line spacing |
 | **Zoom** plate | Double-click: 100 % |
 | **Correct** plate | Click: next mistake-fixing method |

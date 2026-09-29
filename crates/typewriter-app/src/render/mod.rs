@@ -35,6 +35,8 @@ pub const HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
 /// Clickable, never focused: Tab and Enter belong to the typewriter, and a
 /// focused control would take Enter as a click.
 pub const CLICK: Sense = Sense::CLICK;
+/// [`CLICK`], and draggable.
+pub const CLICK_AND_DRAG: Sense = Sense::CLICK.union(Sense::DRAG);
 
 /// Page geometry in screen points.
 #[derive(Debug, Clone)]

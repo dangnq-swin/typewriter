@@ -32,14 +32,26 @@ pub enum Command {
     /// Clear the stop nearest the carriage, within a few columns.
     ClearTabStop,
     ClearAllTabStops,
+    /// Margin-set keys: the stop to the carriage.
     SetLeftMargin,
     SetRightMargin,
+    /// A stop slid along the scale by hand.
+    MoveMargin {
+        side: Side,
+        column: u16,
+    },
     MarginRelease,
     SetLineSpacing(LineSpacing),
     /// Release lever / platen knob. Vertical steps are half-lines.
     Move(Direction),
     /// File the sheet and feed a blank one, carriage at the top margin.
     FeedSheet,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,8 +271,9 @@ impl Typewriter {
                 self.carriage.clear_all_tab_stops();
                 vec![]
             }
-            Command::SetLeftMargin => self.set_left_margin(),
-            Command::SetRightMargin => self.set_right_margin(),
+            Command::SetLeftMargin => self.move_margin(Side::Left, self.carriage.column),
+            Command::SetRightMargin => self.move_margin(Side::Right, self.carriage.column),
+            Command::MoveMargin { side, column } => self.move_margin(side, column),
             Command::MarginRelease => {
                 self.carriage.margin_released = true;
                 vec![]
@@ -428,22 +441,21 @@ impl Typewriter {
         vec![]
     }
 
-    fn set_left_margin(&mut self) -> Vec<Event> {
-        let c = &mut self.carriage;
-        if c.column >= c.right_margin {
-            return vec![Event::Blocked(BlockReason::InvalidStop)];
-        }
-        c.left_margin = c.column;
-        vec![]
-    }
-
-    fn set_right_margin(&mut self) -> Vec<Event> {
+    /// Stops keep at least a column between them, the right one on the paper.
+    fn move_margin(&mut self, side: Side, column: u16) -> Vec<Event> {
         let columns = self.document.current().columns();
         let c = &mut self.carriage;
-        if c.column <= c.left_margin || c.column > columns {
+        let fits = match side {
+            Side::Left => column < c.right_margin,
+            Side::Right => column > c.left_margin && column <= columns,
+        };
+        if !fits {
             return vec![Event::Blocked(BlockReason::InvalidStop)];
         }
-        c.right_margin = c.column;
+        match side {
+            Side::Left => c.left_margin = column,
+            Side::Right => c.right_margin = column,
+        }
         vec![]
     }
 
@@ -903,6 +915,34 @@ mod tests {
         assert_eq!(
             tw.apply(Command::SetRightMargin),
             [Event::Blocked(BlockReason::InvalidStop)]
+        );
+    }
+
+    #[test]
+    fn stops_slide_along_the_scale_but_never_cross_or_leave_the_paper() {
+        let mut tw = sm9();
+        let slide =
+            |tw: &mut Typewriter, side, column| tw.apply(Command::MoveMargin { side, column });
+        assert_eq!(slide(&mut tw, Side::Left, 5), []);
+        assert_eq!(slide(&mut tw, Side::Right, 80), []);
+        assert_eq!(
+            (tw.carriage().left_margin, tw.carriage().right_margin),
+            (5, 80)
+        );
+        let columns = tw.page().columns();
+        for (side, column) in [
+            (Side::Left, 80),
+            (Side::Right, 5),
+            (Side::Right, columns + 1),
+        ] {
+            assert_eq!(
+                slide(&mut tw, side, column),
+                [Event::Blocked(BlockReason::InvalidStop)]
+            );
+        }
+        assert_eq!(
+            (tw.carriage().left_margin, tw.carriage().right_margin),
+            (5, 80)
         );
     }
 

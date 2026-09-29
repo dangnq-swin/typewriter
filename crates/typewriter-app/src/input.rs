@@ -13,6 +13,10 @@
 //! - Tab: tabulate
 //! - hold Shift, tap Tab: 1× set a stop, 2× clear the nearest, 3× clear all;
 //!   acts on Shift release
+//! - Home: margin release, until the next return; or click a margin stop
+//!   on the scale
+//! - Shift+Home / Shift+End: set the left / right margin at the carriage;
+//!   or drag the stops along the scale
 //! - F1 / F2 / F3: line spacing 1 / 1.5 / 2
 //! - F4: next correction method
 //! - arrows: free movement (if allowed)
@@ -170,6 +174,9 @@ fn key_command(key: Key, m: Modifiers, repeat: bool) -> Option<Command> {
         Key::Backspace if m.shift => Command::Erase,
         Key::Backspace => Command::Backspace,
         Key::Tab if !m.any() => Command::Tab,
+        Key::Home if m.shift => Command::SetLeftMargin,
+        Key::End if m.shift => Command::SetRightMargin,
+        Key::Home => Command::MarginRelease,
         Key::F1 => Command::SetLineSpacing(LineSpacing::Single),
         Key::F2 => Command::SetLineSpacing(LineSpacing::OneAndHalf),
         Key::F3 => Command::SetLineSpacing(LineSpacing::Double),
@@ -241,6 +248,15 @@ mod tests {
             one_frame(&[Event::Text("a b\r".into())]),
             [Command::Type('a'), Command::Type(' '), Command::Type('b')]
         );
+    }
+
+    #[test]
+    fn home_releases_the_margins_and_shift_sets_them() {
+        let press = |k, m| one_frame(&[key(k, m)]);
+        assert_eq!(press(Key::Home, Modifiers::NONE), [Command::MarginRelease]);
+        assert_eq!(press(Key::Home, Modifiers::SHIFT), [Command::SetLeftMargin]);
+        assert_eq!(press(Key::End, Modifiers::SHIFT), [Command::SetRightMargin]);
+        assert_eq!(press(Key::End, Modifiers::NONE), []);
     }
 
     #[test]

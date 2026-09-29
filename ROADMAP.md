@@ -22,9 +22,9 @@ M0–M8 are done; the git history has the details.
 
 ## M11: Margins & machine rules
 
-- [ ] ❓ Key bindings for margin release and for setting the left / right margin at the
-      carriage (the core supports both)
-- [ ] Margin-release indicator on the scale
+- [x] Margin release on Home, margins set at the carriage with Shift+Home / Shift+End; on
+      the scale, click a stop to release, drag one to move it
+- [x] Margin-release indicator on the scale: the stops stand lifted and faded
 - [ ] Machine rules in the settings: backspace, margin lock, free movement, correction Off in
       the cycle (defaults for new projects, also applied to the project in the machine)
 

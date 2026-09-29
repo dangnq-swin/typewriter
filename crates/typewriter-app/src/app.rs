@@ -9,7 +9,7 @@ use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, R
 use typewriter_core::page::Page;
 use typewriter_core::session::Totals;
 use typewriter_core::{
-    Command, Constraints, Direction, EraseMode, Event, Goal, Session, Typewriter,
+    Command, Constraints, Direction, EraseMode, Event, Goal, Session, Side, Typewriter,
 };
 
 use crate::audio::{self, Audio};
@@ -946,14 +946,13 @@ impl TypewriterApp {
         painter.multiply_opacity(chrome);
         let carriage = self.machine.carriage();
         let ruler_top = ruler::top(&self.metrics, layout.strike_point);
-        ruler::paint_scale(
-            &painter,
+        let scale = ruler::Scale::new(
             &self.metrics,
-            carriage,
             self.machine.page().columns(),
             layout.paper_origin.x,
             ruler_top,
         );
+        ruler::paint_scale(&painter, &scale, carriage);
         let spacing_plate = ruler::paint_spacing_indicator(
             &painter,
             carriage.line_spacing,
@@ -1033,6 +1032,46 @@ impl TypewriterApp {
         if autosave.clicked() {
             let ctx = ui.ctx().clone();
             self.filing.save_now(&self.machine, &ctx, now);
+        }
+        if !feeding {
+            self.margin_stops(ui, &scale, now);
+        }
+    }
+
+    /// The scale's margin stops: click to release the margins, drag to move one.
+    fn margin_stops(&mut self, ui: &egui::Ui, scale: &ruler::Scale, now: f64) {
+        for (side, name, key) in [(Side::Left, "Left", "Home"), (Side::Right, "Right", "End")] {
+            let carriage = self.machine.carriage();
+            let grip = scale.stop(carriage, side);
+            let (left, right) = (carriage.left_margin, carriage.right_margin);
+            let tip = format!(
+                "{name} margin (Shift+{key}). Drag to move; click to release the margins (Home)."
+            );
+            let stop = ui
+                .interact(
+                    grip,
+                    egui::Id::new(("margin-stop", name)),
+                    render::CLICK_AND_DRAG,
+                )
+                .on_hover_text(tip);
+            if stop.hovered() || stop.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+            }
+            if stop.clicked() {
+                self.apply(Command::MarginRelease, now);
+            }
+            let Some(pointer) = stop.interact_pointer_pos().filter(|_| stop.dragged()) else {
+                continue;
+            };
+            // Stop short of the other stop: no jolt per frame.
+            let column = scale.column_at(pointer.x);
+            let (column, margin) = match side {
+                Side::Left => (column.min(right - 1), left),
+                Side::Right => (column.max(left + 1), right),
+            };
+            if column != margin {
+                self.apply(Command::MoveMargin { side, column }, now);
+            }
         }
     }
 
