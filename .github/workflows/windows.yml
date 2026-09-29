@@ -1,0 +1,33 @@
+# A Windows build for testers, started by hand (Actions → Windows build → Run
+# workflow). The app is left on the run as the `typewriter-windows` download.
+name: Windows build
+
+on: workflow_dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: windows-
+      - run: rustup toolchain install
+      - run: cargo test --workspace --release
+      - run: cargo build --release -p typewriter-app --bins
+      # Flat: the programs and the license side by side in the download.
+      - run: |
+          New-Item -ItemType Directory dist
+          Copy-Item target/release/typewriter.exe, target/release/typewriter-import.exe, LICENSE dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: typewriter-windows
+          path: dist

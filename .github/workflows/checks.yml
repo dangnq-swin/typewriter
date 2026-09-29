@@ -1,0 +1,28 @@
+# fmt, clippy and tests on every push.
+name: Checks
+
+on: push
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # rodio's ALSA backend links against libasound.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: linux-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: linux-
+      # The toolchain and components rust-toolchain.toml names.
+      - run: rustup toolchain install
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
