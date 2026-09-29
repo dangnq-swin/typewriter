@@ -260,6 +260,22 @@ mod tests {
     }
 
     #[test]
+    fn a_recount_follows_a_sheet_back_to_its_place() {
+        let mut document = Document::new(Page::new(40, 10));
+        typed(document.current_mut(), 0, "one two");
+        document.feed(Page::new(40, 10));
+        typed(document.current_mut(), 0, "three");
+        document.feed(Page::new(40, 10));
+        let mut session = Session::start(&document, 0);
+        assert!(document.roll_in(0, crate::page::Shift::default()));
+        typed(document.current_mut(), 2, "four");
+        document.feed(Page::new(40, 10));
+        // The same number of sheets filed, one of them changed and moved.
+        session.recount(&document);
+        assert_eq!(session.stats().map(|s| s.words), Some(1));
+    }
+
+    #[test]
     fn words_are_runs_of_type_with_a_letter_in_them() {
         let mut page = Page::new(40, 10);
         typed(&mut page, 0, "It was -- a dark,");

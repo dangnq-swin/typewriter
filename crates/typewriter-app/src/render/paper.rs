@@ -193,6 +193,12 @@ pub fn sheet_marks(
         let composed = composed(marks).filter(|&(_, _, c)| cell.reads_as() == Some(c));
         for (index, mark) in marks.iter().enumerate() {
             let seed = mark_seed(half_line, column, index);
+            // Struck on a re-fed sheet: out of line with its first feeding.
+            let fed = page.shift(half_line, column, index);
+            let cell_rect = cell_rect.translate(vec2(
+                f32::from(fed.across) / 100.0 * metrics.column_width,
+                f32::from(fed.down) / 100.0 * metrics.half_line_height,
+            ));
             let (offset, density) = if ink_realism {
                 let (offset, density) = ink_variation(half_line, column, index);
                 (offset + shift_misalignment(mark), density)
@@ -384,6 +390,40 @@ mod tests {
         assert_eq!(composed(&after), Some((1, 0, '\u{ea}')));
         assert_eq!(composed(&[Mark::Glyph('^'), Mark::Glyph('q')]), None);
         assert_eq!(composed(&[Mark::Glyph('x')]), None);
+    }
+
+    #[test]
+    fn marks_on_a_refed_sheet_are_drawn_out_of_line() {
+        let profile = typewriter_core::Profile::from_toml_str(include_str!(
+            "../../../../profiles/olympia-sm9.toml"
+        ))
+        .unwrap();
+        let metrics = Metrics::new(&profile, 96.0);
+        let mut page = Page::new(profile.columns(), profile.half_lines());
+        page.strike(12, 10, 'a');
+        page.refeed(typewriter_core::page::Shift {
+            across: 50,
+            down: -25,
+        });
+        page.strike(12, 10, 'b');
+        let at: Vec<Pos2> = sheet_marks(
+            &metrics,
+            &page,
+            Pos2::ZERO,
+            false,
+            Dimming::NONE,
+            &dry,
+            |_| true,
+        )
+        .into_iter()
+        .filter_map(|drawn| match drawn {
+            Drawn::Glyph { at, .. } => Some(at),
+            _ => None,
+        })
+        .collect();
+        let moved = at[1] - at[0];
+        assert!((moved.x - 0.5 * metrics.column_width).abs() < 1e-3);
+        assert!((moved.y + 0.25 * metrics.half_line_height).abs() < 1e-3);
     }
 
     #[test]

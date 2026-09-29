@@ -94,6 +94,14 @@ impl Cell {
     }
 }
 
+/// Where a re-fed sheet sits against its first feeding: never quite back in
+/// line. Hundredths of a column across and of a half-line down.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Shift {
+    pub across: i8,
+    pub down: i8,
+}
+
 /// Rows are half-line steps, like the platen ratchet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Page {
@@ -104,6 +112,13 @@ pub struct Page {
     /// line. Absent before format 3.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     note: String,
+    /// Each feeding after the first, in order. Absent before format 6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    refeeds: Vec<Shift>,
+    /// The feeding each mark was made in (0: the first), for cells struck
+    /// since a re-feed. Absent before format 6.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    fed: BTreeMap<(u16, u16), Vec<u8>>,
 }
 
 impl Page {
@@ -113,7 +128,33 @@ impl Page {
             half_lines,
             cells: BTreeMap::new(),
             note: String::new(),
+            refeeds: Vec::new(),
+            fed: BTreeMap::new(),
         }
+    }
+
+    /// Back in the machine, a little out of line: marks from now on sit
+    /// `shift` off. After 255 feedings they share the last one's.
+    pub fn refeed(&mut self, shift: Shift) {
+        if self.refeeds.len() < usize::from(u8::MAX) {
+            self.refeeds.push(shift);
+        }
+    }
+
+    /// How far the cell's `index`th mark sits off, by the feeding it was
+    /// made in.
+    pub fn shift(&self, half_line: u16, column: u16, index: usize) -> Shift {
+        let feeding = self
+            .fed
+            .get(&(half_line, column))
+            .and_then(|feedings| feedings.get(index))
+            .copied()
+            .unwrap_or(0);
+        feeding
+            .checked_sub(1)
+            .and_then(|i| self.refeeds.get(usize::from(i)))
+            .copied()
+            .unwrap_or_default()
     }
 
     /// The note, `""` if none.
@@ -188,6 +229,7 @@ impl Page {
     /// Empties the cell: strikes and corrections alike.
     pub fn clear(&mut self, half_line: u16, column: u16) {
         self.cells.remove(&(half_line, column));
+        self.fed.remove(&(half_line, column));
     }
 
     /// Marks the cell's fluid dry.
@@ -217,11 +259,15 @@ impl Page {
 
     fn push(&mut self, half_line: u16, column: u16, mark: Mark) {
         debug_assert!(half_line < self.half_lines && column < self.columns);
-        self.cells
-            .entry((half_line, column))
-            .or_default()
-            .marks
-            .push(mark);
+        let marks = &mut self.cells.entry((half_line, column)).or_default().marks;
+        marks.push(mark);
+        // Safe cast: `refeed` stops at 255.
+        let feeding = self.refeeds.len() as u8;
+        if feeding > 0 {
+            let fed = self.fed.entry((half_line, column)).or_default();
+            fed.resize(marks.len() - 1, 0);
+            fed.push(feeding);
+        }
     }
 }
 
@@ -236,6 +282,40 @@ fn dry_cell(cell: &mut Cell) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marks_after_a_refeed_sit_off_by_its_shift() {
+        let mut page = Page::new(10, 10);
+        page.strike(0, 0, 'a');
+        let first = Shift {
+            across: 20,
+            down: -10,
+        };
+        page.refeed(first);
+        page.strike(0, 0, 'b');
+        page.strike(0, 1, 'c');
+        let second = Shift {
+            across: -5,
+            down: 30,
+        };
+        page.refeed(second);
+        page.strike(0, 1, 'd');
+        assert_eq!(page.shift(0, 0, 0), Shift::default());
+        assert_eq!(page.shift(0, 0, 1), first);
+        assert_eq!(page.shift(0, 1, 0), first);
+        assert_eq!(page.shift(0, 1, 1), second);
+        page.clear(0, 1);
+        page.strike(0, 1, 'e');
+        assert_eq!(page.shift(0, 1, 0), second);
+    }
+
+    #[test]
+    fn a_sheet_never_refed_saves_as_before() {
+        let mut page = Page::new(10, 10);
+        page.strike(0, 0, 'a');
+        let text = ron::to_string(&page).unwrap();
+        assert!(!text.contains("refeeds") && !text.contains("fed"), "{text}");
+    }
 
     #[test]
     fn overtyping_stacks_glyphs() {

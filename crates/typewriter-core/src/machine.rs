@@ -4,7 +4,7 @@ use crate::accents;
 use crate::carriage::{Carriage, LineSpacing};
 use crate::constraints::{Constraints, EraseMode};
 use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
-use crate::page::{Correction, Page};
+use crate::page::{Correction, Page, Shift};
 use crate::profile::{Profile, ProfileError};
 use crate::scratchpad::Scratchpad;
 use crate::session::SessionStats;
@@ -48,6 +48,13 @@ pub enum Command {
     Move(Direction),
     /// File the sheet and feed a blank one, carriage at the top margin.
     FeedSheet,
+    /// File the sheet and roll finished sheet `sheet` back in, `shift` out
+    /// of line, carriage at the top margin. It goes back to its place in
+    /// the folder when fed out.
+    RollIn {
+        sheet: usize,
+        shift: Shift,
+    },
     /// Two strikes came too close: their typebars tangle, if type jams are on.
     /// The core has no clock: the app says when.
     Jam,
@@ -261,7 +268,8 @@ impl Typewriter {
                 | Command::LineFeed
                 | Command::Tab
                 | Command::Move(_)
-                | Command::FeedSheet => return vec![Event::Blocked(BlockReason::Jammed)],
+                | Command::FeedSheet
+                | Command::RollIn { .. } => return vec![Event::Blocked(BlockReason::Jammed)],
                 _ => {}
             }
         }
@@ -317,6 +325,7 @@ impl Typewriter {
             }
             Command::Move(direction) => self.move_freely(direction),
             Command::FeedSheet => self.feed_sheet(),
+            Command::RollIn { sheet, shift } => self.roll_in(sheet, shift),
             Command::Jam if self.constraints.type_jams => {
                 self.jammed = true;
                 vec![Event::Blocked(BlockReason::Jammed)]
@@ -527,10 +536,26 @@ impl Typewriter {
     }
 
     fn feed_sheet(&mut self) -> Vec<Event> {
-        let mut events = self.take_slip_out();
+        let fresh = blank_sheet(&self.profile);
+        self.change_sheet(|document| {
+            document.feed(fresh);
+            true
+        })
+    }
+
+    fn roll_in(&mut self, sheet: usize, shift: Shift) -> Vec<Event> {
+        self.change_sheet(|document| document.roll_in(sheet, shift))
+    }
+
+    /// Takes the sheet out and puts another in by `change`, carriage at the
+    /// top margin. Nothing happens if `change` finds nothing to put in.
+    fn change_sheet(&mut self, change: impl FnOnce(&mut Document) -> bool) -> Vec<Event> {
         // Filed sheets have time to dry.
         self.document.current_mut().dry_all();
-        self.document.feed(blank_sheet(&self.profile));
+        if !change(&mut self.document) {
+            return vec![];
+        }
+        let mut events = self.take_slip_out();
         let c = &mut self.carriage;
         c.column = c.left_margin;
         c.half_line = self.profile.margins.top_lines * 2;
@@ -1059,6 +1084,35 @@ mod tests {
         assert_eq!(tw.apply(Command::Move(Direction::Up)), [Event::LineFeed]);
         assert_eq!(tw.apply(Command::Move(Direction::Down)), [Event::LineFeed]);
         assert_eq!(tw.carriage().half_line, 12);
+    }
+
+    #[test]
+    fn a_finished_sheet_rolls_back_in_at_the_top_margin() {
+        let mut tw = sm9();
+        type_str(&mut tw, "one");
+        tw.apply(Command::FeedSheet);
+        type_str(&mut tw, "two");
+        let shift = Shift {
+            across: 25,
+            down: -20,
+        };
+        assert_eq!(
+            tw.apply(Command::RollIn { sheet: 0, shift }),
+            [Event::SheetFed]
+        );
+        assert_eq!(tw.page().line_text(12).trim(), "one");
+        assert_eq!((tw.carriage().column, tw.carriage().half_line), (10, 12));
+        type_str(&mut tw, "ONE");
+        assert_eq!(tw.page().shift(12, 10, 1), shift, "typed out of line");
+        tw.apply(Command::FeedSheet);
+        let sheets: Vec<String> = tw
+            .document()
+            .finished()
+            .iter()
+            .map(|page| page.line_text(12).trim().to_owned())
+            .collect();
+        assert_eq!(sheets, ["ONE", "two"], "back in its place");
+        assert_eq!(tw.apply(Command::RollIn { sheet: 5, shift }), []);
     }
 
     #[test]

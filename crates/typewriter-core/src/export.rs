@@ -53,13 +53,20 @@ fn finish(mut text: String) -> String {
     text
 }
 
-/// The filed sheets, then the one in the machine unless blank.
+/// The filed sheets with the one in the machine, unless blank, where it
+/// will be filed: last, or back in its place if it was rolled back in.
 pub fn sheets(document: &Document) -> impl Iterator<Item = &Page> {
     let current = document.current();
-    document
-        .finished()
+    let finished = document.finished();
+    let at = document
+        .returns_to()
+        .unwrap_or(finished.len())
+        .min(finished.len());
+    let (before, after) = finished.split_at(at);
+    before
         .iter()
         .chain((!current.is_blank()).then_some(current))
+        .chain(after)
 }
 
 /// Typed lines, a blank per empty line of space between, margin trimmed.
@@ -91,7 +98,16 @@ fn lines(page: &Page) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::Correction;
+    use crate::page::{Correction, Shift};
+
+    #[test]
+    fn a_rolled_in_sheet_exports_in_its_place() {
+        let mut document = Document::new(page(&[(0, 0, "one")]));
+        document.feed(page(&[(0, 0, "two")]));
+        document.feed(page(&[(0, 0, "three")]));
+        assert!(document.roll_in(0, Shift::default()));
+        assert_eq!(plain_text(&document), "one\n\u{c}\ntwo\n\u{c}\nthree\n");
+    }
 
     fn page(lines: &[(u16, u16, &str)]) -> Page {
         let mut page = Page::new(40, 20);

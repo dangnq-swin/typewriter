@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, Rect, pos2};
-use typewriter_core::page::Page;
+use typewriter_core::page::{Page, Shift};
 use typewriter_core::session::Totals;
 use typewriter_core::{
     BlockReason, Command, Constraints, Direction, EraseMode, Event, Goal, Session, Side, Typewriter,
@@ -23,7 +23,7 @@ use crate::render::folder::{FolderAction, ProjectLabel};
 use crate::render::knob;
 use crate::render::platen::{self, PlatenView};
 use crate::render::{
-    COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, pad, paper, ruler, scratchpad,
+    COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, pad, paper, ruler, scratchpad, splitmix64,
 };
 use crate::settings::{SettingsFile, ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
 use crate::{render, settings, storage};
@@ -74,6 +74,19 @@ impl WindBack {
             to_half_line,
             started: None,
         }
+    }
+}
+
+/// A re-fed sheet's way out of line, from random `bits`: up to a third of a
+/// cell either way, across and down.
+fn refeed_shift(bits: u64) -> Shift {
+    let within = |bits: u64| {
+        // Safe cast: below 67, so -33..=33.
+        (bits % 67) as i8 - 33
+    };
+    Shift {
+        across: within(bits),
+        down: within(bits >> 32),
     }
 }
 
@@ -347,7 +360,8 @@ impl TypewriterApp {
         self.view = View::Typing;
         let knob = matches!(command, Command::Move(Direction::Up | Direction::Down));
         // Keep a copy: the filed sheet is still seen rolling out.
-        let outgoing = (command == Command::FeedSheet).then(|| {
+        let changing = matches!(command, Command::FeedSheet | Command::RollIn { .. });
+        let outgoing = changing.then(|| {
             (
                 self.machine.page().clone(),
                 self.machine.carriage().half_line,
@@ -376,6 +390,9 @@ impl TypewriterApp {
                 }
                 Event::SheetFed => {
                     self.wet.clear();
+                    // A re-fed sheet leaves or rejoins the folder mid-way:
+                    // the filed count alone can't tell.
+                    self.session.recount(self.machine.document());
                     let autosave = self.settings.saving.autosave;
                     self.filing.keep(&self.machine, now, autosave);
                     self.feeding = Some(Feeding {
@@ -552,6 +569,16 @@ impl TypewriterApp {
                 if self.selected < self.machine.document().finished().len() {
                     self.confirm_scrunch = Some(self.selected);
                 }
+            }
+            FolderAction::RollIn => {
+                let shift = refeed_shift(splitmix64(now.to_bits()));
+                self.apply(
+                    Command::RollIn {
+                        sheet: self.selected,
+                        shift,
+                    },
+                    now,
+                );
             }
             FolderAction::Export(format) => {
                 let ink_realism = self.settings.look.ink_realism;
@@ -1600,6 +1627,14 @@ fn add_family(fonts: &mut FontDefinitions, name: &str, font: &'static [u8], fall
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refed_sheet_is_never_more_than_a_third_of_a_cell_off() {
+        for seed in 0..500 {
+            let shift = refeed_shift(splitmix64(seed));
+            assert!(shift.across.abs() <= 33 && shift.down.abs() <= 33);
+        }
+    }
 
     #[test]
     fn a_hand_on_the_knob_starts_slow_and_eases_onto_the_line() {

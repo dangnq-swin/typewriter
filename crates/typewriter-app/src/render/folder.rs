@@ -244,6 +244,8 @@ pub enum FolderAction {
     CancelRenumber,
     /// Ask to scrunch up the chosen sheet.
     Scrunch,
+    /// Roll the chosen sheet back into the machine.
+    RollIn,
 }
 
 #[derive(Debug, Default)]
@@ -636,6 +638,12 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<Folde
                         ("Open project\u{2026}", FolderAction::Open, true, ""),
                     ],
                     2 => vec![
+                        (
+                            "Roll back in",
+                            FolderAction::RollIn,
+                            has_sheets,
+                            "No finished sheets yet.",
+                        ),
                         (
                             "Renumber\u{2026}",
                             FolderAction::Renumber,

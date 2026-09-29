@@ -6,13 +6,13 @@ use thiserror::Error;
 
 use crate::carriage::Carriage;
 use crate::constraints::Constraints;
-use crate::page::Page;
+use crate::page::{Page, Shift};
 use crate::scratchpad::Scratchpad;
 use crate::session::SessionStats;
 
 /// Bump when older versions can't read the file. 2: session stats. 3: notes.
-/// 4: scratchpad. 5: type jams, the Delete correction.
-pub const FORMAT_VERSION: u32 = 5;
+/// 4: scratchpad. 5: type jams, the Delete correction. 6: re-fed sheets.
+pub const FORMAT_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
@@ -21,6 +21,10 @@ pub struct Document {
     /// Absent before version 4.
     #[serde(default)]
     scratchpad: Scratchpad,
+    /// A finished sheet rolled back in goes back here among the finished
+    /// ones when fed out. Absent before version 6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    returns_to: Option<usize>,
 }
 
 impl Document {
@@ -29,6 +33,7 @@ impl Document {
             finished: Vec::new(),
             current: first,
             scratchpad: Scratchpad::default(),
+            returns_to: None,
         }
     }
 
@@ -48,7 +53,15 @@ impl Document {
 
     /// Scrunches up finished sheet `index`, for good.
     pub fn remove(&mut self, index: usize) -> Option<Page> {
-        (index < self.finished.len()).then(|| self.finished.remove(index))
+        if index >= self.finished.len() {
+            return None;
+        }
+        if let Some(slot) = &mut self.returns_to
+            && index < *slot
+        {
+            *slot -= 1;
+        }
+        Some(self.finished.remove(index))
     }
 
     /// Moves finished sheet `from` to `to`; those between shift along.
@@ -60,6 +73,14 @@ impl Document {
         }
         let page = self.finished.remove(from);
         self.finished.insert(to, page);
+        // The re-fed sheet keeps its neighbour: the one it was filed before.
+        if let Some(slot) = &mut self.returns_to {
+            if from < *slot && to >= *slot {
+                *slot -= 1;
+            } else if from >= *slot && to <= *slot {
+                *slot += 1;
+            }
+        }
         true
     }
 
@@ -69,6 +90,12 @@ impl Document {
             .get_mut(index)
             .map(|page| page.set_note(note))
             .is_some()
+    }
+
+    /// Where the sheet in the machine goes back among the finished ones, if
+    /// it was rolled back in.
+    pub fn returns_to(&self) -> Option<usize> {
+        self.returns_to
     }
 
     pub fn scratchpad(&self) -> &Scratchpad {
@@ -82,9 +109,50 @@ impl Document {
     /// Files the sheet and puts `fresh` in. A blank sheet just stays in.
     pub fn feed(&mut self, fresh: Page) {
         if !self.current.is_blank() {
-            self.finished
-                .push(std::mem::replace(&mut self.current, fresh));
+            let out = std::mem::replace(&mut self.current, fresh);
+            self.file(out);
         }
+    }
+
+    /// Rolls finished sheet `index` back in, `shift` out of line. The sheet
+    /// in the machine is filed first, or dropped if blank. False if no such
+    /// sheet.
+    pub fn roll_in(&mut self, index: usize, shift: Shift) -> bool {
+        if index >= self.finished.len() {
+            return false;
+        }
+        let sheet = self.finished.remove(index);
+        if let Some(slot) = &mut self.returns_to
+            && index < *slot
+        {
+            *slot -= 1;
+        }
+        let out = std::mem::replace(&mut self.current, sheet);
+        let mut slot = index;
+        if !out.is_blank() {
+            // Filed ahead of the rolled-in sheet's place, that moves along.
+            // Going home to the very same place, it was filed before it; a
+            // new sheet filed last is newer, and goes after.
+            let going_home = self.returns_to.is_some();
+            let at = self.file(out);
+            if at < slot || (at == slot && going_home) {
+                slot += 1;
+            }
+        }
+        self.returns_to = Some(slot);
+        self.current.refeed(shift);
+        true
+    }
+
+    /// Files `page` where it belongs: back in its place if it was rolled
+    /// back in, else last. Returns where.
+    fn file(&mut self, page: Page) -> usize {
+        let at = self
+            .returns_to
+            .take()
+            .map_or(self.finished.len(), |slot| slot.min(self.finished.len()));
+        self.finished.insert(at, page);
+        at
     }
 }
 
@@ -186,6 +254,59 @@ mod tests {
         assert_eq!(order(&doc), ["a", "c"]);
         assert!(doc.remove(2).is_none());
         assert!(doc.current().is_blank(), "the sheet in the machine stays");
+    }
+
+    const SHIFT: Shift = Shift {
+        across: 10,
+        down: 10,
+    };
+
+    #[test]
+    fn a_rolled_in_sheet_goes_back_to_its_place() {
+        let mut doc = filed(&["a", "b", "c"]);
+        doc.current_mut().strike(0, 0, 'd');
+        assert!(doc.roll_in(1, SHIFT));
+        assert_eq!(doc.current().line_text(0), "b");
+        assert_eq!(
+            order(&doc),
+            ["a", "c", "d"],
+            "the sheet in the machine is filed"
+        );
+        doc.current_mut().strike(0, 1, '+');
+        doc.feed(Page::new(10, 10));
+        assert_eq!(order(&doc), ["a", "b+", "c", "d"]);
+        assert!(!doc.roll_in(9, SHIFT));
+    }
+
+    #[test]
+    fn rolling_in_another_files_the_first_back_in_its_place() {
+        let mut doc = filed(&["a", "b", "c"]);
+        assert!(doc.roll_in(2, SHIFT));
+        assert!(doc.roll_in(0, SHIFT), "c goes home, a comes in");
+        assert_eq!(order(&doc), ["b", "c"]);
+        doc.feed(Page::new(10, 10));
+        assert_eq!(order(&doc), ["a", "b", "c"]);
+        assert!(doc.roll_in(0, SHIFT));
+        assert!(doc.roll_in(1, SHIFT), "a goes home before b");
+        doc.feed(Page::new(10, 10));
+        assert_eq!(order(&doc), ["a", "b", "c"]);
+        assert!(doc.roll_in(1, SHIFT));
+        assert!(doc.roll_in(1, SHIFT), "b goes home to c's old place");
+        doc.feed(Page::new(10, 10));
+        assert_eq!(order(&doc), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn scrunching_or_moving_others_keeps_the_place() {
+        let mut doc = filed(&["a", "b", "c", "d"]);
+        assert!(doc.roll_in(2, SHIFT));
+        assert!(doc.remove(0).is_some());
+        doc.feed(Page::new(10, 10));
+        assert_eq!(order(&doc), ["b", "c", "d"]);
+        assert!(doc.roll_in(1, SHIFT));
+        assert!(doc.move_sheet(0, 1), "b moves after d");
+        doc.feed(Page::new(10, 10));
+        assert_eq!(order(&doc), ["c", "d", "b"], "c still before d");
     }
 
     #[test]
