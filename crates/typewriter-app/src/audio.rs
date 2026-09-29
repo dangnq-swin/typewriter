@@ -40,6 +40,9 @@ const ROLLS: [&[u8]; 4] = [
     clip!("roll-4"),
 ];
 
+/// A hand spinning the knob clicks lighter than a line rolled on.
+const WIND_BACK_GAIN: f32 = 0.5;
+
 pub struct Audio {
     // Keep alive: dropping it stops playback.
     device: MixerDeviceSink,
@@ -59,6 +62,8 @@ pub struct Audio {
     key_variety: Variety,
     bell_variety: Variety,
     roll_variety: Variety,
+    /// Until then a wind-back click still sounds, in app seconds.
+    wind_back_click_until: f64,
     /// The machine's audible mechanisms. Silent ones stay silent.
     machine: Sounds,
     settings: settings::Sound,
@@ -130,6 +135,7 @@ impl Audio {
             key_variety: Variety::new(seed()),
             bell_variety: Variety::new(seed().rotate_left(32)),
             roll_variety: Variety::new(seed().rotate_left(16)),
+            wind_back_click_until: 0.0,
             machine,
             settings,
         })
@@ -189,6 +195,20 @@ impl Audio {
     pub fn play_crumple(&self) {
         if self.is_on(Group::SheetFeed) {
             self.add(self.crumple.clone());
+        }
+    }
+
+    /// A softer ratchet click for a sheet winding back. Skipped while the
+    /// last one sounds: stacked clicks get loud.
+    pub fn play_wind_back_click(&mut self, now: f64) {
+        if now < self.wind_back_click_until || !self.machine.line_feed || !self.is_on(Group::Platen)
+        {
+            return;
+        }
+        if let Some(click) = self.roll_variety.pick(&self.rolls).cloned() {
+            self.wind_back_click_until =
+                now + click.total_duration().map_or(0.0, |d| d.as_secs_f64());
+            self.add(click.amplify(WIND_BACK_GAIN));
         }
     }
 

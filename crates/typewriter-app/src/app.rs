@@ -33,8 +33,11 @@ const POINTS_PER_INCH: f32 = 96.0;
 const SCROLL_POINTS_PER_STEP: f32 = 40.0;
 /// Fluid smudges strikes until dry.
 const FLUID_DRY_SECONDS: f64 = 3.0;
-/// Wind-back pace per notch: match the wind-out clicks.
-const WIND_BACK_NOTCH_SECONDS: f64 = 0.06;
+/// Wind-back pace for a short way; a long one speeds up to fit
+/// [`WIND_BACK_MAX_SECONDS`].
+const WIND_BACK_LINE_SECONDS: f64 = 0.1;
+const WIND_BACK_MIN_SECONDS: f64 = 0.3;
+const WIND_BACK_MAX_SECONDS: f64 = 3.0;
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
 
@@ -51,17 +54,28 @@ enum View {
 /// A reopened sheet winding down to where typing stopped.
 struct WindBack {
     to_half_line: u16,
-    /// Next notch time. Set once the sheet has wound in.
-    next_notch: Option<f64>,
+    /// When and from which half-line. Set once the sheet has wound in.
+    started: Option<(f64, u16)>,
 }
 
 impl WindBack {
     fn to(to_half_line: u16) -> Self {
         Self {
             to_half_line,
-            next_notch: None,
+            started: None,
         }
     }
+}
+
+/// Where a hand on the knob has wound the sheet `elapsed` seconds in: slow
+/// to start, fast midway, easing onto the line.
+fn wound_to(from: u16, to: u16, elapsed: f64) -> u16 {
+    let distance = to.saturating_sub(from);
+    let seconds = (f64::from(distance) / 2.0 * WIND_BACK_LINE_SECONDS)
+        .clamp(WIND_BACK_MIN_SECONDS, WIND_BACK_MAX_SECONDS);
+    let eased = render::smoothstep((elapsed / seconds) as f32);
+    // Safe cast: eased is 0..=1, so at most `distance`.
+    from + (f32::from(distance) * eased).round() as u16
 }
 
 /// Where to go once the project is dealt with.
@@ -710,8 +724,8 @@ impl TypewriterApp {
         self.is_feeding(now) || self.wind_back.is_some()
     }
 
-    /// Once a reopened sheet is in, turns the platen a notch (and click) at a
-    /// time down to where typing stopped.
+    /// Once a reopened sheet is in, turns the platen knob down to where
+    /// typing stopped, a click per line.
     fn wind_back(&mut self, now: f64) {
         if self.feeding.is_some() {
             return;
@@ -720,15 +734,27 @@ impl TypewriterApp {
             return;
         };
         let to = wind.to_half_line;
-        let mut next = *wind.next_notch.get_or_insert(now);
-        while now >= next && self.machine.carriage().half_line < to {
-            self.apply(Command::PlatenNotch, now);
-            next += WIND_BACK_NOTCH_SECONDS;
+        let (started, from) = *wind
+            .started
+            .get_or_insert((now, self.machine.carriage().half_line));
+        let target = wound_to(from, to, now - started);
+        // Not `apply`: its roll sound is the full-volume one, and winding
+        // back to the saved line changes nothing to save.
+        while self.machine.carriage().half_line < target {
+            if self
+                .machine
+                .apply(Command::PlatenNotch)
+                .contains(&Event::PageEnd)
+            {
+                break;
+            }
+            let lines_on = (self.machine.carriage().half_line - from).is_multiple_of(2);
+            if lines_on && let Some(audio) = &mut self.audio {
+                audio.play_wind_back_click(now);
+            }
         }
-        if self.machine.carriage().half_line >= to {
+        if target >= to {
             self.wind_back = None;
-        } else if let Some(wind) = &mut self.wind_back {
-            wind.next_notch = Some(next);
         }
     }
 
@@ -1387,6 +1413,27 @@ fn add_family(fonts: &mut FontDefinitions, name: &str, font: &'static [u8], fall
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hand_on_the_knob_starts_slow_and_eases_onto_the_line() {
+        let (from, to) = (12, 120);
+        let at = |seconds| wound_to(from, to, seconds);
+        assert_eq!(at(0.0), from);
+        assert_eq!(at(WIND_BACK_MAX_SECONDS), to);
+        assert_eq!(at(99.0), to);
+        let steps: Vec<u16> = (0..=30).map(|i| at(f64::from(i) * 0.1)).collect();
+        assert!(steps.windows(2).all(|w| w[0] <= w[1]));
+        let (start, middle) = (steps[3] - steps[0], steps[16] - steps[13]);
+        assert!(start < middle, "slow start: {start} vs {middle}");
+    }
+
+    #[test]
+    fn a_short_way_winds_at_a_steady_hand_pace() {
+        // Four lines: 0.4 s, not the full three.
+        assert_eq!(wound_to(12, 20, 0.4), 20);
+        assert!(wound_to(12, 20, 0.2) < 20);
+        assert_eq!(wound_to(12, 12, 0.0), 12);
+    }
 
     #[test]
     fn zoom_steps_within_limits() {
