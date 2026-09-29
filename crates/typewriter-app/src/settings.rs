@@ -90,6 +90,8 @@ pub struct Look {
     pub ink_realism: bool,
     /// The paper slides sideways with the carriage.
     pub carriage_travel: bool,
+    /// The window fills the screen. F11 switches it too.
+    pub fullscreen: bool,
     /// Lines away from the typing line at which calm mode's dimming is
     /// strongest.
     pub calm_falloff_lines: u8,
@@ -104,6 +106,7 @@ impl Default for Look {
         Self {
             ink_realism: true,
             carriage_travel: true,
+            fullscreen: true,
             calm_falloff_lines: calm::DEFAULT_FALLOFF_LINES,
             calm_minimum_percent: calm::DEFAULT_MINIMUM_PERCENT,
             zoom_percent: ZOOM_DEFAULT,

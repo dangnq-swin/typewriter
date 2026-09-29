@@ -109,6 +109,9 @@ pub struct TypewriterApp {
     leaving_after_save_as: Option<Leaving>,
     /// The window may close: whatever needed asking was answered.
     quitting: bool,
+    /// When the window was last told to enter or leave fullscreen, until it
+    /// has: meanwhile its state does not overrule the setting.
+    fullscreen_sent: Option<f64>,
     /// Where the chosen sheet is drawn in the folder, as of the last frame.
     pulled: Option<[Pos2; 4]>,
     metrics: Metrics,
@@ -143,11 +146,16 @@ pub struct TypewriterApp {
 }
 
 impl TypewriterApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> anyhow::Result<Self> {
+    /// `settings` as loaded by [`SettingsFile::load`], before the window
+    /// opened.
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        settings: (settings::Settings, SettingsFile, Option<String>),
+    ) -> anyhow::Result<Self> {
         install_fonts(&cc.egui_ctx);
         // No Ctrl shortcuts on a typewriter, egui's interface zoom included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        let (settings, settings_file, settings_trouble) = SettingsFile::load();
+        let (settings, settings_file, settings_trouble) = settings;
         let machines = Machines::load()?;
         let (mut machine, filing, trouble) = first_project(&machines, &settings.machine.profile)?;
         let zoom_percent = settings.look.zoom_percent;
@@ -179,6 +187,9 @@ impl TypewriterApp {
             leaving: None,
             leaving_after_save_as: None,
             quitting: false,
+            // The window was built fullscreen or not; the desktop may take a
+            // moment to show it.
+            fullscreen_sent: Some(0.0),
             pulled: None,
             metrics,
             platen: PlatenView::new(settings.look.carriage_travel),
@@ -226,7 +237,7 @@ impl TypewriterApp {
             let editing = ctx.memory(|m| m.focused().is_some());
             for action in actions {
                 match action {
-                    Action::Fullscreen => toggle_fullscreen(ctx),
+                    Action::Fullscreen => self.toggle_fullscreen(ctx, now),
                     Action::Escape if !editing && !menu_open => self.escape(),
                     Action::Save => self.filing.save_now(&self.machine, ctx, now),
                     _ => {}
@@ -238,7 +249,7 @@ impl TypewriterApp {
         for action in actions {
             match action {
                 // The window is not part of the machine.
-                Action::Fullscreen => toggle_fullscreen(ctx),
+                Action::Fullscreen => self.toggle_fullscreen(ctx, now),
                 Action::Save => self.filing.save_now(&self.machine, ctx, now),
                 _ if feeding => {}
                 Action::Machine(command) => {
@@ -356,6 +367,35 @@ impl TypewriterApp {
     }
 
     /// Puts changed settings into effect.
+    fn toggle_fullscreen(&mut self, ctx: &egui::Context, now: f64) {
+        self.settings.look.fullscreen = !self.settings.look.fullscreen;
+        self.set_fullscreen(ctx, now);
+    }
+
+    fn set_fullscreen(&mut self, ctx: &egui::Context, now: f64) {
+        let fullscreen = self.settings.look.fullscreen;
+        if ctx.input(|i| i.viewport().fullscreen) != Some(fullscreen) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(fullscreen));
+            self.fullscreen_sent = Some(now);
+        }
+    }
+
+    /// The desktop can switch fullscreen on its own (its shortcut, a window
+    /// menu): the setting follows the window, except just after the app
+    /// switched it, while the window catches up.
+    fn follow_fullscreen(&mut self, ctx: &egui::Context, now: f64) {
+        let Some(actual) = ctx.input(|i| i.viewport().fullscreen) else {
+            return;
+        };
+        match self.fullscreen_sent {
+            Some(sent) if actual != self.settings.look.fullscreen && now - sent < 1.0 => {}
+            _ => {
+                self.fullscreen_sent = None;
+                self.settings.look.fullscreen = actual;
+            }
+        }
+    }
+
     fn apply_settings(&mut self) {
         self.platen.carriage_travel = self.settings.look.carriage_travel;
         if let Some(audio) = &mut self.audio {
@@ -1040,6 +1080,7 @@ impl eframe::App for TypewriterApp {
         }
         self.handle_input(&ctx);
         self.dry_fluid(now);
+        self.follow_fullscreen(&ctx, now);
         self.take_picked(&ctx, now);
         self.filing
             .autosave(&self.machine, now, self.settings.saving.autosave);
@@ -1130,6 +1171,7 @@ impl eframe::App for TypewriterApp {
                         if self.settings != before {
                             self.follow_custom_goal(&before.goals);
                             self.apply_settings();
+                            self.set_fullscreen(&ctx, now);
                         }
                     }
                 }
@@ -1256,11 +1298,6 @@ fn thousands(n: i64) -> String {
         out.push(c);
     }
     if n < 0 { format!("-{out}") } else { out }
-}
-
-fn toggle_fullscreen(ctx: &egui::Context) {
-    let fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
-    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
 }
 
 /// A plate below the scale that reacts to the pointer.

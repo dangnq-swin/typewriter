@@ -123,6 +123,7 @@ fn look(ui: &mut Ui, look: &mut settings::Look) {
         &mut look.ink_realism,
         "Ink realism: each strike a little uneven",
     );
+    ui.checkbox(&mut look.fullscreen, "Fullscreen (F11)");
     ui.checkbox(
         &mut look.carriage_travel,
         "The paper slides sideways with the carriage",
