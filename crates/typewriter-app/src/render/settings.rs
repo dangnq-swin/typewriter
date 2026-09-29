@@ -68,6 +68,8 @@ pub fn show_settings(
                         look(ui, &mut settings.look);
                         goals(ui, &mut settings.goals);
                         machine(ui, &mut settings.machine, machines);
+                        section(ui, "Projects");
+                        ui.checkbox(&mut settings.saving.autosave, "Autosave");
                         ui.add_space(14.0);
                         ui.separator();
                         if ui.button("Reset to defaults").clicked() {
@@ -109,7 +111,7 @@ fn sound(ui: &mut Ui, sound: &mut settings::Sound) {
             &mut sound.platen,
             "Platen clicks and carriage return (where the machine makes them)",
         );
-        ui.checkbox(&mut sound.sheet_feed, "Sheet feed");
+        ui.checkbox(&mut sound.sheet_feed, "Sheet feed and scrunching up");
         ui.checkbox(&mut sound.corrections, "Corrections: eraser and fluid");
         ui.checkbox(&mut sound.blocked, "Blocked input");
     });

@@ -1,12 +1,14 @@
 //! Keyboard events to typewriter commands.
 //!
-//! A typewriter has no Control key, so no binding uses one. Default bindings:
+//! A typewriter has no Control key, so no binding uses one, except Ctrl+S
+//! (save), kept for muscle memory. Default bindings:
 //! - printable keys: type, except 1 and ! (no such key on a typewriter)
 //! - Enter: carriage return; held, it rolls the paper on line by line
 //!   (at the keyboard's repeat rate)
 //! - Insert: feed a new sheet
 //! - Backspace: carriage back one column (no erase)
-//! - Shift+Backspace, Delete: erase
+//! - Shift+Backspace, Delete: erase; in the folder, Delete scrunches up the
+//!   chosen sheet (after asking)
 //! - Tab: tabulate
 //! - hold Shift and tap Tab: once sets a tab stop at the carriage, twice clears
 //!   the nearest stop, three times clears all stops. Acts when Shift is released.
@@ -14,10 +16,12 @@
 //! - F4: next way of fixing mistakes (correction paper, eraser, fluid)
 //! - arrows: move the carriage and platen (only if free movement is allowed)
 //! - Page Up: open the folder of finished sheets; there, arrows or Page Up /
-//!   Page Down choose or flip sheets (up/left = older), Enter opens the chosen
-//!   one and Esc goes back. The app redirects these; see `app.rs`.
+//!   Page Down choose or flip sheets (up/left = older), Shift+arrows move the
+//!   chosen sheet one place (no repeat), Enter opens the chosen one and Esc
+//!   goes back. The app redirects these; see `app.rs`.
 //! - Esc (typing view): calm mode on / off
 //! - F11: fullscreen
+//! - Ctrl+S: save (Save As for a draft)
 //!
 //! A typewriter's keys do not repeat, so held keys that act on the machine
 //! only act once, except Enter (above), the arrows and the letters.
@@ -39,6 +43,12 @@ pub enum Action {
     Escape,
     Fullscreen,
     NextCorrection,
+    Save,
+    /// Erase at the machine; in the folder, scrunch up the chosen sheet.
+    Delete,
+    /// An arrow with Shift held: in the folder it moves the chosen sheet
+    /// one place; elsewhere it is a plain arrow.
+    ShiftArrow(Direction),
 }
 
 #[derive(Debug, Default)]
@@ -133,7 +143,21 @@ fn key_action(key: Key, m: Modifiers, repeat: bool) -> Option<Action> {
         Key::Escape if !repeat => Some(Action::Escape),
         Key::F11 if !repeat => Some(Action::Fullscreen),
         Key::F4 if !repeat => Some(Action::NextCorrection),
+        Key::S if m.command && !repeat => Some(Action::Save),
+        Key::S if m.command => return None,
+        Key::Delete if !repeat => Some(Action::Delete),
+        Key::Delete => return None,
         Key::Escape | Key::F11 | Key::F4 => return None,
+        Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown if m.shift => {
+            // Held, it would shuffle a sheet through the whole folder.
+            return (!repeat)
+                .then(|| key_command(key, m, false))
+                .flatten()
+                .and_then(|command| match command {
+                    Command::Move(direction) => Some(Action::ShiftArrow(direction)),
+                    _ => None,
+                });
+        }
         _ => None,
     };
     app.or_else(|| key_command(key, m, repeat).map(Action::Machine))
@@ -155,7 +179,6 @@ fn key_command(key: Key, m: Modifiers, repeat: bool) -> Option<Command> {
         Key::Enter => Command::Return,
         Key::Backspace if m.shift => Command::Erase,
         Key::Backspace => Command::Backspace,
-        Key::Delete => Command::Erase,
         Key::Tab if !m.any() => Command::Tab,
         Key::F1 => Command::SetLineSpacing(LineSpacing::Single),
         Key::F2 => Command::SetLineSpacing(LineSpacing::OneAndHalf),
@@ -210,6 +233,13 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_s_saves() {
+        let actions = |k, m| Input::default().actions(&[key(k, m)], false);
+        assert_eq!(actions(Key::S, Modifiers::COMMAND), [Action::Save]);
+        assert_eq!(actions(Key::S, Modifiers::NONE), []);
+    }
+
+    #[test]
     fn text_types_each_printable_char() {
         assert_eq!(
             one_frame(&[Event::Text("a b\r".into())]),
@@ -236,8 +266,8 @@ mod tests {
             [Command::Erase]
         );
         assert_eq!(
-            one_frame(&[key(Key::Delete, Modifiers::NONE)]),
-            [Command::Erase]
+            Input::default().actions(&[key(Key::Delete, Modifiers::NONE)], false),
+            [Action::Delete]
         );
     }
 

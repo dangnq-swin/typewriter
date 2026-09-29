@@ -19,6 +19,8 @@ use crate::storage;
 /// Saved once typing has paused this long.
 const AUTOSAVE_AFTER_SECONDS: f64 = 2.0;
 const NOTICE_SECONDS: f64 = 4.0;
+/// How long the status dot shows a write, so it can be seen at all.
+const WRITING_SECONDS: f64 = 0.4;
 const NOTICE_FADE_SECONDS: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,10 +38,30 @@ enum Dialog {
     Open,
 }
 
-/// A path chosen in a desktop dialog.
+/// A path chosen in a desktop dialog, or the dialog closed without one.
 pub enum Picked {
     SaveAs(PathBuf),
     Open(PathBuf),
+    Cancelled,
+}
+
+/// How the project is being kept, for the Autosave plate.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Keeping {
+    /// Written to its own file after each pause, with how the last write
+    /// went.
+    Autosave(WriteStatus),
+    /// Not yet saved under a name: cached in the drafts folder.
+    Draft,
+    /// Autosave is off: written only by Save.
+    Off { unsaved: bool },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum WriteStatus {
+    Saved,
+    Writing,
+    Failed(String),
 }
 
 pub struct Filing {
@@ -50,6 +72,8 @@ pub struct Filing {
     changed_at: Option<f64>,
     dialog: Option<(Dialog, Receiver<Option<PathBuf>>)>,
     notice: Option<(String, f64)>,
+    /// When the project was last written, and why that failed if it did.
+    last_write: Option<(f64, Option<String>)>,
 }
 
 impl Filing {
@@ -69,6 +93,7 @@ impl Filing {
             changed_at: None,
             dialog: None,
             notice: None,
+            last_write: None,
         }
     }
 
@@ -103,15 +128,59 @@ impl Filing {
         self.path.as_deref().is_some_and(|p| !storage::is_draft(p))
     }
 
+    /// A draft with something typed in it: worth asking about before it
+    /// is put away.
+    pub fn is_draft_with_work(&self, machine: &Typewriter) -> bool {
+        !self.is_saved() && !is_untouched(machine)
+    }
+
+    /// Changes not written to the project's own file yet.
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.changed_at.is_some()
+    }
+
+    pub fn keeping(&self, autosave: bool, now: f64) -> Keeping {
+        if !self.is_saved() {
+            return Keeping::Draft;
+        }
+        if !autosave {
+            return Keeping::Off {
+                unsaved: self.has_unsaved_changes(),
+            };
+        }
+        Keeping::Autosave(match &self.last_write {
+            Some((_, Some(err))) => WriteStatus::Failed(err.clone()),
+            Some((at, None)) if now - at < WRITING_SECONDS => WriteStatus::Writing,
+            _ => WriteStatus::Saved,
+        })
+    }
+
+    /// Throws the draft away, file and all. Nothing is written afterwards.
+    pub fn discard_draft(&mut self) {
+        if let Some(path) = self.path.take().filter(|p| storage::is_draft(p)) {
+            let _ = fs::remove_file(path);
+        }
+        self.changed_at = None;
+    }
+
     pub fn changed(&mut self, now: f64) {
         self.changed_at.get_or_insert(now);
     }
 
-    pub fn autosave(&mut self, machine: &Typewriter, now: f64) {
+    /// Writes after a pause in typing. With autosave off, only a draft is
+    /// written (to the drafts folder), so a crash still loses nothing.
+    pub fn autosave(&mut self, machine: &Typewriter, now: f64, autosave: bool) {
         if self
             .changed_at
             .is_some_and(|at| now - at >= AUTOSAVE_AFTER_SECONDS)
         {
+            self.keep(machine, now, autosave);
+        }
+    }
+
+    /// Writes now if autosave would (e.g. on a sheet feed or on quit).
+    pub fn keep(&mut self, machine: &Typewriter, now: f64, autosave: bool) {
+        if autosave || !self.is_saved() {
             self.save(machine, now);
         }
     }
@@ -125,15 +194,15 @@ impl Filing {
         let Some(path) = self.path.clone() else {
             return;
         };
-        let document = machine.document();
-        let untouched = document.finished().is_empty() && document.current().is_blank();
-        if untouched && storage::is_draft(&path) && !path.exists() {
+        if is_untouched(machine) && storage::is_draft(&path) && !path.exists() {
             self.changed_at = None;
             return;
         }
         // Tried again after the next change if it fails.
         self.changed_at = None;
-        if let Err(err) = write_project(machine, &path) {
+        let written = write_project(machine, &path);
+        self.last_write = Some((now, written.as_ref().err().map(|err| format!("{err:#}"))));
+        if let Err(err) = written {
             self.notify(format!("Could not save the project: {err:#}"), now);
         }
     }
@@ -153,12 +222,14 @@ impl Filing {
     }
 
     /// Saves the project under a chosen name and place. A draft moves there.
-    pub fn save_as(&mut self, machine: &Typewriter, chosen: PathBuf, now: f64) {
+    /// Returns whether it was saved.
+    pub fn save_as(&mut self, machine: &Typewriter, chosen: PathBuf, now: f64) -> bool {
         let path = storage::with_extension(chosen);
         if let Err(err) = write_project(machine, &path) {
             self.notify(format!("Could not save the project: {err:#}"), now);
-            return;
+            return false;
         }
+        self.last_write = Some((now, None));
         if let Some(old) = self.path.replace(path.clone())
             && storage::is_draft(&old)
             && old != path
@@ -168,6 +239,7 @@ impl Filing {
         }
         self.changed_at = None;
         self.notify(format!("Saved as {}", storage::home_relative(&path)), now);
+        true
     }
 
     /// Renames the project's file where it is.
@@ -283,9 +355,10 @@ impl Filing {
         };
         let dialog = *dialog;
         self.dialog = None;
-        picked.map(|path| match dialog {
-            Dialog::SaveAs => Picked::SaveAs(path),
-            Dialog::Open => Picked::Open(path),
+        Some(match (picked, dialog) {
+            (Some(path), Dialog::SaveAs) => Picked::SaveAs(path),
+            (Some(path), Dialog::Open) => Picked::Open(path),
+            (None, _) => Picked::Cancelled,
         })
     }
 
@@ -304,6 +377,10 @@ impl Filing {
 
     pub fn is_animating(&self, now: f64) -> bool {
         self.dialog.is_some()
+            || self
+                .last_write
+                .as_ref()
+                .is_some_and(|(at, _)| now - at < WRITING_SECONDS)
             || self
                 .notice
                 .as_ref()
@@ -339,6 +416,12 @@ impl Filing {
     }
 }
 
+/// Nothing typed yet: no finished sheets and a blank one in the machine.
+fn is_untouched(machine: &Typewriter) -> bool {
+    let document = machine.document();
+    document.finished().is_empty() && document.current().is_blank()
+}
+
 /// Reads a project file into the machine it was typed on.
 pub fn open(machines: &Machines, path: &Path) -> anyhow::Result<Typewriter> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
@@ -351,4 +434,35 @@ fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {
     let text = machine.to_folder_ron()?;
     storage::write_atomic(path, &text).with_context(|| format!("writing {}", path.display()))?;
     storage::remember_last(path).context("remembering it for next time")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_autosave_plate_follows_the_last_write() {
+        let mut filing = Filing::at(PathBuf::from("/nowhere/novel.folder.ron"));
+        assert_eq!(filing.keeping(false, 0.0), Keeping::Off { unsaved: false });
+        filing.changed(1.0);
+        assert_eq!(filing.keeping(false, 1.0), Keeping::Off { unsaved: true });
+        assert_eq!(
+            filing.keeping(true, 1.0),
+            Keeping::Autosave(WriteStatus::Saved)
+        );
+        filing.last_write = Some((5.0, None));
+        assert_eq!(
+            filing.keeping(true, 5.1),
+            Keeping::Autosave(WriteStatus::Writing)
+        );
+        assert_eq!(
+            filing.keeping(true, 6.0),
+            Keeping::Autosave(WriteStatus::Saved)
+        );
+        filing.last_write = Some((7.0, Some("disk full".into())));
+        assert_eq!(
+            filing.keeping(true, 9.0),
+            Keeping::Autosave(WriteStatus::Failed("disk full".into()))
+        );
+    }
 }

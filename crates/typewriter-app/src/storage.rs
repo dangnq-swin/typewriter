@@ -116,6 +116,35 @@ pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
     fs::rename(&temporary, path)
 }
 
+/// Holds the process id of a running app. Removed on a clean exit, so one
+/// found at start means the last run crashed.
+fn running_marker() -> Option<PathBuf> {
+    data_dir().map(|dir| dir.join("running"))
+}
+
+/// Marks this run as in progress. Returns true if the last run ended
+/// without closing cleanly (and is not still running).
+pub fn mark_running() -> bool {
+    let Some(marker) = running_marker() else {
+        return false;
+    };
+    let crashed = fs::read_to_string(&marker)
+        .ok()
+        .and_then(|pid| pid.trim().parse::<u32>().ok())
+        .is_some_and(|pid| !Path::new(&format!("/proc/{pid}")).exists());
+    if let Err(err) = write_atomic(&marker, format!("{}\n", std::process::id())) {
+        eprintln!("could not mark the app as running: {err}");
+    }
+    crashed
+}
+
+/// The app closed cleanly.
+pub fn clear_running() {
+    if let Some(marker) = running_marker() {
+        let _ = fs::remove_file(marker);
+    }
+}
+
 fn last_project_record() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join("last-folder"))
 }

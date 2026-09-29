@@ -56,6 +56,9 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Ways of fixing mistakes: correction paper (slip in/out, chalk over what is struck),
       eraser (ghost and scuff), correction fluid (dries in 3 s, smudges if typed on wet).
       Correct plate and F4 to switch
+- [x] Pencilled notes in a finished sheet's top margin (Caveat), shown in the folder and exports
+- [x] Reordering finished sheets (Renumber…, Shift+arrows) and scrunching one up (confirm,
+      crumple animation and sound)
 
 ## M4: Sound
 
@@ -88,6 +91,8 @@ Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Item
 - [x] Projects: Current project… (Save, Save As, Rename), Other projects… (New, Open) and
       Export… menus in the folder view, with the desktop's dialogs (`rfd`). The last project
       reopens on launch: its sheet winds in, then the platen clicks down to where typing stopped
+- [x] Autosave plate (On with a status dot / Draft / Off), Ctrl+S to save, an Autosave setting, asking
+      before a draft or unsaved changes are put away (close, New, Open), crash recovery notice
 - [x] Export to **plain text** and **Markdown** beside the project file (corrections left
       out, `'` over `.` as `!`, `---` between sheets in Markdown), and to **PDF** as typed, on
       white

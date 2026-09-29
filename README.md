@@ -57,6 +57,7 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 | F4 | Change correction method |
 | Esc | Calm mode on/off |
 | F11 | Fullscreen |
+| Ctrl+S | Save |
 | Mouse wheel | Zoom |
 
 ### Fixing mistakes
@@ -75,6 +76,7 @@ You can then write over your mistakes. Shift+Backspace again to remove the corre
 | **Zoom** plate | Double-click: 100 % |
 | **Correct** plate | Click: next mistake-fixing method |
 | **Goal** plate | Click: next session goal (words or minutes, or off) |
+| **Autosave** plate (right) | How the project is kept; the dot is the status. Click: save|
 | Folder icon (bottom left) | The finished sheets and the project menus |
 | Sheet icon | Calm mode on/off |
 | Gear icon | Settings |
@@ -86,9 +88,15 @@ Opened with **Page Up** or the folder icon.
 | Key | Does |
 |---|---|
 | Arrow keys, Page Up / Page Down | Choose a sheet (up / left = older) |
+| Shift + arrow keys | Move the chosen sheet one place |
+| Delete | Scrunch up the chosen sheet |
 | Enter or click | Read the chosen sheet; the same keys flip through sheets |
 | Esc | Back one level |
 | Typing | Back to the typewriter |
 
 The plates below the folder save, open, rename and export the project; click the name on
-the folder's tab to rename it.
+the folder's tab to rename it. The **Sheet…** plate renumbers the chosen sheet 
+or scrunches it up, deleting after asking.
+
+In an open sheet, click its top margin to pencil a note there (Enter for a new line, as many
+lines as the margin has room for). Click elsewhere or press Esc when done. Notes will show up in exports.

@@ -33,6 +33,20 @@ pub struct Settings {
     pub look: Look,
     pub goals: Goals,
     pub machine: Machine,
+    pub saving: Saving,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Saving {
+    /// A saved project is written after each pause. Drafts are always kept.
+    pub autosave: bool,
+}
+
+impl Default for Saving {
+    fn default() -> Self {
+        Self { autosave: true }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,6 +62,7 @@ pub struct Sound {
     /// Platen ratchet clicks and the carriage return, where the machine
     /// makes them.
     pub platen: bool,
+    /// Sheets fed, and finished ones scrunched up.
     pub sheet_feed: bool,
     /// Eraser and correction fluid.
     pub corrections: bool,

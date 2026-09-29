@@ -4,10 +4,12 @@ pub mod background;
 pub mod calm;
 pub mod feed;
 pub mod folder;
+pub mod note;
 pub mod paper;
 pub mod pdf;
 pub mod platen;
 pub mod ruler;
+pub mod scrunch;
 pub mod settings;
 
 use eframe::egui::{FontFamily, FontId, Vec2, vec2};

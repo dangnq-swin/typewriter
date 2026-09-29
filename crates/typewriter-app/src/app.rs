@@ -11,7 +11,7 @@ use typewriter_core::{
 };
 
 use crate::audio::{self, Audio};
-use crate::filing::{self, Filing, Picked};
+use crate::filing::{self, Filing, Keeping, Picked, WriteStatus};
 use crate::input::{Action, Input};
 use crate::machines::Machines;
 use crate::render::background::Background;
@@ -19,7 +19,7 @@ use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
 use crate::render::platen::{self, PlatenView};
-use crate::render::{COURIER_PRIME, FONT_FAMILY, Metrics, folder, paper, ruler};
+use crate::render::{COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, paper, ruler};
 use crate::settings::{SettingsFile, ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
 use crate::{render, settings, storage};
 
@@ -64,6 +64,21 @@ impl WindBack {
     }
 }
 
+/// Where the machine goes once the project in it has been dealt with.
+#[derive(Debug, Clone)]
+enum Leaving {
+    Quit,
+    New,
+    Open(PathBuf),
+}
+
+/// A finished sheet being scrunched up: its outline on screen when it went.
+struct Scrunching {
+    outline: [Pos2; 4],
+    started: f64,
+    seed: u64,
+}
+
 /// A new sheet being wound in, and the finished one rolling out.
 struct Feeding {
     started: f64,
@@ -80,6 +95,22 @@ pub struct TypewriterApp {
     session: Session,
     /// The new name being typed on the folder's tab.
     renaming: Option<String>,
+    /// The note being pencilled on the open sheet.
+    annotating: Option<String>,
+    /// The chosen sheet's new number, being typed.
+    renumbering: Option<String>,
+    /// The finished sheet waiting for a yes before it is scrunched up.
+    confirm_scrunch: Option<usize>,
+    scrunching: Option<Scrunching>,
+    /// Waiting for an answer about the draft or unsaved changes before
+    /// leaving the project.
+    leaving: Option<Leaving>,
+    /// Leaving once the Save As dialog has saved the draft.
+    leaving_after_save_as: Option<Leaving>,
+    /// The window may close: whatever needed asking was answered.
+    quitting: bool,
+    /// Where the chosen sheet is drawn in the folder, as of the last frame.
+    pulled: Option<[Pos2; 4]>,
     metrics: Metrics,
     platen: PlatenView,
     input: Input,
@@ -126,8 +157,12 @@ impl TypewriterApp {
             .ok();
         let wind_back = filing.is_saved_somewhere().then(|| machine.reinsert());
         let mut filing = filing;
-        if let Some(trouble) = trouble.or(settings_trouble) {
-            filing.notify(trouble, 0.0);
+        let crashed = storage::mark_running();
+        let recovered = (crashed && filing.is_saved_somewhere()).then(|| {
+            "Recovered your work from when Typewriter last closed unexpectedly.".to_owned()
+        });
+        if let Some(notice) = trouble.or(settings_trouble).or(recovered) {
+            filing.notify(notice, 0.0);
         }
         filing.remember();
         let mut session = Session::start(machine.document(), unix_now());
@@ -137,6 +172,14 @@ impl TypewriterApp {
             filing,
             session,
             renaming: None,
+            annotating: None,
+            renumbering: None,
+            confirm_scrunch: None,
+            scrunching: None,
+            leaving: None,
+            leaving_after_save_as: None,
+            quitting: false,
+            pulled: None,
             metrics,
             platen: PlatenView::new(settings.look.carriage_travel),
             input: Input::default(),
@@ -164,11 +207,19 @@ impl TypewriterApp {
             ctx.input(|i| (i.events.clone(), i.modifiers.shift, i.smooth_scroll_delta.y));
         // Keys still go through the input state (e.g. Shift+Tab counting),
         // they just do nothing while a sheet is being wound in.
-        // A name being typed on the folder's tab is not for the machine.
-        if self.renaming.is_some() {
+        // A name being typed on the folder's tab, or a note being written,
+        // is not for the machine.
+        if self.renaming.is_some()
+            || self.annotating.is_some()
+            || self.renumbering.is_some()
+            || self.confirm_scrunch.is_some()
+            || self.leaving.is_some()
+        {
             return;
         }
         let actions = self.input.actions(&events, shift_down);
+        // Esc closes an open menu (egui does that) before it closes a view.
+        let menu_open = egui::Popup::is_any_open(ctx);
         if self.view == View::Settings {
             // Keys are for the card's fields. Esc closes it unless a field
             // is being edited (Esc leaves the field first).
@@ -176,7 +227,8 @@ impl TypewriterApp {
             for action in actions {
                 match action {
                     Action::Fullscreen => toggle_fullscreen(ctx),
-                    Action::Escape if !editing => self.escape(),
+                    Action::Escape if !editing && !menu_open => self.escape(),
+                    Action::Save => self.filing.save_now(&self.machine, ctx, now),
                     _ => {}
                 }
             }
@@ -187,6 +239,7 @@ impl TypewriterApp {
             match action {
                 // The window is not part of the machine.
                 Action::Fullscreen => toggle_fullscreen(ctx),
+                Action::Save => self.filing.save_now(&self.machine, ctx, now),
                 _ if feeding => {}
                 Action::Machine(command) => {
                     if !self.browse_command(command) {
@@ -196,8 +249,26 @@ impl TypewriterApp {
                 }
                 Action::PageUp => self.page_up(),
                 Action::PageDown => self.page_down(),
+                Action::Escape if menu_open => {}
                 Action::Escape => self.escape(),
                 Action::NextCorrection => self.next_correction(now),
+                Action::Delete if self.view == View::Folder => {
+                    self.folder_action(FolderAction::Scrunch, ctx, now);
+                }
+                Action::Delete => {
+                    self.apply(Command::Erase, now);
+                    self.typed(now);
+                }
+                Action::ShiftArrow(direction) => match self.view {
+                    View::Folder => self.move_chosen(direction, now),
+                    _ => {
+                        let command = Command::Move(direction);
+                        if !self.browse_command(command) {
+                            self.apply(command, now);
+                            self.typed(now);
+                        }
+                    }
+                },
             }
         }
         if feeding {
@@ -236,7 +307,8 @@ impl TypewriterApp {
                 }
                 Event::SheetFed => {
                     self.wet.clear();
-                    self.filing.save(&self.machine, now);
+                    let autosave = self.settings.saving.autosave;
+                    self.filing.keep(&self.machine, now, autosave);
                     self.feeding = Some(Feeding {
                         started: now,
                         outgoing: outgoing.clone(),
@@ -328,7 +400,9 @@ impl TypewriterApp {
     /// Puts another project in the machine, winding its sheet in. The one
     /// there is saved first.
     fn put_in(&mut self, mut machine: Typewriter, filing: Filing, reopened: bool, now: f64) {
-        self.filing.save(&self.machine, now);
+        // Anything that needed asking about was answered before this.
+        let autosave = self.settings.saving.autosave;
+        self.filing.keep(&self.machine, now, autosave);
         self.wind_back = reopened.then(|| WindBack::to(machine.reinsert()));
         // A new session, still aiming for the same goal.
         let goal = self.session.goal();
@@ -343,6 +417,10 @@ impl TypewriterApp {
         self.view = View::Typing;
         self.selected = 0;
         self.renaming = None;
+        self.annotating = None;
+        self.renumbering = None;
+        self.confirm_scrunch = None;
+        self.scrunching = None;
         // Another machine may type at another pitch, on other paper.
         self.metrics = Metrics::new(self.machine.profile(), self.points_per_inch());
         self.platen.snap();
@@ -361,15 +439,19 @@ impl TypewriterApp {
                 self.filing.rename(&self.machine, &name, now);
             }
             FolderAction::CancelRename => self.renaming = None,
-            FolderAction::New => {
-                let profile = self.machines.for_new(&self.settings.machine.profile);
-                let constraints = self.machine.constraints.clone();
-                match Typewriter::new(profile, constraints) {
-                    Ok(machine) => self.put_in(machine, Filing::draft(), false, now),
-                    Err(err) => self.filing.notify(format!("No new project: {err}"), now),
+            FolderAction::New => self.leave(Leaving::New, ctx, now),
+            FolderAction::Open => self.filing.ask_open(ctx),
+            FolderAction::Renumber => self.renumbering = Some(String::new()),
+            FolderAction::RenumberTo(number) => {
+                self.renumbering = None;
+                self.renumber(&number, now);
+            }
+            FolderAction::CancelRenumber => self.renumbering = None,
+            FolderAction::Scrunch => {
+                if self.selected < self.machine.document().finished().len() {
+                    self.confirm_scrunch = Some(self.selected);
                 }
             }
-            FolderAction::Open => self.filing.ask_open(ctx),
             FolderAction::Export(format) => {
                 let ink_realism = self.settings.look.ink_realism;
                 self.filing.export(&self.machine, format, ink_realism, now);
@@ -377,16 +459,223 @@ impl TypewriterApp {
         }
     }
 
-    fn take_picked(&mut self, now: f64) {
+    /// Gives the chosen sheet the typed number, the others shifting along.
+    fn renumber(&mut self, number: &str, now: f64) {
+        let count = self.machine.document().finished().len();
+        // A number that is not a sheet's changes nothing.
+        if let Ok(n) = number.parse::<usize>()
+            && (1..=count).contains(&n)
+            && self.machine.renumber(self.selected, n - 1)
+        {
+            self.selected = n - 1;
+            self.filing.changed(now);
+        }
+    }
+
+    /// Shift+arrows move the chosen sheet one place: up or left is older.
+    fn move_chosen(&mut self, direction: Direction, now: f64) {
+        let count = self.machine.document().finished().len();
+        let to = match direction {
+            Direction::Up | Direction::Left => self.selected.checked_sub(1),
+            Direction::Down | Direction::Right => Some(self.selected + 1).filter(|&to| to < count),
+        };
+        if let Some(to) = to
+            && self.machine.renumber(self.selected, to)
+        {
+            self.selected = to;
+            self.filing.changed(now);
+        }
+    }
+
+    /// Scrunches up the finished sheet `index`, for good.
+    fn scrunch(&mut self, index: usize, ctx: &egui::Context, now: f64) {
+        if self.machine.scrunch(index).is_none() {
+            return;
+        }
+        if let Some(outline) = self.pulled {
+            self.scrunching = Some(Scrunching {
+                outline,
+                started: now,
+                seed: index as u64 ^ now.to_bits(),
+            });
+        }
+        if let Some(audio) = &self.audio {
+            audio.play_crumple();
+        }
+        // The sheet that takes its place slides out, not starts out.
+        ctx.animate_value_with_time(egui::Id::new(("folder-pull", index)), 0.0, 0.0);
+        let count = self.machine.document().finished().len();
+        self.selected = self.selected.min(count.saturating_sub(1));
+        self.session.recount(self.machine.document());
+        if let Some(stats) = self.session.stats() {
+            self.machine.record_session(stats);
+        }
+        self.filing.changed(now);
+    }
+
+    /// "Scrunch up sheet N?", over everything, until answered.
+    fn confirm_scrunch(&mut self, ctx: &egui::Context, now: f64) {
+        let Some(index) = self.confirm_scrunch else {
+            return;
+        };
+        let modal = egui::Modal::new(egui::Id::new("confirm-scrunch")).show(ctx, |ui| {
+            ui.set_width(300.0);
+            ui.heading(format!("Scrunch up sheet {}?", index + 1));
+            ui.label("It can't be smoothed out again.");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let scrunch = ui.button("Scrunch up").clicked();
+                let keep = ui.button("Keep it").clicked();
+                (scrunch, keep)
+            })
+            .inner
+        });
+        let (scrunch, keep) = modal.inner;
+        if scrunch {
+            self.confirm_scrunch = None;
+            self.scrunch(index, ctx, now);
+        } else if keep || modal.should_close() {
+            self.confirm_scrunch = None;
+        }
+    }
+
+    fn take_picked(&mut self, ctx: &egui::Context, now: f64) {
         match self.filing.picked() {
-            Some(Picked::SaveAs(path)) => self.filing.save_as(&self.machine, path, now),
-            Some(Picked::Open(path)) => match filing::open(&self.machines, &path) {
+            Some(Picked::SaveAs(path)) => {
+                let saved = self.filing.save_as(&self.machine, path, now);
+                if let Some(leaving) = self.leaving_after_save_as.take()
+                    && saved
+                {
+                    self.go(leaving, ctx, now);
+                }
+            }
+            Some(Picked::Open(path)) => self.leave(Leaving::Open(path), ctx, now),
+            Some(Picked::Cancelled) => self.leaving_after_save_as = None,
+            None => {}
+        }
+    }
+
+    /// Something typed would be put away unsaved: a draft with work in it,
+    /// or changes while autosave is off.
+    fn must_ask(&self) -> bool {
+        self.filing.is_draft_with_work(&self.machine)
+            || (!self.settings.saving.autosave
+                && self.filing.is_saved()
+                && self.filing.has_unsaved_changes())
+    }
+
+    /// Leaves the project, asking first if work would be put away unsaved.
+    fn leave(&mut self, leaving: Leaving, ctx: &egui::Context, now: f64) {
+        if self.must_ask() {
+            self.leaving = Some(leaving);
+        } else {
+            self.go(leaving, ctx, now);
+        }
+    }
+
+    fn go(&mut self, leaving: Leaving, ctx: &egui::Context, now: f64) {
+        match leaving {
+            Leaving::Quit => {
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Leaving::New => {
+                let profile = self.machines.for_new(&self.settings.machine.profile);
+                let constraints = self.machine.constraints.clone();
+                match Typewriter::new(profile, constraints) {
+                    Ok(machine) => self.put_in(machine, Filing::draft(), false, now),
+                    Err(err) => self.filing.notify(format!("No new project: {err}"), now),
+                }
+            }
+            Leaving::Open(path) => match filing::open(&self.machines, &path) {
                 Ok(machine) => self.put_in(machine, Filing::at(path), true, now),
                 Err(err) => self
                     .filing
                     .notify(format!("Could not open that project: {err:#}"), now),
             },
-            None => {}
+        }
+    }
+
+    /// Asks what to do with a draft, or with unsaved changes, before
+    /// leaving the project.
+    fn leaving_dialog(&mut self, ctx: &egui::Context, now: f64) {
+        let Some(leaving) = self.leaving.clone() else {
+            return;
+        };
+        #[derive(Clone, Copy)]
+        enum Answer {
+            SaveAs,
+            Save,
+            Keep,
+            Discard,
+            DontSave,
+            Cancel,
+        }
+        let draft = !self.filing.is_saved();
+        let name = self.filing.name();
+        let modal = egui::Modal::new(egui::Id::new("leaving")).show(ctx, |ui| {
+            ui.set_width(340.0);
+            if draft {
+                ui.heading("Keep this draft?");
+                ui.label("It has not been saved under a name.");
+            } else {
+                ui.heading(format!("Save changes to \u{201c}{name}\u{201d}?"));
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let buttons: &[(&str, Answer)] = if draft {
+                    &[
+                        ("Save As\u{2026}", Answer::SaveAs),
+                        ("Keep as draft", Answer::Keep),
+                        ("Discard", Answer::Discard),
+                        ("Cancel", Answer::Cancel),
+                    ]
+                } else {
+                    &[
+                        ("Save", Answer::Save),
+                        ("Don't save", Answer::DontSave),
+                        ("Cancel", Answer::Cancel),
+                    ]
+                };
+                let mut chosen = None;
+                for &(label, answer) in buttons {
+                    if ui.button(label).clicked() {
+                        chosen = Some(answer);
+                    }
+                }
+                chosen
+            })
+            .inner
+        });
+        let answer = modal
+            .inner
+            .or_else(|| modal.should_close().then_some(Answer::Cancel));
+        let Some(answer) = answer else {
+            return;
+        };
+        self.leaving = None;
+        match answer {
+            Answer::SaveAs => {
+                self.leaving_after_save_as = Some(leaving);
+                self.filing.ask_save_as(ctx);
+            }
+            Answer::Save => {
+                self.filing.changed(now);
+                self.filing.save(&self.machine, now);
+                let failed = matches!(
+                    self.filing.keeping(true, now),
+                    Keeping::Autosave(WriteStatus::Failed(_))
+                );
+                if !failed {
+                    self.go(leaving, ctx, now);
+                }
+            }
+            Answer::Keep | Answer::DontSave => self.go(leaving, ctx, now),
+            Answer::Discard => {
+                self.filing.discard_draft();
+                self.go(leaving, ctx, now);
+            }
+            Answer::Cancel => {}
         }
     }
 
@@ -633,6 +922,14 @@ impl TypewriterApp {
         );
         let goal_plate =
             ruler::paint_goal_plate(&painter, self.session.progress(), correction_plate);
+        let keeping = self.filing.keeping(self.settings.saving.autosave, now);
+        let autosave_plate = ruler::paint_autosave_plate(
+            &painter,
+            &keeping,
+            layout.paper_origin.x + self.metrics.paper_size.x,
+            spacing_plate,
+            goal_plate.right(),
+        );
         let next_spacing = carriage.line_spacing.next();
         // Plates only react once fully shown, not while calm mode fades them.
         if chrome < 1.0 {
@@ -660,7 +957,7 @@ impl TypewriterApp {
             ui,
             correction_plate,
             "correction-plate",
-            "Fixing mistakes (F4). Click for the next way: correction paper, eraser or fluid.",
+            "Click (or F4) for the next way: correction paper, eraser or fluid",
         );
         if correction.clicked() && !feeding {
             self.next_correction(now);
@@ -669,10 +966,26 @@ impl TypewriterApp {
             ui,
             goal_plate,
             "goal-plate",
-            "Session goal. Click for the next: 250, 500 or 1000 words, 15, 25 or 50 minutes of typing, or off.",
+            "Click for the next: 250, 500 or 1000 words, 15, 25 or 50 minutes of typing, or off",
         );
         if goal.clicked() {
             self.next_goal();
+        }
+        let tip = match &keeping {
+            Keeping::Autosave(WriteStatus::Failed(err)) => {
+                format!("Could not save: {err}. Click to try again.")
+            }
+            Keeping::Autosave(_) => {
+                format!("Saved to {}. Click to save now.", self.filing.location())
+            }
+            Keeping::Draft => "Kept in the drafts folder. Click to save it as a file.".to_owned(),
+            Keeping::Off { unsaved: true } => "Unsaved changes. Click to save.".to_owned(),
+            Keeping::Off { unsaved: false } => "Saved. Click to save now.".to_owned(),
+        };
+        let autosave = plate_button(ui, autosave_plate, "autosave-plate", &tip);
+        if autosave.clicked() {
+            let ctx = ui.ctx().clone();
+            self.filing.save_now(&self.machine, &ctx, now);
         }
     }
 }
@@ -727,13 +1040,23 @@ impl eframe::App for TypewriterApp {
         }
         self.handle_input(&ctx);
         self.dry_fluid(now);
-        self.take_picked(now);
-        self.filing.autosave(&self.machine, now);
+        self.take_picked(&ctx, now);
+        self.filing
+            .autosave(&self.machine, now, self.settings.saving.autosave);
+        // Closing the window puts the project away too: ask first if needed.
+        if ctx.input(|i| i.viewport().close_requested()) && !self.quitting && self.must_ask() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            if self.leaving.is_none() && self.leaving_after_save_as.is_none() {
+                self.leaving = Some(Leaving::Quit);
+            }
+        }
         if !self.is_feeding(now) {
             self.feeding = None;
         }
         self.wind_back(now);
         let mut folder_action = None;
+        let mut note_written = None;
+        let points_per_inch = self.points_per_inch();
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -758,27 +1081,39 @@ impl eframe::App for TypewriterApp {
                             view,
                             sheets,
                             &self.metrics,
-                            &mut self.selected,
+                            &self.machine.profile().margins,
+                            self.selected,
                             &project,
                             self.renaming.as_mut(),
+                            self.renumbering.as_mut(),
                         );
+                        self.pulled = response.pulled;
                         if let Some(i) = response.opened {
                             self.view = View::Sheet(i);
                         }
                         folder_action = response.action;
                     }
                     View::Sheet(i) => match sheets.get(i) {
-                        Some(page) => folder::show_sheet(
-                            &ui.painter_at(view),
-                            view,
-                            self.machine.profile(),
-                            self.machine.carriage(),
-                            page,
-                            i + 1,
-                            sheets.len(),
-                            self.points_per_inch(),
-                            self.settings.look.ink_realism,
-                        ),
+                        Some(page) => {
+                            let response = folder::show_sheet(
+                                ui,
+                                view,
+                                self.machine.profile(),
+                                self.machine.carriage(),
+                                page,
+                                i,
+                                sheets.len(),
+                                points_per_inch,
+                                self.settings.look.ink_realism,
+                                self.annotating.as_mut(),
+                            );
+                            if response.start_note {
+                                self.annotating = Some(page.note().to_owned());
+                            }
+                            if let Some(note) = response.note_written {
+                                note_written = Some((i, note));
+                            }
+                        }
                         None => self.view = View::Folder,
                     },
                     View::Settings => {
@@ -798,10 +1133,35 @@ impl eframe::App for TypewriterApp {
                         }
                     }
                 }
+                if let Some(scrunching) = &self.scrunching {
+                    let t = now - scrunching.started;
+                    if t < render::scrunch::SECONDS {
+                        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+                            egui::Order::Foreground,
+                            egui::Id::new("scrunch"),
+                        ));
+                        render::scrunch::paint(&painter, scrunching.outline, t, scrunching.seed);
+                    }
+                }
                 self.filing.paint_notice(ui.ctx(), view, now);
             });
         if let Some(action) = folder_action {
             self.folder_action(action, &ctx, now);
+        }
+        self.confirm_scrunch(&ctx, now);
+        self.leaving_dialog(&ctx, now);
+        if self
+            .scrunching
+            .as_ref()
+            .is_some_and(|s| now - s.started >= render::scrunch::SECONDS)
+        {
+            self.scrunching = None;
+        }
+        if let Some((sheet, note)) = note_written {
+            self.annotating = None;
+            if self.machine.annotate(sheet, &note) {
+                self.filing.changed(now);
+            }
         }
         if let Err(err) = self.settings_file.keep(&self.settings, now, false) {
             self.filing.notify(err, now);
@@ -813,15 +1173,21 @@ impl eframe::App for TypewriterApp {
             || !self.wet.is_empty()
             || self.filing.is_animating(now)
             || self.settings_file.is_pending()
+            || self.scrunching.is_some()
         {
             ctx.request_repaint();
         }
     }
 
     fn on_exit(&mut self) {
-        // Saved whatever the pause, so nothing typed is lost.
-        self.filing.changed(0.0);
-        self.filing.save(&self.machine, 0.0);
+        // Saved whatever the pause, so nothing typed is lost, unless the
+        // user chose not to (autosave off, or a discarded draft).
+        let autosave = self.settings.saving.autosave;
+        if autosave || !self.filing.is_saved() {
+            self.filing.changed(0.0);
+        }
+        self.filing.keep(&self.machine, 0.0, autosave);
+        storage::clear_running();
         if let Err(err) = self.settings_file.keep(&self.settings, 0.0, true) {
             eprintln!("{err}");
         }
@@ -939,6 +1305,21 @@ fn install_fonts(ctx: &egui::Context) {
     fonts
         .families
         .insert(FontFamily::Name(FONT_FAMILY.into()), family);
+    fonts.font_data.insert(
+        note::PENCIL_FAMILY.into(),
+        Arc::new(FontData::from_static(note::CAVEAT)),
+    );
+    let mut pencil = vec![note::PENCIL_FAMILY.to_owned()];
+    pencil.extend(
+        fonts
+            .families
+            .get(&FontFamily::Proportional)
+            .cloned()
+            .unwrap_or_default(),
+    );
+    fonts
+        .families
+        .insert(FontFamily::Name(note::PENCIL_FAMILY.into()), pencil);
     ctx.set_fonts(fonts);
 }
 

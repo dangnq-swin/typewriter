@@ -10,6 +10,7 @@ use printpdf::{
 use typewriter_core::{Document, Profile, export};
 
 use super::calm::Dimming;
+use super::note::{self, NoteArea};
 use super::paper::{self, Drawn, RIM_WIDTH};
 use super::{COURIER_PRIME, Metrics};
 
@@ -31,13 +32,23 @@ pub fn render(
     let metrics = Metrics::new(profile, POINTS_PER_INCH);
     let mut pdf = PdfDocument::new(title);
     let font = PdfFontHandle::External(pdf.add_font(&font));
+    // Only embedded when there is a note to write with it.
+    let pencil = if export::sheets(document).any(|sheet| !sheet.note().is_empty()) {
+        let parsed = ParsedFont::from_bytes(note::CAVEAT, 0, &mut Vec::new())
+            .context("the handwriting font could not be read")?;
+        Some(PdfFontHandle::External(pdf.add_font(&parsed)))
+    } else {
+        None
+    };
     let page = Page {
         font,
+        pencil,
         size: metrics.font.size,
         height: metrics.paper_size.y,
     };
     let pages: Vec<PdfPage> = export::sheets(document)
-        .map(|sheet| {
+        .enumerate()
+        .map(|(index, sheet)| {
             let marks = paper::sheet_marks(
                 &metrics,
                 sheet,
@@ -51,6 +62,8 @@ pub fn render(
             for drawn in marks {
                 page.draw(&mut ops, drawn);
             }
+            let area = NoteArea::new(&metrics, &profile.margins, index);
+            page.note(&mut ops, &area, sheet.note());
             PdfPage::new(
                 Mm(profile.paper.width_mm as f32),
                 Mm(profile.paper.height_mm as f32),
@@ -66,11 +79,41 @@ pub fn render(
 
 struct Page {
     font: PdfFontHandle,
+    pencil: Option<PdfFontHandle>,
     size: f32,
     height: f32,
 }
 
 impl Page {
+    /// The pencilled note, each line from its baseline, turned with the note.
+    /// Page coordinates run upwards, so the turn is the other way round.
+    fn note(&self, ops: &mut Vec<Op>, area: &NoteArea, note: &str) {
+        let Some(pencil) = &self.pencil else {
+            return;
+        };
+        let (sin, cos) = (-area.angle).sin_cos();
+        for (i, line) in note.lines().enumerate() {
+            let at = area.baseline(Pos2::ZERO, i);
+            ops.extend([
+                Op::StartTextSection,
+                Op::SetFont {
+                    font: pencil.clone(),
+                    size: Pt(area.size),
+                },
+                Op::SetFillColor {
+                    col: on_white(note::GRAPHITE),
+                },
+                Op::SetTextMatrix {
+                    matrix: TextMatrix::Raw([cos, sin, -sin, cos, at.x, self.height - at.y]),
+                },
+                Op::ShowText {
+                    items: vec![TextItem::Text(line.to_owned())],
+                },
+                Op::EndTextSection,
+            ]);
+        }
+    }
+
     fn draw(&self, ops: &mut Vec<Op>, drawn: Drawn) {
         match drawn {
             Drawn::Glyph { at, c, color } => {
@@ -201,6 +244,7 @@ mod tests {
         for c in "Page two".chars() {
             tw.apply(Command::Type(c));
         }
+        assert!(tw.annotate(0, "Check the date\nand the weather that day"));
         let pdf = render(tw.profile(), tw.document(), "Diary", true).unwrap();
         assert!(pdf.starts_with(b"%PDF-"));
         let text = String::from_utf8_lossy(&pdf).replace("/Type /", "/Type/");

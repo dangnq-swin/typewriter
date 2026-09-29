@@ -1,33 +1,37 @@
-//! The folder of finished sheets, drawn as a tray on a tilted desk, and the
-//! read-only view of one sheet taken out of it.
+//! The folder of finished sheets, drawn as a neat stack in a manila folder
+//! on a tilted desk, and the read-only view of one sheet taken out of it.
 //!
 //! egui cannot draw text in perspective, so sheets in the folder show their
 //! words as faint ink bars; a sheet becomes readable once it is picked up.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Mesh, Painter, Pos2, Rect, Sense,
-    Shape, Stroke, Ui, Vec2, pos2, vec2,
+    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Mesh, Pos2, Rect, Sense, Shape,
+    Stroke, Ui, Vec2, pos2, vec2,
 };
 use typewriter_core::Profile;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::page::Page;
+use typewriter_core::profile::Margins;
 
 use super::Metrics;
 use super::calm::Dimming;
-use super::paper::{self, INK, splitmix64};
+use super::note::{self, NoteArea};
+use super::paper::{self, INK};
 use crate::filing::ExportFormat;
 
 const TILT_DEGREES: f32 = 38.0;
 /// Camera distance in sheet heights. Smaller means stronger perspective.
 const CAMERA_DISTANCE: f32 = 2.6;
-/// The whole fan takes at most this share of a sheet's height, and each
-/// sheet peeks out at most this much behind the next.
-const MAX_FAN: f32 = 0.45;
-const MAX_STEP: f32 = 0.09;
-/// Hovering slides a sheet back out of the stack by this share of its height.
-const LIFT_SLIDE: f32 = 0.08;
-const LIFT_HEIGHT: f32 = 0.02;
+/// Height of one sheet in the stack, in desk units, and the most the whole
+/// stack may rise, as a share of a sheet's height, however many sheets.
 const SHEET_THICKNESS: f32 = 0.4;
+const MAX_STACK: f32 = 0.03;
+/// The chosen sheet slides out of the stack to the left by this share of a
+/// sheet's width, turning top-left by this much, and stays at its own
+/// height: the sheets above it still lie over it.
+const PULL: f32 = 1.0;
+const PULL_DEGREES: f32 = 45.0;
+const PULL_SECONDS: f32 = 0.25;
 
 const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
 const MANILA: Color32 = Color32::from_rgb(0xDD, 0xBF, 0x86);
@@ -95,27 +99,36 @@ impl Placement {
     }
 }
 
-/// Sheets fanned in the folder, oldest first. The newest lies in front and
-/// each older one peeks out a little further back, slightly askew.
-fn fan(count: usize, size: Vec2) -> (Vec<Placement>, f32) {
-    let step = if count > 1 {
-        (MAX_FAN * size.y / (count - 1) as f32).min(MAX_STEP * size.y)
+/// Sheets stacked neatly in the folder, oldest at the bottom. A thick
+/// folder packs its sheets tighter rather than growing.
+fn stack(count: usize, size: Vec2) -> Vec<Placement> {
+    let thickness = if count > 1 {
+        SHEET_THICKNESS.min(MAX_STACK * size.y / (count - 1) as f32)
     } else {
-        0.0
+        SHEET_THICKNESS
     };
-    let extent = step * count.saturating_sub(1) as f32;
-    let placements = (0..count)
-        .map(|i| {
-            let bits = splitmix64(i as u64);
-            let unit = |shift: u32| ((bits >> shift) & 0xFFFF) as f32 / 65535.0 - 0.5;
-            Placement {
-                centre: vec2(unit(0) * 0.03 * size.x, extent / 2.0 - i as f32 * step),
-                angle: unit(16) * 2.0_f32.to_radians(),
-                lift: i as f32 * SHEET_THICKNESS,
-            }
+    (0..count)
+        .map(|i| Placement {
+            centre: Vec2::ZERO,
+            angle: 0.0,
+            lift: i as f32 * thickness,
         })
-        .collect();
-    (placements, extent)
+        .collect()
+}
+
+/// The highest sheet resting in the stack, given how far each is pulled
+/// out: the one seen on top, which is not the newest while that is out.
+fn top_of_stack(pulls: &[f32]) -> Option<usize> {
+    pulls.iter().rposition(|&amount| amount <= 0.0)
+}
+
+/// `base` slid `amount` (0 to 1) of the way out of the stack.
+fn pulled(base: Placement, size: Vec2, amount: f32) -> Placement {
+    Placement {
+        centre: base.centre - vec2(amount * PULL * size.x, 0.0),
+        angle: amount * PULL_DEGREES.to_radians(),
+        lift: base.lift,
+    }
 }
 
 fn contains(quad: &[Pos2; 4], p: Pos2) -> bool {
@@ -165,6 +178,12 @@ pub enum FolderAction {
     New,
     Open,
     Export(ExportFormat),
+    /// Start typing a new number for the chosen sheet.
+    Renumber,
+    RenumberTo(String),
+    CancelRenumber,
+    /// Scrunch up the chosen sheet, once confirmed.
+    Scrunch,
 }
 
 #[derive(Debug, Default)]
@@ -172,6 +191,8 @@ pub struct FolderResponse {
     /// The sheet clicked, to be read.
     pub opened: Option<usize>,
     pub action: Option<FolderAction>,
+    /// The chosen sheet's outline on screen, where it would be scrunched up.
+    pub pulled: Option<[Pos2; 4]>,
 }
 
 /// The project in the folder, as the folder view shows it.
@@ -186,34 +207,40 @@ pub struct ProjectLabel<'a> {
     pub stats: &'a str,
 }
 
-/// Draws the open folder of `project`. `selected` is the sheet chosen with
-/// the keyboard; moving the pointer onto a sheet chooses it too. While
-/// `renaming`, the tab holds a text field with the new name.
+/// Draws the open folder of `project`, with the `selected` sheet (chosen
+/// with the keys) pulled out of the stack. While `renaming`, the tab holds a
+/// text field with the new name; while `renumbering`, the chosen sheet's
+/// number is a field for its new one.
 #[allow(clippy::too_many_arguments)]
 pub fn show_folder(
     ui: &mut Ui,
     view: Rect,
     sheets: &[Page],
     metrics: &Metrics,
-    selected: &mut usize,
+    margins: &Margins,
+    selected: usize,
     project: &ProjectLabel<'_>,
     renaming: Option<&mut String>,
+    renumbering: Option<&mut String>,
 ) -> FolderResponse {
     let painter = ui.painter_at(view);
     painter.rect_filled(view, CornerRadius::ZERO, DIM);
 
     let aspect = metrics.paper_size.y / metrics.paper_size.x;
-    let width = (view.width() * 0.42).min(view.height() * 0.40 / aspect);
+    let width = (view.width() * 0.30).min(view.height() * 0.40 / aspect);
     let size = vec2(width, width * aspect);
+    // Shifted right, so the folder and a sheet pulled out left of it are
+    // centred together.
     let camera = Camera::new(
-        view.center() + vec2(0.0, view.height() * 0.10),
+        view.center() + vec2(0.45 * PULL * size.x, view.height() * 0.10),
         CAMERA_DISTANCE * size.y,
     );
-    let (placements, extent) = fan(sheets.len(), size);
+    let placements = stack(sheets.len(), size);
 
-    // The folder's back cover with its tab, under everything.
-    let bottom = -size.y / 2.0 - extent / 2.0 - 0.05 * size.y;
-    let top = size.y / 2.0 + extent / 2.0 + 0.05 * size.y;
+    // The folder's back cover with its tab, under everything. Its size does
+    // not depend on the number of sheets.
+    let bottom = -0.55 * size.y;
+    let top = 0.55 * size.y;
     let half = 0.6 * size.x;
     let cover = [
         vec2(-half, bottom),
@@ -245,9 +272,9 @@ pub fn show_folder(
         && ui
             .input(|i| i.pointer.hover_pos())
             .is_some_and(|p| contains(&tab_quad, p));
-    let mut action = None;
+    let mut tab_action = None;
     if let Some(name) = renaming {
-        action = rename_field(ui, tab_centre, name);
+        tab_action = rename_field(ui, tab_centre, name);
     } else {
         painter.text(
             tab_centre,
@@ -258,93 +285,122 @@ pub fn show_folder(
         );
     }
 
-    let base_quads: Vec<[Pos2; 4]> = placements
-        .iter()
-        .map(|p| p.quad(&camera, size, Vec2::ZERO, size, p.lift))
-        .collect();
-    let response = ui.interact(view, Id::new("folder"), Sense::click());
-    // Hit-test the resting positions, newest first, so a sheet sliding out
-    // under the pointer does not flicker between hovered and not.
-    let hovered = response.hover_pos().and_then(|pointer| {
-        (0..sheets.len())
-            .rev()
-            .find(|&i| contains(&base_quads[i], pointer))
-    });
-    // Only a moving pointer takes over, so a resting one does not undo the
-    // arrow keys.
-    if let Some(i) = hovered
-        && ui.input(|input| input.pointer.delta() != Vec2::ZERO)
-    {
-        *selected = i;
-    }
-    let chosen = (!sheets.is_empty()).then(|| (*selected).min(sheets.len() - 1));
-
-    let step = if sheets.len() > 1 {
-        extent / (sheets.len() - 1) as f32
-    } else {
-        size.y
+    let chosen = (!sheets.is_empty()).then(|| selected.min(sheets.len() - 1));
+    let pull = |i: usize| {
+        ui.ctx().animate_value_with_time(
+            Id::new(("folder-pull", i)),
+            if chosen == Some(i) { 1.0 } else { 0.0 },
+            PULL_SECONDS,
+        )
     };
+    let pulls: Vec<f32> = (0..sheets.len()).map(pull).collect();
+    let top_sheet = top_of_stack(&pulls);
+
+    // One shadow under the whole stack: sheets lying on each other cast
+    // none that shows.
+    if let Some(last) = placements.last() {
+        let shadow = Placement { lift: 0.0, ..*last }
+            .quad(&camera, size, Vec2::ZERO, size, 0.0)
+            .map(|p| p + vec2(1.5, 2.5));
+        painter.add(Shape::convex_polygon(shadow.to_vec(), SHADOW, Stroke::NONE));
+    }
+
     let scale = size.x / metrics.paper_size.x;
     let line = metrics.cell_size().y;
+    let mut pulled_quad = None;
+    let mut chosen_label = None;
     for (i, (page, base)) in sheets.iter().zip(&placements).enumerate() {
-        let lifted = ui.ctx().animate_value_with_time(
-            Id::new(("folder-lift", i)),
-            if chosen == Some(i) { 1.0 } else { 0.0 },
-            0.15,
-        );
-        let placement = Placement {
-            centre: base.centre + vec2(0.0, lifted * LIFT_SLIDE * size.y),
-            lift: base.lift + lifted * LIFT_HEIGHT * size.y,
-            ..*base
-        };
-        let shadow = placement
-            .quad(&camera, size, Vec2::ZERO, size, base.lift)
-            .map(|p| p + vec2(1.5, 2.5) * (1.0 + 3.0 * lifted));
-        painter.add(Shape::convex_polygon(shadow.to_vec(), SHADOW, Stroke::NONE));
-        let edge = if chosen == Some(i) {
+        let amount = pulls[i];
+        let placement = pulled(*base, size, amount);
+        if amount > 0.0 {
+            let shadow = placement
+                .quad(&camera, size, Vec2::ZERO, size, 0.0)
+                .map(|p| p + vec2(3.0, 5.0) * amount);
+            painter.add(Shape::convex_polygon(shadow.to_vec(), SHADOW, Stroke::NONE));
+        }
+        let is_chosen = chosen == Some(i);
+        let edge = if is_chosen {
             Stroke::new(1.5, HIGHLIGHT)
         } else {
             Stroke::new(1.0, SHEET_EDGE)
         };
         let outline = placement.quad(&camera, size, Vec2::ZERO, size, placement.lift);
         painter.add(Shape::convex_polygon(outline.to_vec(), SHEET, edge));
-
-        let mut bars = Mesh::default();
-        let ink = INK.gamma_multiply(0.35);
-        for (half_line, first, last) in word_runs(page) {
-            let top_left = metrics.cell_offset(half_line, first) + vec2(0.0, 0.3 * line);
-            let bottom_right = metrics.cell_offset(half_line, last + 1) + vec2(0.0, 0.75 * line);
-            let quad = placement.quad(
-                &camera,
-                size,
-                top_left * scale,
-                bottom_right * scale,
-                placement.lift,
-            );
-            add_quad(&mut bars, quad, ink);
+        if is_chosen {
+            pulled_quad = Some(outline);
         }
-        painter.add(Shape::mesh(bars));
 
-        if step >= 0.05 * size.y || chosen == Some(i) {
+        // Only the top of the stack and sheets sliding out show their words;
+        // the rest are covered.
+        if amount > 0.0 || top_sheet == Some(i) {
+            let mut bars = Mesh::default();
+            let ink = INK.gamma_multiply(0.35);
+            for (half_line, first, last) in word_runs(page) {
+                let top_left = metrics.cell_offset(half_line, first) + vec2(0.0, 0.3 * line);
+                let bottom_right =
+                    metrics.cell_offset(half_line, last + 1) + vec2(0.0, 0.75 * line);
+                let quad = placement.quad(
+                    &camera,
+                    size,
+                    top_left * scale,
+                    bottom_right * scale,
+                    placement.lift,
+                );
+                add_quad(&mut bars, quad, ink);
+            }
+            // The note as faint pencil strokes, about as long as its lines.
+            let area = NoteArea::new(metrics, margins, i);
+            let pencil = note::GRAPHITE.gamma_multiply(0.45);
+            for (row, line) in page.note().lines().enumerate() {
+                let top = area.line_origin(Pos2::ZERO, row) + vec2(0.0, 0.35 * area.size);
+                let length = (line.chars().count() as f32 * 0.42 * area.size).min(area.width);
+                let quad = placement.quad(
+                    &camera,
+                    size,
+                    top.to_vec2() * scale,
+                    (top + vec2(length, 0.45 * area.size)).to_vec2() * scale,
+                    placement.lift,
+                );
+                add_quad(&mut bars, quad, pencil);
+            }
+            painter.add(Shape::mesh(bars));
             let label = camera.project(
                 placement.on_plane(size, vec2(0.94 * size.x, 0.025 * size.y)),
                 placement.lift,
             );
-            painter.text(
-                label,
-                Align2::CENTER_CENTER,
-                i + 1,
-                FontId::proportional(10.0),
-                LABEL_DARK,
-            );
+            if is_chosen {
+                chosen_label = Some(label);
+            }
+            if !(is_chosen && renumbering.is_some()) {
+                painter.text(
+                    label,
+                    Align2::CENTER_CENTER,
+                    i + 1,
+                    FontId::proportional(10.0),
+                    LABEL_DARK,
+                );
+            }
         }
+    }
+
+    // The pulled-out sheet opens with a click; sheets are chosen with the
+    // keys.
+    let response = ui.interact(view, Id::new("folder"), Sense::click());
+    let hovered = match (response.hover_pos(), pulled_quad, chosen) {
+        (Some(pointer), Some(quad), Some(i)) if contains(&quad, pointer) => Some(i),
+        _ => None,
+    };
+
+    let mut action = None;
+    if let (Some(number), Some(at)) = (renumbering, chosen_label) {
+        action = number_field(ui, at, number, sheets.len());
     }
 
     let hint = if sheets.is_empty() {
         "No finished sheets yet. Insert feeds a new one.".to_owned()
     } else {
         format!(
-            "{} finished sheet{}  ·  arrow keys: choose  ·  Enter or click: read it  ·  Esc: back to the typewriter",
+            "{} finished sheet{}  ·  arrow keys: choose  ·  Shift + arrow keys: move it  ·  Enter or click: read it  ·  Esc: back to the typewriter",
             sheets.len(),
             if sheets.len() == 1 { "" } else { "s" }
         )
@@ -372,12 +428,14 @@ pub fn show_folder(
         LABEL.gamma_multiply(0.85),
     );
 
-    action = action.or_else(|| menus(ui, view, project.saved));
+    action = action
+        .or(tab_action)
+        .or_else(|| menus(ui, view, project.saved, !sheets.is_empty()));
     if tab_hovered {
         response.clone().on_hover_text(if project.saved {
             "Rename the project"
         } else {
-            "Save the project under a name (Save As\u{2026})"
+            "Save the project as a file (Save As\u{2026})"
         });
     }
     if hovered.is_some() || tab_hovered {
@@ -395,7 +453,39 @@ pub fn show_folder(
             opened = hovered;
         }
     }
-    FolderResponse { opened, action }
+    FolderResponse {
+        opened,
+        action,
+        pulled: pulled_quad,
+    }
+}
+
+/// The chosen sheet's new number, typed over its old one. Enter moves it,
+/// Esc or clicking elsewhere leaves it where it is.
+fn number_field(ui: &mut Ui, at: Pos2, number: &mut String, count: usize) -> Option<FolderAction> {
+    let rect = Rect::from_center_size(at, vec2(44.0, 18.0));
+    let field = ui.put(
+        rect,
+        egui::TextEdit::singleline(number)
+            .id(Id::new("renumber-field"))
+            .char_limit(count.to_string().len())
+            .hint_text(format!("1\u{2013}{count}"))
+            .font(FontId::proportional(11.0))
+            .horizontal_align(egui::Align::Center),
+    );
+    number.retain(|c| c.is_ascii_digit());
+    if !field.has_focus() && !field.lost_focus() {
+        field.request_focus();
+    }
+    if field.lost_focus() {
+        let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        return Some(if entered {
+            FolderAction::RenumberTo(number.clone())
+        } else {
+            FolderAction::CancelRenumber
+        });
+    }
+    None
 }
 
 /// The new name, typed on the folder's tab. Enter renames, Esc or
@@ -423,10 +513,11 @@ fn rename_field(ui: &mut Ui, at: Pos2, name: &mut String) -> Option<FolderAction
 }
 
 /// Three plates on the desk below the folder, each opening a menu.
-fn menus(ui: &mut Ui, view: Rect, saved: bool) -> Option<FolderAction> {
+fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<FolderAction> {
     let labels = [
         "Current project\u{2026}",
         "Other projects\u{2026}",
+        "Sheet\u{2026}",
         "Export\u{2026}",
     ];
     let painter = ui.painter_at(view);
@@ -485,6 +576,20 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool) -> Option<FolderAction> {
                         ("New project", FolderAction::New, true, ""),
                         ("Open project\u{2026}", FolderAction::Open, true, ""),
                     ],
+                    2 => vec![
+                        (
+                            "Renumber\u{2026}",
+                            FolderAction::Renumber,
+                            has_sheets,
+                            "No finished sheets yet.",
+                        ),
+                        (
+                            "Scrunch up\u{2026}",
+                            FolderAction::Scrunch,
+                            has_sheets,
+                            "No finished sheets yet.",
+                        ),
+                    ],
                     _ => [
                         ("To Markdown", ExportFormat::Markdown),
                         ("To Text file", ExportFormat::Text),
@@ -514,19 +619,32 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool) -> Option<FolderAction> {
     chosen
 }
 
-/// One sheet taken out of the folder, read-only and scaled to fit.
+/// What the reader did with the open sheet's note.
+#[derive(Debug, Default)]
+pub struct SheetResponse {
+    /// Clicked the top margin: start writing.
+    pub start_note: bool,
+    /// Finished writing: the note as written, line by line.
+    pub note_written: Option<String>,
+}
+
+/// One sheet taken out of the folder, scaled to fit. Its typing is
+/// read-only, but a note can be pencilled in its top margin: `note` is the
+/// note being written, if one is.
 #[allow(clippy::too_many_arguments)]
 pub fn show_sheet(
-    painter: &Painter,
+    ui: &mut Ui,
     view: Rect,
     profile: &Profile,
     carriage: &Carriage,
     page: &Page,
-    number: usize,
+    index: usize,
     total: usize,
     max_points_per_inch: f32,
     ink_realism: bool,
-) {
+    note: Option<&mut String>,
+) -> SheetResponse {
+    let painter = ui.painter_at(view);
     painter.rect_filled(view, CornerRadius::ZERO, DIM);
     let paper_inches = vec2(
         profile.paper.width_mm as f32,
@@ -548,14 +666,14 @@ pub fn show_sheet(
     painter.add(shadow.as_shape(sheet, CornerRadius::ZERO));
     painter.rect_filled(sheet, CornerRadius::ZERO, SHEET);
     paper::paint_margin_frame(
-        painter,
+        &painter,
         &metrics,
         carriage,
         profile.margins.top_lines,
         origin,
     );
     paper::paint_sheet(
-        painter,
+        &painter,
         &metrics,
         page,
         origin,
@@ -567,17 +685,76 @@ pub fn show_sheet(
     painter.text(
         pos2(view.center().x, sheet.top() - header / 2.0),
         Align2::CENTER_CENTER,
-        format!("Sheet {number} of {total}"),
+        format!("Sheet {} of {total}", index + 1),
         FontId::proportional(14.0),
         LABEL,
     );
+    let hint = if note.is_some() {
+        "Enter: new line  ·  click elsewhere or Esc: done"
+    } else {
+        "Click the top margin: pencil a note  ·  arrows or Page Up / Down: flip  ·  Esc: folder  ·  type: back to the typewriter"
+    };
     painter.text(
         pos2(view.center().x, sheet.bottom() + header / 2.0),
         Align2::CENTER_CENTER,
-        "Arrow keys or Page Up / Page Down: flip  ·  Esc: back to the folder  ·  type to return to the typewriter",
+        hint,
         FontId::proportional(12.0),
         LABEL,
     );
+
+    let area = NoteArea::new(&metrics, &profile.margins, index);
+    let mut response = SheetResponse::default();
+    match note {
+        Some(text) => response.note_written = note_field(ui, &area, origin, text),
+        None => {
+            note::paint_note(&painter, &area, origin, page.note(), 1.0);
+            let margin = ui
+                .interact(
+                    area.margin_rect(origin, metrics.paper_size.x),
+                    Id::new("note-margin"),
+                    Sense::click(),
+                )
+                .on_hover_text("Pencil a note");
+            if margin.hovered() {
+                ui.ctx().set_cursor_icon(CursorIcon::Text);
+            }
+            response.start_note = margin.clicked();
+        }
+    }
+    response
+}
+
+/// Writing the note, straight on the paper. It stays within the lines the
+/// top margin has room for. Clicking elsewhere or Esc finishes it.
+fn note_field(ui: &mut Ui, area: &NoteArea, paper: Pos2, text: &mut String) -> Option<String> {
+    let before = text.clone();
+    let rect = area.writing_rect(paper);
+    let output = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            egui::TextEdit::multiline(text)
+                .id(Id::new("note-field"))
+                .font(area.font())
+                .text_color(note::GRAPHITE)
+                .frame(egui::Frame::NONE)
+                .margin(egui::Margin::ZERO)
+                .desired_width(area.width)
+                .desired_rows(area.max_lines)
+                .show(ui)
+        })
+        .inner;
+    if output.galley.rows.len() > area.max_lines {
+        *text = before;
+    }
+    let field = output.response;
+    if !field.has_focus() && !field.lost_focus() {
+        field.request_focus();
+    }
+    field.lost_focus().then(|| {
+        let galley = ui
+            .painter()
+            .layout(text.clone(), area.font(), note::GRAPHITE, area.width);
+        note::written_lines(&galley)
+    })
 }
 
 /// A small folder on the desk, bottom left, that opens the folder view.
@@ -633,21 +810,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fan_puts_the_newest_in_front_and_older_further_back() {
+    fn the_stack_is_neat_with_the_newest_on_top() {
         let size = vec2(100.0, 141.0);
-        let (placements, extent) = fan(4, size);
-        assert!((extent - 3.0 * MAX_STEP * size.y).abs() < 1e-3);
+        let placements = stack(4, size);
         for pair in placements.windows(2) {
-            assert!(pair[0].centre.y > pair[1].centre.y);
+            assert_eq!(pair[0].centre, pair[1].centre);
+            assert_eq!(pair[0].angle, pair[1].angle);
             assert!(pair[0].lift < pair[1].lift);
         }
     }
 
     #[test]
-    fn a_thick_folder_is_squeezed_into_the_fan() {
+    fn the_sheet_under_a_pulled_out_newest_is_the_top_of_the_stack() {
+        assert_eq!(top_of_stack(&[0.0, 0.0, 0.0]), Some(2));
+        assert_eq!(top_of_stack(&[0.0, 0.0, 1.0]), Some(1));
+        // Still sliding out: the one under it already shows.
+        assert_eq!(top_of_stack(&[0.0, 0.0, 0.4]), Some(1));
+        assert_eq!(top_of_stack(&[1.0]), None);
+    }
+
+    #[test]
+    fn a_thick_folder_packs_its_sheets_tighter() {
         let size = vec2(100.0, 141.0);
-        let (_, extent) = fan(200, size);
-        assert!((extent - MAX_FAN * size.y).abs() < 1e-2);
+        let placements = stack(2000, size);
+        let height = placements.last().unwrap().lift;
+        assert!((height - MAX_STACK * size.y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_chosen_sheet_slides_out_left_turning_top_left_at_its_height() {
+        let size = vec2(100.0, 141.0);
+        let base = stack(5, size)[2];
+        let out = pulled(base, size, 1.0);
+        assert_eq!(out.lift, base.lift);
+        assert!(out.centre.x < -0.9 * size.x);
+        // Its top-left corner is now further left than its bottom-left.
+        let top_left = out.on_plane(size, Vec2::ZERO);
+        let bottom_left = out.on_plane(size, vec2(0.0, size.y));
+        assert!(top_left.x < bottom_left.x);
+        assert!((out.angle.to_degrees() - PULL_DEGREES).abs() < 1e-4);
     }
 
     #[test]

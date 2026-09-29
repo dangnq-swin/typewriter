@@ -27,7 +27,7 @@ const SMUDGE_SPREAD: f32 = 1.2;
 const FRAME: Color32 = Color32::from_rgba_premultiplied(0x4A, 0x46, 0x40, 0x8C);
 const FRAME_EXTENSION: Color32 = Color32::from_rgba_premultiplied(0x25, 0x23, 0x20, 0x46);
 /// Clearance between the margins and the frame, so type never touches it.
-const FRAME_PADDING_MM: f32 = 1.0;
+pub const FRAME_PADDING_MM: f32 = 1.0;
 /// Ink realism: how far a strike may land off its cell (in points at 96 per
 /// inch) and how much lighter it may print.
 const INK_MAX_OFFSET: f32 = 0.4;

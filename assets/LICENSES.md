@@ -5,6 +5,7 @@ Every file under `assets/` must be listed here with its source and license.
 | Path | Source | License |
 |---|---|---|
 | `fonts/courier-prime/CourierPrime-Regular.ttf` | [google/fonts `ofl/courierprime`](https://github.com/google/fonts/tree/main/ofl/courierprime), upstream [quoteunquoteapps/CourierPrime](https://github.com/quoteunquoteapps/CourierPrime) | SIL OFL 1.1 (`fonts/courier-prime/OFL.txt`) |
+| `fonts/caveat/Caveat-Regular.ttf` | [googlefonts/caveat](https://github.com/googlefonts/caveat) (`fonts/ttf`), the Caveat Project Authors | SIL OFL 1.1 (`fonts/caveat/OFL.txt`) |
 | `icons/typewriter.svg` | Drawn for this project | GPL-3.0-or-later |
 | `paper/ivory-off-white-paper-texture.jpg` | [Ivory Off White Paper Texture](https://www.photos-public-domain.com/2012/05/24/ivory-off-white-paper-texture/), photos-public-domain.com | Public domain |
 | `sounds/key-1.wav`, `sounds/backspace.wav`, `sounds/blocked.wav` | [Typewriter, Key](https://bigsoundbank.com/typewriter-key-s2842.html) (Hermes Precisa 305), Joseph Sardin, BigSoundBank | CC0 |
@@ -16,6 +17,7 @@ Every file under `assets/` must be listed here with its source and license.
 | `sounds/feed-in.wav` | [Typewriter Sounds](https://freesound.org/people/Gate13/sounds/697389/), Gate13, Freesound (preview) | CC0 |
 | `sounds/roll-1.wav` … `sounds/roll-4.wav`, `sounds/feed-out.wav` | [COMType_MECHMisc_Line_Ratchet_Mechanical_Typewriter_03](https://freesound.org/people/CallFlan/sounds/761339/), CallFlan, Freesound (preview) | CC0 |
 | `sounds/erase.wav` | [Eraser on Paper_1-2.aif](https://freesound.org/people/lucaslara/sounds/154461/), lucaslara, Freesound (preview) | CC0 |
+| `sounds/crumple.wav` | [Newspaper ball](https://bigsoundbank.com/newspaper-ball-s0670.html), Joseph Sardin, BigSoundBank (320 kbps MP3, the only download offered) | CC0 |
 | `sounds/fluid.wav` | [painting_1.aif](https://freesound.org/people/ssalo/sounds/482891/), ssalo, Freesound (preview) | CC0 |
 
 All sounds are trimmed, faded and peak-normalised from these sources by

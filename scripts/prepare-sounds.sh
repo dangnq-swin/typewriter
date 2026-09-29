@@ -17,6 +17,8 @@ declare -A sources=(
     [hermes-space.flac]=$bsb/2843.flac
     [hermes-bell-1.flac]=$bsb/2844.flac
     [hermes-bell-2.flac]=$bsb/2845.flac
+    # Only offered as a 320 kbps MP3 (an older recording).
+    [newspaper-ball.mp3]=https://bigsoundbank.com/UPLOAD/mp3/0670.mp3
     [carriage-return.mp3]=$fs/318/318686_1147663-hq.mp3
     [gate13.mp3]=$fs/697/697389_5135931-hq.mp3
     [platen-ratchet.mp3]=$fs/761/761339_10683427-hq.mp3
@@ -127,3 +129,5 @@ clip erase.wav eraser.mp3 1.000 1.650 -18
 # A dab of correction fluid: the wet brush pressed onto the paper (the take's
 # louder moments are the brush knocking, so they are left out).
 clip fluid.wav fluid-brush.mp3 9.700 10.200 -18 "highpass=f=150"
+# A sheet scrunched up into a ball: one burst of newspaper crumpling.
+clip crumple.wav newspaper-ball.mp3 23.250 24.150 -14

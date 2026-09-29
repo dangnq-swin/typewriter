@@ -9,6 +9,8 @@ use eframe::egui::{
 };
 use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
+
+use crate::filing::{Keeping, WriteStatus};
 use typewriter_core::{EraseMode, Goal, LineSpacing};
 
 use super::Metrics;
@@ -27,6 +29,10 @@ const TICKS: Color32 = Color32::from_rgb(0x3A, 0x36, 0x32);
 const MARGIN: Color32 = Color32::from_rgb(0xA0, 0x2C, 0x1C);
 const TAB: Color32 = Color32::from_rgb(0x24, 0x4C, 0x7A);
 const SPACING: Color32 = Color32::from_rgb(0x24, 0x22, 0x20);
+const SAVED: Color32 = Color32::from_rgb(0x3C, 0x8A, 0x3C);
+const WRITING: Color32 = Color32::from_rgb(0xD0, 0x90, 0x20);
+const FAILED: Color32 = Color32::from_rgb(0xB0, 0x30, 0x1C);
+const DOT_RADIUS: f32 = 3.5;
 
 /// Top edge of the scale for a given strike point.
 pub fn top(metrics: &Metrics, strike_point: Pos2) -> f32 {
@@ -220,6 +226,60 @@ fn goal_text(progress: Option<Progress>) -> String {
     format!("Goal: {target}{check}")
 }
 
+/// How the project is being kept, on a plate flush with the scale's right
+/// end (`right`), in the row of plates that starts at `left_row` (the
+/// spacing plate). If that row reaches too far, it goes on a row of its
+/// own below. Returns the plate's outline.
+pub fn paint_autosave_plate(
+    painter: &Painter,
+    keeping: &Keeping,
+    right: f32,
+    left_row: Rect,
+    row_end: f32,
+) -> Rect {
+    let (text, dot) = autosave_label(keeping);
+    let galley = painter.layout_no_wrap(
+        text.to_owned(),
+        FontId::proportional(PLATE_FONT_SIZE),
+        TICKS,
+    );
+    let dot_room = if dot.is_some() {
+        DOT_RADIUS * 2.0 + PLATE_PADDING
+    } else {
+        0.0
+    };
+    let size = vec2(
+        galley.size().x + PLATE_PADDING * 2.0 + dot_room,
+        left_row.height(),
+    );
+    let mut rect = Rect::from_min_size(pos2(right - size.x, left_row.top()), size);
+    if rect.left() < row_end + PLATE_GAP {
+        rect = rect.translate(vec2(0.0, left_row.height() + PLATE_GAP));
+    }
+    paint_plate(painter, rect);
+    let text_left = rect.left() + PLATE_PADDING;
+    painter.galley(
+        pos2(text_left, rect.center().y - galley.size().y / 2.0),
+        galley,
+        TICKS,
+    );
+    if let Some(color) = dot {
+        let centre = pos2(rect.right() - PLATE_PADDING - DOT_RADIUS, rect.center().y);
+        painter.circle(centre, DOT_RADIUS, color, Stroke::new(0.8, SCALE_EDGE));
+    }
+    rect
+}
+
+fn autosave_label(keeping: &Keeping) -> (&'static str, Option<Color32>) {
+    match keeping {
+        Keeping::Autosave(WriteStatus::Saved) => ("Autosave: On", Some(SAVED)),
+        Keeping::Autosave(WriteStatus::Writing) => ("Autosave: On", Some(WRITING)),
+        Keeping::Autosave(WriteStatus::Failed(_)) => ("Autosave: On", Some(FAILED)),
+        Keeping::Draft => ("Autosave: Draft", None),
+        Keeping::Off { .. } => ("Autosave: Off", None),
+    }
+}
+
 fn paint_text_plate(painter: &Painter, text: String, after: Rect) -> Rect {
     let text = painter.layout_no_wrap(text, FontId::proportional(PLATE_FONT_SIZE), TICKS);
     let size = vec2(text.size().x + PLATE_PADDING * 2.0, after.height());
@@ -283,6 +343,17 @@ mod tests {
         assert_eq!(
             goal_text(progress(either, false)),
             "Goal: 312 / 750 words or 12 / 30 min"
+        );
+    }
+
+    #[test]
+    fn the_autosave_plate_names_how_the_project_is_kept() {
+        let failed = Keeping::Autosave(WriteStatus::Failed("disk full".into()));
+        assert_eq!(autosave_label(&failed), ("Autosave: On", Some(FAILED)));
+        assert_eq!(autosave_label(&Keeping::Draft).0, "Autosave: Draft");
+        assert_eq!(
+            autosave_label(&Keeping::Off { unsaved: true }),
+            ("Autosave: Off", None)
         );
     }
 

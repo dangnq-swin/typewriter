@@ -50,6 +50,7 @@ pub struct Audio {
     tab: SamplesBuffer,
     erase: SamplesBuffer,
     fluid: SamplesBuffer,
+    crumple: SamplesBuffer,
     carriage_return: SamplesBuffer,
     rolls: Vec<SamplesBuffer>,
     wind_out: SamplesBuffer,
@@ -121,6 +122,7 @@ impl Audio {
             tab: decode(clip!("tab"))?,
             erase: decode(clip!("erase"))?,
             fluid: decode(clip!("fluid"))?,
+            crumple: decode(clip!("crumple"))?,
             carriage_return: decode(clip!("return"))?,
             rolls: decode_all(&ROLLS)?,
             wind_out: decode(clip!("feed-out"))?,
@@ -188,6 +190,13 @@ impl Audio {
 }
 
 impl Audio {
+    /// A finished sheet scrunched up into a ball.
+    pub fn play_crumple(&self) {
+        if self.is_on(Group::SheetFeed) {
+            self.add(self.crumple.clone());
+        }
+    }
+
     /// Only the new sheet winding in, for the first sheet of a document.
     pub fn play_wind_in(&self) {
         if self.is_on(Group::SheetFeed) {
@@ -365,8 +374,9 @@ mod tests {
         assert_eq!(decode_all(&KEYS).unwrap().len(), 6);
         assert_eq!(decode_all(&BELLS).unwrap().len(), 2);
         assert_eq!(decode_all(&ROLLS).unwrap().len(), 4);
-        let others: [&[u8]; 9] = [
+        let others: [&[u8]; 10] = [
             clip!("fluid"),
+            clip!("crumple"),
             clip!("space"),
             clip!("backspace"),
             clip!("tab"),
@@ -376,6 +386,6 @@ mod tests {
             clip!("feed-in"),
             clip!("blocked"),
         ];
-        assert_eq!(decode_all(&others).unwrap().len(), 9);
+        assert_eq!(decode_all(&others).unwrap().len(), 10);
     }
 }
