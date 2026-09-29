@@ -48,7 +48,6 @@ M0–M8 are done; the git history has the details.
 - [x] Copy holder: put a finished sheet on a stand left of the machine (Sheet… → Put on the
       copy holder) and read it while typing, under a line guide moved by clicking a line.
       Not saved with the project
-- [ ] ❓ Carbon copy: type with a carbon sheet for a faded duplicate in the folder
 - [ ] ❓ Paper sizes: US Letter and index cards
 
 ## M14: Writing log
@@ -85,3 +84,14 @@ M0–M8 are done; the git history has the details.
 ## M19: Key rebinding
 
 - [ ] ❓ Rebindable keys, still held to the key binding rules in `AGENTS.md`
+
+## M20: A desk in perspective
+
+- [ ] ❓ The desk as a scene rather than fixed screen positions: the copy holder stands left of
+      the document at a fixed angle, and the view (position, field of view) can be moved and
+      zoomed, more like a game camera than a page on screen
+
+## Someday: A walkable office
+
+- [ ] ❓ An immersive desk you can get up from: walk over to a photocopier for copies of
+      finished sheets (instead of carbon copies at the machine)
