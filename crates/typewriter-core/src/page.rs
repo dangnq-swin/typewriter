@@ -104,21 +104,108 @@ pub struct Shift {
 
 /// Rows are half-line steps, like the platen ratchet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "PageFile", from = "PageFile")]
 pub struct Page {
     columns: u16,
     half_lines: u16,
     cells: BTreeMap<(u16, u16), Cell>,
     /// Pencilled in the top margin once filed, one text line per written
-    /// line. Absent before format 3.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
+    /// line.
     note: String,
-    /// Each feeding after the first, in order. Absent before format 6.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Each feeding after the first, in order.
     refeeds: Vec<Shift>,
     /// The feeding each mark was made in (0: the first), for cells struck
-    /// since a re-feed. Absent before format 6.
+    /// since a re-feed.
+    fed: BTreeMap<(u16, u16), Vec<u8>>,
+}
+
+/// A sheet in a folder file. Nearly every cell is one plain letter: those
+/// are kept as each line's text, and only the rest as full stacks.
+#[derive(Serialize, Deserialize)]
+struct PageFile {
+    columns: u16,
+    half_lines: u16,
+    /// Every cell, before format 8. Read, never written.
+    #[serde(default, skip_serializing)]
+    cells: BTreeMap<(u16, u16), Cell>,
+    /// Half-line → (first column, text); a space is a blank cell.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    lines: BTreeMap<u16, (u16, String)>,
+    /// Cells holding more than one plain letter: overstrikes, corrections.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    stacks: BTreeMap<(u16, u16), Cell>,
+    /// Absent before format 3.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    note: String,
+    /// Absent before format 6.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    refeeds: Vec<Shift>,
+    /// Absent before format 6.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     fed: BTreeMap<(u16, u16), Vec<u8>>,
+}
+
+impl From<Page> for PageFile {
+    fn from(page: Page) -> Self {
+        let mut lines: BTreeMap<u16, (u16, String)> = BTreeMap::new();
+        let mut stacks = BTreeMap::new();
+        for ((half_line, column), cell) in page.cells {
+            let letter = match cell.marks.as_slice() {
+                [Mark::Glyph(c)] if *c != ' ' => Some(*c),
+                _ => None,
+            };
+            let Some(letter) = letter else {
+                stacks.insert((half_line, column), cell);
+                continue;
+            };
+            // Cells come in order: pad the gap since the last letter.
+            let (first, text) = lines
+                .entry(half_line)
+                .or_insert_with(|| (column, String::new()));
+            let written = u16::try_from(text.chars().count()).unwrap_or(u16::MAX);
+            let gap = column.saturating_sub(first.saturating_add(written));
+            text.extend(std::iter::repeat_n(' ', usize::from(gap)));
+            text.push(letter);
+        }
+        Self {
+            columns: page.columns,
+            half_lines: page.half_lines,
+            cells: BTreeMap::new(),
+            lines,
+            stacks,
+            note: page.note,
+            refeeds: page.refeeds,
+            fed: page.fed,
+        }
+    }
+}
+
+impl From<PageFile> for Page {
+    fn from(file: PageFile) -> Self {
+        let mut cells = file.cells;
+        for (half_line, (first, text)) in file.lines {
+            // Bounded: a damaged file can't run the column past the end.
+            for (column, letter) in (first..=u16::MAX).zip(text.chars()) {
+                if letter != ' ' {
+                    cells.insert(
+                        (half_line, column),
+                        Cell {
+                            marks: vec![Mark::Glyph(letter)],
+                        },
+                    );
+                }
+            }
+        }
+        cells.extend(file.stacks);
+        Self {
+            columns: file.columns,
+            half_lines: file.half_lines,
+            cells,
+            note: file.note,
+            refeeds: file.refeeds,
+            fed: file.fed,
+        }
+    }
 }
 
 impl Page {
@@ -307,6 +394,53 @@ mod tests {
         page.clear(0, 1);
         page.strike(0, 1, 'e');
         assert_eq!(page.shift(0, 1, 0), second);
+    }
+
+    #[test]
+    fn plain_letters_save_as_line_text_and_the_rest_as_stacks() {
+        let mut page = Page::new(40, 10);
+        for (column, c) in (3..).zip("Say \"hi\\\" now".chars()) {
+            if c != ' ' {
+                page.strike(2, column, c);
+            }
+        }
+        page.strike(4, 5, '\'');
+        page.strike(4, 5, '.');
+        page.strike(4, 6, 'x');
+        page.cover(4, 7, Correction::Eraser);
+        page.strike(6, 0, 'é');
+        page.set_note("check");
+        page.refeed(Shift {
+            across: 3,
+            down: -2,
+        });
+        page.strike(8, 1, 'z');
+
+        let text = ron::to_string(&page).unwrap();
+        assert!(text.contains(r#"2:(3,"Say \"hi\\\" now")"#), "{text}");
+        assert!(!text.contains("cells"), "{text}");
+        assert!(text.contains("Glyph('.')"), "{text}");
+        let back: Page = ron::from_str(&text).unwrap();
+        assert_eq!(back, page);
+    }
+
+    #[test]
+    fn a_line_running_off_the_end_stops_there() {
+        let page: Page =
+            ron::from_str(r#"(columns: 10, half_lines: 10, lines: {0: (65535, "abc")})"#).unwrap();
+        assert_eq!(page.cells().count(), 1);
+        assert!(!page.fits(10, 10));
+    }
+
+    #[test]
+    fn a_sheet_from_before_line_text_opens() {
+        let old = "(columns: 10, half_lines: 10, cells: {(0, 1): [Glyph('a')], \
+                   (0, 2): [Glyph('b'), Correction(Eraser)]})";
+        let page: Page = ron::from_str(old).unwrap();
+        assert_eq!(page.cell(0, 1).unwrap().marks(), [Mark::Glyph('a')]);
+        assert_eq!(page.cell(0, 2).unwrap().marks().len(), 2);
+        let text = ron::to_string(&page).unwrap();
+        assert!(text.contains(r#"lines:{0:(1,"a")}"#), "{text}");
     }
 
     #[test]

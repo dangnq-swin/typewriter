@@ -12,8 +12,8 @@ use crate::session::{SessionStats, WritingLog};
 
 /// Bump when older versions can't read the file. 2: session stats. 3: notes.
 /// 4: scratchpad. 5: type jams, the Delete correction. 6: re-fed sheets.
-/// 7: words per day instead of sessions.
-pub const FORMAT_VERSION: u32 = 7;
+/// 7: words per day instead of sessions. 8: lines as text.
+pub const FORMAT_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
