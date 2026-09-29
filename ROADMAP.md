@@ -2,13 +2,9 @@
 
 Milestones are ordered. Each one should leave the app in a working, testable state.
 Items marked ❓ need input from the maintainer before implementation starts.
-M0–M8 are done; the git history has the details.
+M0–M9 are done; the git history has the details.
 
 ---
-
-## M9: Release (Linux)
-
-- [ ] README with screenshots and usage
 
 ## M10: Scratchpad
 
@@ -48,7 +44,6 @@ M0–M8 are done; the git history has the details.
 - [x] Copy holder: put a finished sheet on a stand left of the machine (Sheet… → Put on the
       copy holder) and read it while typing, under a line guide moved by clicking a line.
       Not saved with the project
-- [ ] ❓ Paper sizes: US Letter and index cards
 
 ## M14: Writing log
 
@@ -60,7 +55,6 @@ M0–M8 are done; the git history has the details.
 - [ ] Print: send the PDF export to a printer
 - [ ] Verify and support X11 (Wayland is the current target)
 - [ ] Windows and macOS builds
-- [ ] ❓ Packaging: Flatpak, AppImage or a distro package (e.g. a Gentoo ebuild)
 
 ## M16: Look
 
@@ -81,15 +75,49 @@ M0–M8 are done; the git history has the details.
 - [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
       its own pitch, typeface, bell offset and sounds
 
-## M19: Key rebinding
+## M19: Paper
 
-- [ ] ❓ Rebindable keys, still held to the key binding rules in `AGENTS.md`
+- [ ] ❓ Other stock: onion skin, coloured bond, US Letter beside A4, chosen when feeding a
+      sheet (a real stack of paper beside the machine)
+- [ ] ❓ Index cards and envelopes: small stock fed the same way, typed on and filed
 
-## M20: A desk in perspective
+## M20: Filing away
+
+- [ ] ❓ Export as .odt, the other half of `typewriter import`
+- [ ] ❓ Packaging: Flatpak and an AppImage, beside `scripts/install.sh`
+
+## M21: Testers
+
+- [ ] ❓ Builds for first testers, and a round of fixes for what trips them up. Choices held back
+      for their feedback (key rebinding among them) are settled afterwards
+
+---
+
+# The desk edition
+
+The immersive, game-like side of the project lives apart from the typewriter app so that the
+plain app stays a focused writing tool. It is a separate crate in this workspace (a second
+binary), sharing `typewriter-core` and the app's drawing, so that every fix reaches both.
+The design principles in `AGENTS.md` hold here as well: only what a real office has.
+
+## D1: A second binary
+
+- [ ] Split `typewriter-app` into a library (machine, paper, folder, audio, filing) and a thin
+      binary, so a second crate can build on it
+- [ ] `crates/typewriter-desk`: a binary that opens the same projects and settings, and can
+      be installed beside `typewriter`
+
+## D2: A desk in perspective
 
 - [ ] ❓ The desk as a scene rather than fixed screen positions: the copy holder stands left of
       the document at a fixed angle, and the view (position, field of view) can be moved and
       zoomed, more like a game camera than a page on screen
+
+## D3: Around the desk
+
+- [ ] ❓ Drawers holding the projects: open one by pulling its folder out
+- [ ] ❓ A wastepaper basket for scrunched sheets
+- [ ] ❓ A shelf of machines: change profile by lifting another typewriter onto the desk
 
 ## Someday: A walkable office
 

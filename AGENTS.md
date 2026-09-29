@@ -20,6 +20,9 @@ See [`ROADMAP.md`](ROADMAP.md) for the planned milestones.
   counterpart: the machine, paper, a folder, a copy holder. No search across sheets, no ambient
   soundtracks. The one exception is **Delete**, a traceless digital correction method, kept at
   the maintainer's request and off the correction cycle unless the settings add it.
+- **Game-like features go to the desk edition.** A scene with a moving camera, walking about an
+  office and the like belong in the desk edition, a separate crate sharing the core and the
+  app's drawing (see the roadmap), never in `typewriter-app`, which stays a focused writing tool.
 
 ## Working agreement: ask before assuming
 
