@@ -50,8 +50,9 @@ Check every new or changed binding against these:
 - **Works on a compact (60 %) keyboard.** Keys such as Insert and F1–F12 are missing there, so an
   action bound to one also needs another way in: an on-screen control or a typewriter-like
   behaviour. For example, Insert feeds a sheet but so does Return on the last line, F1/F2/F3 set
-  line spacing but the Spacing plate is clickable too, F4 cycles the correction method as the Correct plate does, and zoom is the plain mouse wheel with a
-  percentage plate that resets on double-click. The one exception is F11 (fullscreen), which the desktop can do on its own.
+  line spacing but the Spacing plate is clickable too, F4 cycles the correction method as the
+  Correct plate does, and zoom is the plain mouse wheel with a percentage plate that resets on
+  double-click. The one exception is F11 (fullscreen), which the desktop can do on its own.
 - **No auto-repeat unless the machine would repeat.** Keys that a real typewriter does not
   repeat (e.g. Space, Backspace) ignore key repeat.
 - **Controls never take keyboard focus.** Sense clicks with `render::CLICK`, not
@@ -62,68 +63,40 @@ Check every new or changed binding against these:
 
 ## Repository layout
 
-Cargo workspace, with the pure logic separated from the GUI so it can be unit-tested
-without a window:
+A Cargo workspace. Every module opens with a `//!` doc saying what it holds: read that rather
+than keep a listing here.
 
-```
-typewriter/
-├── Cargo.toml                  # workspace manifest (shared deps, lints, profiles)
-├── rust-toolchain.toml         # rustup toolchain: stable + rustfmt, clippy
-├── AGENTS.md
-├── README.md                   # the maintainer's; keep its Controls section current
-├── ROADMAP.md
-├── LICENSE                     # GPL-3.0
-├── crates/
-│   ├── typewriter-core/        # library: no GUI, no audio, no I/O side effects
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── accents.rs      # accents: dead keys (per profile), é as ´ + e
-│   │       ├── page.rs         # page grid, cells, overtyped glyph stacks
-│   │       ├── carriage.rs     # carriage position, margins, bell zone, line feed
-│   │       ├── profile.rs      # machine profiles (SM9 first), pitch, paper size
-│   │       ├── scratchpad.rs   # the 48-page memo book: pages, spreads
-│   │       ├── constraints.rs  # strictness settings (backspace, margins, ...)
-│   │       ├── machine.rs      # Typewriter: commands in, events out
-│   │       ├── document.rs     # multi-page document + native format (serde)
-│   │       ├── export.rs       # plain text / Markdown export
-│   │       ├── retype.rs       # a typist typing plain paragraphs out on the machine
-│   │       └── session.rs      # focus goals, word count, timers, words per day
-│   └── typewriter-app/         # binary: eframe app, rendering, input, audio, settings
-│       ├── build.rs            # re-encodes the paper texture for bundling
-│       └── src/
-│           ├── main.rs
-│           ├── app.rs          # eframe::App impl, top-level state
-│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad, platen knob, copy holder, writing-log calendar
-│           ├── input.rs        # key events -> core commands
-│           ├── import.rs       # `typewriter import x.odt`: an .odt retyped into a new project
-│           ├── odt.rs          # .odt read as plain paragraphs (zip, quick-xml)
-│           ├── filing.rs       # projects: autosave, Save / Save As / Rename / Open (rfd), export
-│           ├── machines.rs     # built-in and user profiles
-│           ├── storage.rs      # XDG paths, drafts, crash-safe writes
-│           ├── audio.rs        # sound playback
-│           ├── settings.rs     # user settings, config.toml (XDG paths)
-│           └── simulate.rs     # tests only: a writer's months of work, simulated (seeded)
-├── assets/
-│   ├── paper/                  # paper textures (default provided by maintainer)
-│   ├── fonts/                  # typewriter fonts (license must be GPL-compatible)
-│   ├── icons/                  # the app icon (SVG)
-│   └── sounds/                 # key, return, bell samples (license must be recorded)
-├── profiles/
-│   └── olympia-sm9.toml        # data-driven machine profile
-├── scripts/
-│   ├── install.sh              # builds and installs the command, desktop entry and icon
-│   └── prepare-sounds.sh       # cuts assets/sounds/ from their CC0 sources (curl, ffmpeg)
-└── docs/
-    └── profiles.md             # machine profile schema, adding a machine
-```
+- `crates/typewriter-core`: the machine as a library (pages, carriage, profiles, sessions, the
+  folder format), unit-tested without a window.
+- `crates/typewriter-app`: the `typewriter` binary: the eframe window, drawing (`render/`), input,
+  audio, settings, filing and `typewriter import`. `simulate.rs` is test-only: a writer's months
+  of work, seeded.
+- `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
+- `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
+- `scripts/`: `install.sh` builds and installs for the current user; `prepare-sounds.sh` cuts
+  the sounds from their CC0 sources.
+- `README.md` is the maintainer's: keep only its *Controls* section current.
 
 Rules:
 
 - `typewriter-core` must not depend on `egui`, `eframe`, audio crates, or the filesystem
   (except through `serde` types). The app crate handles all side effects.
-- The core emits **events** (e.g. `Bell`, `CarriageReturn`, `KeyStrike`, `LineEnd`) that the
+- The core emits **events** (e.g. `Bell`, `CarriageReturn`, `KeyStrike`, `PageEnd`) that the
   app maps to sounds and animation. Do not call audio from the core.
 - Machine characteristics belong in profile data (`profiles/*.toml`), not hard-coded constants.
+
+## Folder format
+
+Projects are `*.folder.ron` files (`typewriter-core/src/document.rs`). Changing what they hold
+needs the maintainer's yes (see above), and then:
+
+- Bump `FORMAT_VERSION`, with a one-line note of what changed.
+- Keep opening every older version; write only the newest. Read a retired field with
+  `#[serde(default, skip_serializing)]` and fold it into its replacement.
+- Add a test that opens a file in the previous version.
+- Parse straight into the real types, never in a pass that ignores fields (such as reading
+  `version` alone): ron skips ignored values in quadratic time, hours for a novel. The
+  reopening-time test in `simulate.rs` guards this.
 
 ## Assets and licensing
 
@@ -144,6 +117,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 A change is done when fmt, clippy (warnings denied) and tests all pass.
 
+A novel-sized simulation, for measuring by hand (`TYPEWRITER_MANUSCRIPT=novel.odt` types a real
+manuscript instead of seeded prose):
+
+```sh
+cargo test -p typewriter-app --release -- --ignored --nocapture novel
+```
+
 ## Code style
 
 - `rustfmt` defaults, idiomatic naming, edition 2024 idioms (let chains, `is_some_and`, …).
@@ -151,10 +131,9 @@ A change is done when fmt, clippy (warnings denied) and tests all pass.
   scenarios go in `tests/` (e.g. "type a full line and hear the bell at column N").
 - Errors: `thiserror` in the core, `anyhow` at the app boundary.
 - No `unwrap()`/`expect()` outside tests unless the invariant is stated at the call site.
-- Reuse before adding. Shared drawing helpers and the palette live in `render/mod.rs`
-  (`smoothstep`, `unit`, `splitmix64`, `rotate`, `CLICK`, `SHEET`, `SHEET_EDGE`, `HIGHLIGHT`),
-  pencil text fields in `render/note.rs` (`PencilField`); shared path and
-  file helpers in `storage.rs`. Extract a helper once the same logic appears twice.
+- Reuse before adding. Shared drawing helpers and the palette live in `render/mod.rs`, pencil
+  text fields in `render/note.rs` (`PencilField`), path and file helpers in `storage.rs`: read
+  them before writing a helper. Extract one once the same logic appears twice.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
 - Config and data paths follow XDG (`$XDG_CONFIG_HOME/typewriter`, `$XDG_DATA_HOME/typewriter`).
 
@@ -193,3 +172,4 @@ the controls already show or that is documented elsewhere. Hover tooltips are fi
 
 - Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
 - One logical change per commit. Do not commit or push unless asked.
+- Commit straight to `main` for now. Branches start with the desk edition.
