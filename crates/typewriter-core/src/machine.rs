@@ -188,6 +188,22 @@ impl Typewriter {
         &self.document
     }
 
+    /// Scrunches up the finished sheet `index`. Returns it, for the
+    /// animation, or `None` if there is no such sheet.
+    pub fn scrunch(&mut self, index: usize) -> Option<Page> {
+        self.document.remove(index)
+    }
+
+    /// Gives the finished sheet `from` the position `to` in the folder.
+    pub fn renumber(&mut self, from: usize, to: usize) -> bool {
+        self.document.move_sheet(from, to)
+    }
+
+    /// Pencils a note in the top margin of the finished sheet `index`.
+    pub fn annotate(&mut self, index: usize, note: &str) -> bool {
+        self.document.annotate(index, note)
+    }
+
     pub fn sessions(&self) -> &[SessionStats] {
         &self.sessions
     }
@@ -599,6 +615,8 @@ mod tests {
         tw.record_session(session(100, 5));
         tw.record_session(session(100, 7));
         tw.record_session(session(200, 1));
+        assert!(tw.annotate(0, "tighten\nthe opening"));
+        assert!(!tw.annotate(1, "the sheet in the machine"));
         let text = tw.to_folder_ron().unwrap();
         let back = Typewriter::from_folder_ron(&text, by_name(tw.profile())).unwrap();
         assert_eq!(back.sessions(), [session(100, 7), session(200, 1)]);
@@ -642,7 +660,7 @@ mod tests {
         let start = text.find("sessions:").unwrap();
         let old = text[..start]
             .trim_end()
-            .replacen("version: 2", "version: 1", 1)
+            .replacen("version: 3", "version: 1", 1)
             + "\n)";
         let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
         assert_eq!(back.document(), tw.document());
@@ -654,7 +672,7 @@ mod tests {
         let tw = sm9();
         let text = tw.to_folder_ron().unwrap();
         let profile = tw.profile().clone();
-        let newer = text.replacen("version: 2", "version: 99", 1);
+        let newer = text.replacen("version: 3", "version: 99", 1);
         assert!(matches!(
             Typewriter::from_folder_ron(&newer, by_name(&profile)),
             Err(FolderError::NewerVersion(99))

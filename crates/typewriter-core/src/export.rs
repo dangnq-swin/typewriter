@@ -5,20 +5,35 @@ use crate::document::Document;
 use crate::page::{Cell, Page};
 
 /// Plain text, with a form feed between sheets as a printer would take it.
+/// A sheet's note comes first, in square brackets.
 pub fn plain_text(document: &Document) -> String {
     let sheets: Vec<String> = sheets(document)
-        .map(|page| lines(page).join("\n"))
+        .map(|page| {
+            let text = lines(page).join("\n");
+            match page.note() {
+                "" => text,
+                note => format!("[{note}]\n\n{text}"),
+            }
+        })
         .collect();
     finish(sheets.join("\n\u{c}\n"))
 }
 
 /// Markdown, with `---` between sheets. Typed lines run on into paragraphs;
 /// an indented line starts a new one, since Markdown would take a deep
-/// indent for code.
+/// indent for code. A sheet's note comes first, quoted.
 pub fn markdown(document: &Document) -> String {
     let sheets: Vec<String> = sheets(document)
         .map(|page| {
             let mut out: Vec<String> = Vec::new();
+            if !page.note().is_empty() {
+                out.extend(
+                    page.note()
+                        .lines()
+                        .map(|line| format!("> {line}").trim_end().to_owned()),
+                );
+                out.push(String::new());
+            }
             for line in lines(page) {
                 let text = line.trim_start();
                 let indented = text.len() < line.len();
@@ -154,6 +169,20 @@ mod tests {
         p.strike(0, 4, 'x');
         p.cover(0, 4, Correction::Eraser);
         assert_eq!(plain_text(&document(vec![p])), "cut!\n");
+    }
+
+    #[test]
+    fn a_note_comes_before_its_sheet() {
+        let mut doc = document(vec![page(&[(0, 0, "Once")]), page(&[(0, 0, "twice")])]);
+        doc.annotate(0, "too short?\nexpand");
+        assert_eq!(
+            plain_text(&doc),
+            "[too short?\nexpand]\n\nOnce\n\u{c}\ntwice\n"
+        );
+        assert_eq!(
+            markdown(&doc),
+            "> too short?\n> expand\n\nOnce\n\n---\n\ntwice\n"
+        );
     }
 
     #[test]

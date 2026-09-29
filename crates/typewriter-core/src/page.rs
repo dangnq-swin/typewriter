@@ -82,6 +82,10 @@ pub struct Page {
     columns: u16,
     half_lines: u16,
     cells: BTreeMap<(u16, u16), Cell>,
+    /// Pencilled in the top margin once the sheet is filed, one written line
+    /// per text line. Absent before format version 3.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    note: String,
 }
 
 impl Page {
@@ -90,7 +94,24 @@ impl Page {
             columns,
             half_lines,
             cells: BTreeMap::new(),
+            note: String::new(),
         }
+    }
+
+    /// The pencilled note, `""` if there is none.
+    pub fn note(&self) -> &str {
+        &self.note
+    }
+
+    /// Pencils `note` in, replacing any before. Blank space at the ends of
+    /// its lines, and blank lines at its end, are not kept.
+    pub fn set_note(&mut self, note: &str) {
+        let lines: Vec<&str> = note.lines().map(str::trim_end).collect();
+        let written = lines
+            .iter()
+            .rposition(|l| !l.is_empty())
+            .map_or(0, |i| i + 1);
+        self.note = lines[..written].join("\n");
     }
 
     pub fn columns(&self) -> u16 {
@@ -293,6 +314,15 @@ mod tests {
         }
         page.dry_all();
         assert!((0..3).all(|column| page.strike(0, column, 'y')));
+    }
+
+    #[test]
+    fn a_note_keeps_its_lines_without_trailing_blanks() {
+        let mut page = Page::new(10, 10);
+        page.set_note("Rewrite this  \n\nbetter\n\n");
+        assert_eq!(page.note(), "Rewrite this\n\nbetter");
+        page.set_note(" \n");
+        assert_eq!(page.note(), "");
     }
 
     #[test]

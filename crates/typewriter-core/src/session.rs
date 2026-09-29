@@ -154,6 +154,13 @@ impl Session {
         self.reached && !was_reached
     }
 
+    /// Counts the words again from scratch, after sheets were taken out of
+    /// the folder.
+    pub fn recount(&mut self, document: &Document) {
+        self.filed = (0, 0);
+        self.count(document);
+    }
+
     pub fn goal(&self) -> Option<Goal> {
         self.goal
     }

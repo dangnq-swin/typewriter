@@ -10,8 +10,8 @@ use crate::page::Page;
 use crate::session::SessionStats;
 
 /// Bumped whenever the folder file changes in a way older versions cannot
-/// read. 2 added the session stats.
-pub const FORMAT_VERSION: u32 = 2;
+/// read. 2 added the session stats, 3 the notes on sheets.
+pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
@@ -39,6 +39,35 @@ impl Document {
 
     pub fn current_mut(&mut self) -> &mut Page {
         &mut self.current
+    }
+
+    /// Scrunches up the finished sheet `index`: it is gone for good.
+    pub fn remove(&mut self, index: usize) -> Option<Page> {
+        (index < self.finished.len()).then(|| self.finished.remove(index))
+    }
+
+    /// Moves the finished sheet `from` to position `to`, the sheets between
+    /// shifting along. Returns false if either is not a finished sheet.
+    pub fn move_sheet(&mut self, from: usize, to: usize) -> bool {
+        let count = self.finished.len();
+        if from >= count || to >= count {
+            return false;
+        }
+        let page = self.finished.remove(from);
+        self.finished.insert(to, page);
+        true
+    }
+
+    /// Pencils a note on the finished sheet `index` (oldest is 0). Returns
+    /// false if there is no such sheet.
+    pub fn annotate(&mut self, index: usize, note: &str) -> bool {
+        match self.finished.get_mut(index) {
+            Some(page) => {
+                page.set_note(note);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Takes the sheet out and puts `fresh` in. A blank sheet is not worth
@@ -115,6 +144,40 @@ mod tests {
         assert_eq!(doc.finished().len(), 1);
         assert_eq!(doc.finished()[0].line_text(0), "a");
         assert!(doc.current().is_blank());
+    }
+
+    fn filed(texts: &[&str]) -> Document {
+        let mut doc = Document::new(Page::new(10, 10));
+        for text in texts {
+            for (i, c) in text.chars().enumerate() {
+                doc.current_mut().strike(0, i as u16, c);
+            }
+            doc.feed(Page::new(10, 10));
+        }
+        doc
+    }
+
+    fn order(doc: &Document) -> Vec<String> {
+        doc.finished().iter().map(|p| p.line_text(0)).collect()
+    }
+
+    #[test]
+    fn a_sheet_moves_and_the_others_shift_along() {
+        let mut doc = filed(&["a", "b", "c", "d"]);
+        assert!(doc.move_sheet(3, 1));
+        assert_eq!(order(&doc), ["a", "d", "b", "c"]);
+        assert!(doc.move_sheet(0, 3));
+        assert_eq!(order(&doc), ["d", "b", "c", "a"]);
+        assert!(!doc.move_sheet(0, 4));
+    }
+
+    #[test]
+    fn a_scrunched_sheet_is_gone() {
+        let mut doc = filed(&["a", "b", "c"]);
+        assert_eq!(doc.remove(1).map(|p| p.line_text(0)), Some("b".to_owned()));
+        assert_eq!(order(&doc), ["a", "c"]);
+        assert!(doc.remove(2).is_none());
+        assert!(doc.current().is_blank(), "the sheet in the machine stays");
     }
 
     #[test]
