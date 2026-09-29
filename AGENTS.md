@@ -18,7 +18,8 @@ See [`ROADMAP.md`](ROADMAP.md) for the planned milestones.
 
 - **Only what a typewriter or a real desk can do.** Every feature needs a real-world
   counterpart: the machine, paper, a folder, a copy holder. No search across sheets, no ambient
-  soundtracks.
+  soundtracks. The one exception is **Delete**, a traceless digital correction method, kept at
+  the maintainer's request and off the correction cycle unless the settings add it.
 
 ## Working agreement: ask before assuming
 

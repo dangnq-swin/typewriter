@@ -222,7 +222,7 @@ pub fn paint_correction_plate(
     after: Rect,
 ) -> Rect {
     let method = match mode {
-        EraseMode::Off => "Off",
+        EraseMode::Delete => "Delete",
         EraseMode::Paper if slip_in => "Paper (slip in)",
         EraseMode::Paper => "Paper",
         EraseMode::Eraser => "Eraser",

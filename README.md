@@ -71,6 +71,8 @@ You can then write over your mistakes. Shift+Backspace again to remove the corre
 - **Eraser**: Shift+Backspace rubs out the letter before the carriage.
 - **Correction fluid**: Shift+Backspace dabs fluid on the letter before the carriage. Wait
 3 seconds for it to dry or observe visually, because typing on wet fluid will cause the text to be smudged.
+- **Delete** (only when *Delete in the correction cycle* is on in the settings):
+Shift+Backspace removes the letter before the carriage without a trace, digital style.
 
 ### On screen
 

@@ -196,6 +196,19 @@ fn machine(ui: &mut Ui, machine: &mut settings::Machine, machines: &Machines) {
     for problem in &machines.problems {
         ui.colored_label(PROBLEM, problem);
     }
+    let rules = &mut machine.rules;
+    ui.label("Rules")
+        .on_hover_text("For new projects, and the one in the machine");
+    ui.checkbox(&mut rules.backspace, "Backspace");
+    ui.checkbox(&mut rules.lock_at_right_margin, "Lock at the right margin")
+        .on_hover_text("Home releases it until the next return");
+    ui.checkbox(&mut rules.free_movement, "Free movement (arrow keys)")
+        .on_hover_text("Arrows move the carriage and roll the paper");
+    ui.checkbox(
+        &mut rules.delete_in_cycle,
+        "Delete in the correction cycle (F4)",
+    )
+    .on_hover_text("Digital style: the letter goes without a trace");
 }
 
 /// A small gear right of the calm mode icon. Fades with the chrome.

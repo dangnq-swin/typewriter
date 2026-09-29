@@ -25,8 +25,9 @@ M0–M8 are done; the git history has the details.
 - [x] Margin release on Home, margins set at the carriage with Shift+Home / Shift+End; on
       the scale, click a stop to release, drag one to move it
 - [x] Margin-release indicator on the scale: the stops stand lifted and faded
-- [ ] Machine rules in the settings: backspace, margin lock, free movement, correction Off in
-      the cycle (defaults for new projects, also applied to the project in the machine)
+- [x] Machine rules in the settings (`[machine.rules]`): backspace, margin lock, free
+      movement, and Delete (digital, traceless) in the correction cycle. Defaults for new
+      projects, also applied to the project in the machine; a reopened project keeps its own
 
 ## M12: Mechanics
 

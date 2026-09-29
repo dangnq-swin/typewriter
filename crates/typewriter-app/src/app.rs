@@ -163,8 +163,7 @@ impl TypewriterApp {
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
         let machines = Machines::load()?;
-        let (mut machine, mut filing, trouble) =
-            first_project(&machines, &settings.machine.profile)?;
+        let (mut machine, mut filing, trouble) = first_project(&machines, &settings.machine)?;
         let zoom_percent = settings.look.zoom_percent;
         let metrics = Metrics::new(machine.profile(), points_per_inch(zoom_percent));
         let audio = Audio::new(machine.profile().sounds.clone(), settings.sound.clone())
@@ -418,7 +417,8 @@ impl TypewriterApp {
     }
 
     fn next_correction(&mut self, now: f64) {
-        let next = self.machine.constraints.erase.next();
+        let with_delete = self.settings.machine.rules.delete_in_cycle;
+        let next = self.machine.constraints.erase.next(with_delete);
         self.apply(Command::SetEraseMode(next), now);
     }
 
@@ -619,7 +619,9 @@ impl TypewriterApp {
             }
             Leaving::New => {
                 let profile = self.machines.for_new(&self.settings.machine.profile);
-                let constraints = self.machine.constraints.clone();
+                // The correction method in hand carries over.
+                let erase = self.machine.constraints.erase;
+                let constraints = self.settings.machine.rules.constraints(erase);
                 match Typewriter::new(profile, constraints) {
                     Ok(machine) => self.put_in(machine, Filing::draft(), false, now),
                     Err(err) => self.filing.notify(format!("No new project: {err}"), now),
@@ -1003,7 +1005,11 @@ impl TypewriterApp {
             ui,
             correction_plate,
             "correction-plate",
-            "Click (or F4) for the next way: correction paper, eraser or fluid",
+            if self.settings.machine.rules.delete_in_cycle {
+                "Click (or F4) for the next way: correction paper, eraser, fluid or delete"
+            } else {
+                "Click (or F4) for the next way: correction paper, eraser or fluid"
+            },
         );
         if correction.clicked() && !feeding {
             self.next_correction(now);
@@ -1261,6 +1267,12 @@ impl eframe::App for TypewriterApp {
                         }
                         if self.settings != before {
                             self.follow_custom_goal(&before.goals);
+                            let rules = &self.settings.machine.rules;
+                            if rules
+                                .apply_changes(&before.machine.rules, &mut self.machine.constraints)
+                            {
+                                self.filing.changed(now);
+                            }
                             self.apply_settings();
                             self.set_fullscreen(&ctx, now);
                         }
@@ -1329,10 +1341,10 @@ impl eframe::App for TypewriterApp {
 }
 
 /// The starting project: the command line's, else last run's, else a new one
-/// on `new_machine`. Plus why an open failed, if one did.
+/// on `new_machine`'s profile and rules. Plus why an open failed, if one did.
 fn first_project(
     machines: &Machines,
-    new_machine: &str,
+    new_machine: &settings::Machine,
 ) -> anyhow::Result<(Typewriter, Filing, Option<String>)> {
     let asked = std::env::args_os().nth(1).map(PathBuf::from);
     let mut trouble = None;
@@ -1342,7 +1354,9 @@ fn first_project(
             Err(err) => trouble = Some(format!("Could not open {}: {err:#}", path.display())),
         }
     }
-    let machine = Typewriter::new(machines.for_new(new_machine), Constraints::default())?;
+    let profile = machines.for_new(&new_machine.profile);
+    let constraints = new_machine.rules.constraints(Constraints::default().erase);
+    let machine = Typewriter::new(profile, constraints)?;
     Ok((machine, Filing::draft(), trouble))
 }
 

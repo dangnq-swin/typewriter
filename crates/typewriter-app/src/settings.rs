@@ -7,7 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use typewriter_core::Goal;
+use typewriter_core::{Constraints, EraseMode, Goal};
 
 use crate::render::calm;
 use crate::storage;
@@ -154,13 +154,73 @@ impl Goals {
 pub struct Machine {
     /// New projects' profile name.
     pub profile: String,
+    pub rules: Rules,
 }
 
 impl Default for Machine {
     fn default() -> Self {
         Self {
             profile: crate::machines::DEFAULT.to_owned(),
+            rules: Rules::default(),
         }
+    }
+}
+
+/// New projects start with these; a change applies to the project in the
+/// machine too. A reopened project keeps its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Rules {
+    pub backspace: bool,
+    pub lock_at_right_margin: bool,
+    pub free_movement: bool,
+    /// Digital delete joins the correction cycle.
+    pub delete_in_cycle: bool,
+}
+
+impl Default for Rules {
+    fn default() -> Self {
+        let machine = Constraints::default();
+        Self {
+            backspace: machine.backspace,
+            lock_at_right_margin: machine.lock_at_right_margin,
+            free_movement: machine.free_movement,
+            delete_in_cycle: false,
+        }
+    }
+}
+
+impl Rules {
+    /// A new project's rules, correcting with `erase`.
+    pub fn constraints(&self, erase: EraseMode) -> Constraints {
+        Constraints {
+            backspace: self.backspace,
+            erase,
+            lock_at_right_margin: self.lock_at_right_margin,
+            free_movement: self.free_movement,
+        }
+    }
+
+    /// Puts the rules changed since `before` into `machine`, leaving the
+    /// rest as the project has them. False if none changed.
+    pub fn apply_changes(&self, before: &Self, machine: &mut Constraints) -> bool {
+        if self == before {
+            return false;
+        }
+        if self.backspace != before.backspace {
+            machine.backspace = self.backspace;
+        }
+        if self.lock_at_right_margin != before.lock_at_right_margin {
+            machine.lock_at_right_margin = self.lock_at_right_margin;
+        }
+        if self.free_movement != before.free_movement {
+            machine.free_movement = self.free_movement;
+        }
+        // Out of the cycle: no longer the method either.
+        if !self.delete_in_cycle && machine.erase == EraseMode::Delete {
+            machine.erase = EraseMode::Paper;
+        }
+        true
     }
 }
 
@@ -297,6 +357,43 @@ mod tests {
         assert!(settings.sound.mute);
         assert_eq!(settings.sound.volume, VOLUME_MAX);
         assert_eq!(settings.look, Look::default());
+    }
+
+    #[test]
+    fn a_changed_rule_reaches_the_project_and_the_others_stay_its_own() {
+        let before = Rules::default();
+        let mut project = Constraints {
+            lock_at_right_margin: false,
+            erase: EraseMode::Delete,
+            ..Constraints::default()
+        };
+        let after = Rules {
+            free_movement: true,
+            ..before.clone()
+        };
+        assert!(after.apply_changes(&before, &mut project));
+        assert!(project.free_movement);
+        assert!(
+            !project.lock_at_right_margin,
+            "not changed: the project's own"
+        );
+        assert_eq!(
+            project.erase,
+            EraseMode::Paper,
+            "delete is out of the cycle"
+        );
+        assert!(!after.apply_changes(&after, &mut project));
+    }
+
+    #[test]
+    fn rules_sit_in_their_own_table() {
+        let mut settings = Settings::default();
+        settings.machine.rules.delete_in_cycle = true;
+        let text = toml::to_string(&settings).unwrap();
+        assert!(text.contains("[machine.rules]\n"), "{text}");
+        let loaded = Settings::from_toml("[machine.rules]\nbackspace = false\n").unwrap();
+        assert!(!loaded.machine.rules.backspace);
+        assert!(loaded.machine.rules.lock_at_right_margin);
     }
 
     #[test]

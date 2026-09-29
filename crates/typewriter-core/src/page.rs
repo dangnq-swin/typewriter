@@ -175,6 +175,11 @@ impl Page {
         has_visible
     }
 
+    /// Empties the cell: strikes and corrections alike.
+    pub fn clear(&mut self, half_line: u16, column: u16) {
+        self.cells.remove(&(half_line, column));
+    }
+
     /// Marks the cell's fluid dry.
     pub fn dry(&mut self, half_line: u16, column: u16) {
         if let Some(cell) = self.cells.get_mut(&(half_line, column)) {

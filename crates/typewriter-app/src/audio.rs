@@ -170,6 +170,8 @@ impl Audio {
             Event::Backspace => Some(&self.backspace),
             Event::Tab => Some(&self.tab),
             Event::Erase(EraseMode::Fluid) => Some(&self.fluid),
+            // Digital: nothing to hear.
+            Event::Erase(EraseMode::Delete) => None,
             Event::Erase(_) => Some(&self.erase),
             // Silent: strikes through the slip sound like any strike.
             Event::SlipIn | Event::SlipOut => None,

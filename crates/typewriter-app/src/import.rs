@@ -36,7 +36,11 @@ pub fn run(args: &[OsString]) -> anyhow::Result<()> {
     }
     let machines = Machines::load()?;
     let profile = machines.for_new(&settings.machine.profile);
-    let mut machine = Typewriter::new(profile, Constraints::default())?;
+    let constraints = settings
+        .machine
+        .rules
+        .constraints(Constraints::default().erase);
+    let mut machine = Typewriter::new(profile, constraints)?;
     retype(&mut machine, &paragraphs);
     storage::write_atomic(&target, machine.to_folder_ron()?)
         .with_context(|| format!("could not write {}", target.display()))?;

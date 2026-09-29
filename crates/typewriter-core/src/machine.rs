@@ -364,7 +364,7 @@ impl Typewriter {
     fn erase(&mut self) -> Vec<Event> {
         let mode = self.constraints.erase;
         let correction = match mode {
-            EraseMode::Off => return vec![Event::Blocked(BlockReason::NotAllowed)],
+            EraseMode::Delete => None,
             EraseMode::Paper => {
                 self.slip_in = !self.slip_in;
                 return vec![if self.slip_in {
@@ -373,14 +373,20 @@ impl Typewriter {
                     Event::SlipOut
                 }];
             }
-            EraseMode::Eraser => Correction::Eraser,
-            EraseMode::Fluid => Correction::Fluid { wet: true },
+            EraseMode::Eraser => Some(Correction::Eraser),
+            EraseMode::Fluid => Some(Correction::Fluid { wet: true }),
         };
         if let Err(reason) = self.step_back() {
             return vec![Event::Blocked(reason)];
         }
         let (row, col) = (self.carriage.half_line, self.carriage.column);
-        self.document.current_mut().cover(row, col, correction);
+        let page = self.document.current_mut();
+        match correction {
+            Some(correction) => {
+                page.cover(row, col, correction);
+            }
+            None => page.clear(row, col),
+        }
         vec![Event::Erase(mode)]
     }
 
@@ -808,14 +814,16 @@ mod tests {
     }
 
     #[test]
-    fn erase_can_be_disabled() {
+    fn delete_leaves_no_trace() {
         let mut tw = sm9();
-        tw.constraints.erase = EraseMode::Off;
-        type_str(&mut tw, "x");
-        assert_eq!(
-            tw.apply(Command::Erase),
-            [Event::Blocked(BlockReason::NotAllowed)]
-        );
+        tw.constraints.erase = EraseMode::Delete;
+        type_str(&mut tw, "xy");
+        assert_eq!(tw.apply(Command::Erase), [Event::Erase(EraseMode::Delete)]);
+        assert_eq!(tw.carriage().column, 11);
+        assert!(tw.page().cell(12, 11).is_none());
+        type_str(&mut tw, "z");
+        assert_eq!(tw.page().line_text(12).trim_start(), "xz");
+        assert_eq!(tw.page().cell(12, 11).unwrap().marks(), [Mark::Glyph('z')]);
     }
 
     #[test]
