@@ -87,13 +87,13 @@ typewriter/
 │   │       ├── document.rs     # multi-page document + native format (serde)
 │   │       ├── export.rs       # plain text / Markdown export
 │   │       ├── retype.rs       # a typist typing plain paragraphs out on the machine
-│   │       └── session.rs      # focus goals, word count, timers, stats
+│   │       └── session.rs      # focus goals, word count, timers, words per day
 │   └── typewriter-app/         # binary: eframe app, rendering, input, audio, settings
 │       ├── build.rs            # re-encodes the paper texture for bundling
 │       └── src/
 │           ├── main.rs
 │           ├── app.rs          # eframe::App impl, top-level state
-│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad, platen knob, copy holder
+│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad, platen knob, copy holder, writing-log calendar
 │           ├── input.rs        # key events -> core commands
 │           ├── import.rs       # `typewriter import x.odt`: an .odt retyped into a new project
 │           ├── odt.rs          # .odt read as plain paragraphs (zip, quick-xml)

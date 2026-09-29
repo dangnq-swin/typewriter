@@ -114,5 +114,9 @@ copy holder left of the machine (click a line to move its guide, ✕ to take it 
 back into the machine (a little out of line, as a re-fed sheet is; it goes back to its place when fed
 out), renumbers it, or scrunches it up, deleting after asking.
 
+The calendar standing beyond the notebook is the writing log: each day's words, pencilled in.
+Click it to bring it up close, where hovering a day shows its date and words, and Page Up /
+Page Down or the arrows by the month turn the months. Esc or a click away puts it back.
+
 In an open sheet, click its top margin to pencil a note there (Enter for a new line, as many
 lines as the margin has room for). Click elsewhere or press Esc when done. Notes will show up in exports.

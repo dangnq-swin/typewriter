@@ -2,6 +2,7 @@
 //! settings, PDF.
 
 pub mod background;
+pub mod calendar;
 pub mod calm;
 pub mod feed;
 pub mod folder;
@@ -19,7 +20,7 @@ pub mod settings;
 
 use std::collections::HashSet;
 
-use eframe::egui::{Color32, FontFamily, FontId, Sense, Vec2, vec2};
+use eframe::egui::{Color32, FontFamily, FontId, Rect, Sense, Shape, Stroke, Vec2, vec2};
 use typewriter_core::Profile;
 
 pub const FONT_FAMILY: &str = "typewriter";
@@ -177,6 +178,20 @@ fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
 
 fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+}
+
+/// A turn button's arrow in `rect`: back (-1) points left, on (1) right.
+pub fn chevron(rect: Rect, direction: isize, stroke: Stroke) -> [Shape; 2] {
+    let (tip, back) = if direction < 0 {
+        (rect.left_center() + vec2(0.25 * rect.width(), 0.0), 0.35)
+    } else {
+        (rect.right_center() - vec2(0.25 * rect.width(), 0.0), -0.35)
+    };
+    let arm = vec2(back * rect.width(), 0.3 * rect.height());
+    [
+        Shape::line_segment([tip, tip + arm], stroke),
+        Shape::line_segment([tip, tip + vec2(arm.x, -arm.y)], stroke),
+    ]
 }
 
 /// `v` turned by `angle` radians: clockwise on screen, where y is down.

@@ -6,7 +6,8 @@
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use jiff::Timestamp;
 
 /// A project file: a manila folder on screen, RON inside.
 pub const EXTENSION: &str = ".folder.ron";
@@ -42,10 +43,7 @@ fn drafts_dir() -> Option<PathBuf> {
 
 /// A fresh draft path, named by its start time (UTC).
 pub fn new_draft_path() -> Option<PathBuf> {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    let name = format!("draft-{}{EXTENSION}", timestamp(seconds));
+    let name = format!("draft-{}{EXTENSION}", timestamp(Timestamp::now()));
     drafts_dir().map(|dir| dir.join(name))
 }
 
@@ -156,32 +154,9 @@ pub fn remember_last(path: &Path) -> io::Result<()> {
     write_atomic(&record, format!("{}\n", path.display()))
 }
 
-/// Unix seconds as `YYYY-MM-DD-HHMMSS`, UTC.
-fn timestamp(seconds: u64) -> String {
-    let days = (seconds / 86_400) as i64;
-    let rest = seconds % 86_400;
-    let (year, month, day) = civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}-{:02}{:02}{:02}",
-        rest / 3600,
-        rest / 60 % 60,
-        rest % 60
-    )
-}
-
-/// Days since 1970-01-01 → (year, month, day). Howard Hinnant's algorithm.
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    // Casts are safe: day is 1..=31, month 1..=12.
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    (year, month, day)
+/// `YYYY-MM-DD-HHMMSS`, UTC.
+fn timestamp(at: Timestamp) -> String {
+    at.strftime("%Y-%m-%d-%H%M%S").to_string()
 }
 
 #[cfg(test)]
@@ -190,10 +165,11 @@ mod tests {
 
     #[test]
     fn timestamps_are_calendar_dates() {
-        assert_eq!(timestamp(0), "1970-01-01-000000");
+        let at = |seconds| timestamp(Timestamp::from_second(seconds).unwrap());
+        assert_eq!(at(0), "1970-01-01-000000");
         // 2026-09-29 14:30:05 UTC.
-        assert_eq!(timestamp(1_790_692_205), "2026-09-29-143005");
-        assert_eq!(timestamp(951_782_400), "2000-02-29-000000");
+        assert_eq!(at(1_790_692_205), "2026-09-29-143005");
+        assert_eq!(at(951_782_400), "2000-02-29-000000");
     }
 
     #[test]

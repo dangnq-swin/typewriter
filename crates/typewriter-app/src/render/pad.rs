@@ -12,7 +12,7 @@ use typewriter_core::scratchpad::{self as book, SPREADS};
 
 use super::note::{ASCENT_EM, GRAPHITE, LINE_EM, PENCIL_FAMILY, PencilField, SIZE_INCHES};
 use super::scratchpad::{BOOK_INCHES, CORNER_WIDTHS, KRAFT, KRAFT_EDGE, STAPLE};
-use super::{CLICK, HIGHLIGHT, smoothstep};
+use super::{CLICK, HIGHLIGHT, chevron, smoothstep};
 
 pub const SLIDE_SECONDS: f32 = 0.25;
 /// Cover showing round the pages.
@@ -245,15 +245,7 @@ impl Pad {
         for (direction, rect) in self.turn_buttons() {
             let hovered = pointer.is_some_and(|p| rect.contains(p));
             let color = if hovered { HIGHLIGHT } else { TURN };
-            let (tip, back) = if direction < 0 {
-                (rect.left_center() + vec2(0.25 * rect.width(), 0.0), 0.35)
-            } else {
-                (rect.right_center() - vec2(0.25 * rect.width(), 0.0), -0.35)
-            };
-            let arm = vec2(back * rect.width(), 0.3 * rect.height());
-            let stroke = Stroke::new(1.5, color);
-            painter.line_segment([tip, tip + arm], stroke);
-            painter.line_segment([tip, tip + vec2(arm.x, -arm.y)], stroke);
+            painter.extend(chevron(rect, direction, Stroke::new(1.5, color)));
         }
     }
 

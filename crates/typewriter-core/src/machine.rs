@@ -7,7 +7,7 @@ use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
 use crate::page::{Correction, Mark, Page, Shift};
 use crate::profile::{Profile, ProfileError};
 use crate::scratchpad::Scratchpad;
-use crate::session::SessionStats;
+use crate::session::WritingLog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -120,8 +120,7 @@ pub struct Typewriter {
     slip_in: bool,
     /// Typebars tangled. Not saved: a reopened machine is freed.
     jammed: bool,
-    /// This project's sessions, oldest first.
-    sessions: Vec<SessionStats>,
+    log: WritingLog,
 }
 
 impl Typewriter {
@@ -140,7 +139,7 @@ impl Typewriter {
             document,
             slip_in: false,
             jammed: false,
-            sessions: Vec::new(),
+            log: WritingLog::default(),
         })
     }
 
@@ -152,16 +151,19 @@ impl Typewriter {
             constraints: self.constraints.clone(),
             carriage: self.carriage.clone(),
             document: self.document.clone(),
-            sessions: self.sessions.clone(),
+            sessions: Vec::new(),
+            log: self.log.clone(),
         }
         .to_ron()
     }
 
     /// Loads a project into its own machine (found by name via `machine`),
-    /// where typing stopped. The hand-held slip starts out.
+    /// where typing stopped. The hand-held slip starts out. `day`: Unix
+    /// seconds to their day, for sessions from before the writing log.
     pub fn from_folder_ron(
         text: &str,
         machine: impl FnOnce(&str) -> Option<Profile>,
+        day: impl Fn(u64) -> jiff::civil::Date,
     ) -> Result<Self, FolderError> {
         let file = FolderFile::from_ron(text)?;
         let Some(profile) = machine(&file.profile) else {
@@ -182,7 +184,10 @@ impl Typewriter {
         }
         machine.carriage = file.carriage;
         machine.document = file.document;
-        machine.sessions = file.sessions;
+        machine.log = file.log;
+        for (day, words) in WritingLog::from_sessions(&file.sessions, day).days() {
+            machine.log.add(*day, *words);
+        }
         Ok(machine)
     }
 
@@ -233,16 +238,14 @@ impl Typewriter {
         self.document.scratchpad_mut()
     }
 
-    pub fn sessions(&self) -> &[SessionStats] {
-        &self.sessions
+    /// Words per day on this project.
+    pub fn log(&self) -> &WritingLog {
+        &self.log
     }
 
-    /// Records the session, replacing its entry if already recorded.
-    pub fn record_session(&mut self, stats: SessionStats) {
-        match self.sessions.last_mut() {
-            Some(last) if last.started == stats.started => *last = stats,
-            _ => self.sessions.push(stats),
-        }
+    /// Adds `words` (negative: corrections) to `day` in the log.
+    pub fn log_words(&mut self, day: jiff::civil::Date, words: i64) {
+        self.log.add(day, words);
     }
 
     /// Typebars tangled: only Backspace does anything.
@@ -625,6 +628,13 @@ mod tests {
         move |name| (name == profile.name).then(|| profile.clone())
     }
 
+    fn utc_day(seconds: u64) -> jiff::civil::Date {
+        jiff::Timestamp::from_second(seconds as i64)
+            .unwrap()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .date()
+    }
+
     fn type_str(tw: &mut Typewriter, s: &str) -> Vec<Event> {
         s.chars().flat_map(|c| tw.apply(Command::Type(c))).collect()
     }
@@ -726,21 +736,16 @@ mod tests {
         type_str(&mut tw, "ab");
         tw.apply(Command::Erase);
         tw.apply(Command::Tab);
-        let session = |started, words| SessionStats {
-            started,
-            seconds: 90,
-            words,
-        };
-        tw.record_session(session(100, 5));
-        tw.record_session(session(100, 7));
-        tw.record_session(session(200, 1));
+        let day = jiff::civil::date(2026, 9, 30);
+        tw.log_words(day, 7);
         assert!(tw.annotate(0, "tighten\nthe opening"));
         assert!(!tw.annotate(1, "the sheet in the machine"));
         assert!(tw.scratchpad_mut().write(3, "call the printer"));
         assert!(tw.scratchpad_mut().open_at(2));
         let text = tw.to_folder_ron().unwrap();
-        let back = Typewriter::from_folder_ron(&text, by_name(tw.profile())).unwrap();
-        assert_eq!(back.sessions(), [session(100, 7), session(200, 1)]);
+        let back = Typewriter::from_folder_ron(&text, by_name(tw.profile()), utc_day).unwrap();
+        assert_eq!(back.log(), tw.log());
+        assert!(!text.contains("sessions"), "{text}");
         assert_eq!(back.document(), tw.document());
         assert_eq!(back.document().scratchpad().page(3), "call the printer");
         assert_eq!(back.document().scratchpad().spread(), 2);
@@ -780,15 +785,40 @@ mod tests {
         let mut tw = sm9();
         type_str(&mut tw, "old");
         let text = tw.to_folder_ron().unwrap();
-        let start = text.find("sessions:").unwrap();
+        let start = text.find("log:").unwrap();
         let old = text[..start].trim_end().replacen(
             &format!("version: {FORMAT_VERSION}"),
             "version: 1",
             1,
         ) + "\n)";
-        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile()), utc_day).unwrap();
         assert_eq!(back.document(), tw.document());
-        assert!(back.sessions().is_empty());
+        assert!(back.log().days().is_empty());
+    }
+
+    #[test]
+    fn sessions_in_an_older_folder_file_fold_into_days() {
+        let tw = sm9();
+        let text = tw.to_folder_ron().unwrap();
+        let start = text.find("log:").unwrap();
+        // 29 September 2026, two sessions; then the 30th.
+        let old = text[..start].replacen(&format!("version: {FORMAT_VERSION}"), "version: 6", 1)
+            + "sessions: [(started: 1790700000, seconds: 60, words: 40), \
+               (started: 1790710000, seconds: 60, words: -5), \
+               (started: 1790790000, seconds: 60, words: 12)],\n)";
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile()), utc_day).unwrap();
+        let days: Vec<_> = back
+            .log()
+            .days()
+            .iter()
+            .map(|(d, &w)| (d.day(), w))
+            .collect();
+        assert_eq!(days, [(29, 35), (30, 12)]);
+        let saved = back.to_folder_ron().unwrap();
+        assert!(
+            !saved.contains("sessions") && saved.contains("2026-09-29"),
+            "{saved}"
+        );
     }
 
     #[test]
@@ -815,7 +845,7 @@ mod tests {
             .join("\n")
             .replacen(&format!("version: {FORMAT_VERSION}"), "version: 3", 1);
         assert!(!old.contains("pages:"));
-        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile()), utc_day).unwrap();
         assert_eq!(back.document(), tw.document());
         assert!(back.document().scratchpad().is_fresh());
     }
@@ -828,7 +858,7 @@ mod tests {
         let old = old
             .join("\n")
             .replacen(&format!("version: {FORMAT_VERSION}"), "version: 4", 1);
-        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile()), utc_day).unwrap();
         assert!(!back.constraints.type_jams);
     }
 
@@ -839,21 +869,21 @@ mod tests {
         let profile = tw.profile().clone();
         let newer = text.replacen(&format!("version: {FORMAT_VERSION}"), "version: 99", 1);
         assert!(matches!(
-            Typewriter::from_folder_ron(&newer, by_name(&profile)),
+            Typewriter::from_folder_ron(&newer, by_name(&profile), utc_day),
             Err(FolderError::NewerVersion(99))
         ));
         let other = text.replacen("Olympia SM9", "Hermes 3000", 1);
         assert!(matches!(
-            Typewriter::from_folder_ron(&other, by_name(&profile)),
+            Typewriter::from_folder_ron(&other, by_name(&profile), utc_day),
             Err(FolderError::UnknownMachine(_))
         ));
         let off_the_sheet = text.replacen("column: 10", "column: 900", 1);
         assert!(matches!(
-            Typewriter::from_folder_ron(&off_the_sheet, by_name(&profile)),
+            Typewriter::from_folder_ron(&off_the_sheet, by_name(&profile), utc_day),
             Err(FolderError::DoesNotFit(_))
         ));
         assert!(matches!(
-            Typewriter::from_folder_ron("a shopping list", by_name(&profile)),
+            Typewriter::from_folder_ron("a shopping list", by_name(&profile), utc_day),
             Err(FolderError::Unreadable(_))
         ));
     }

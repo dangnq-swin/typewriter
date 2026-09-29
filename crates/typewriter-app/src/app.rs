@@ -3,11 +3,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, Rect, pos2};
 use typewriter_core::page::{Page, Shift};
-use typewriter_core::session::Totals;
 use typewriter_core::{
     BlockReason, Command, Constraints, Direction, EraseMode, Event, Goal, Session, Side, Typewriter,
 };
@@ -17,6 +15,7 @@ use crate::filing::{self, Filing, Keeping, Picked, WriteStatus};
 use crate::input::{Action, Input};
 use crate::machines::Machines;
 use crate::render::background::Background;
+use crate::render::calendar;
 use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
@@ -129,6 +128,8 @@ pub struct TypewriterApp {
     machine: Typewriter,
     filing: Filing,
     session: Session,
+    /// The session's words already in the writing log.
+    logged_words: i64,
     /// Text fields in progress; each keeps keys from the machine.
     renaming: Option<String>,
     annotating: Option<String>,
@@ -172,6 +173,10 @@ pub struct TypewriterApp {
     calm: bool,
     /// The chosen sheet in the folder.
     selected: usize,
+    /// Months the writing log is turned back from today's.
+    log_back: u32,
+    /// The writing log is up close.
+    log_open: bool,
     zoom_percent: u16,
     /// Scroll not yet turned into zoom steps.
     scroll_zoom: f32,
@@ -215,12 +220,13 @@ impl TypewriterApp {
             filing.notify(notice, 0.0);
         }
         filing.remember();
-        let mut session = Session::start(machine.document(), unix_now());
+        let mut session = Session::start(machine.document());
         session.set_goal(settings.goals.goal);
         Ok(Self {
             machine,
             filing,
             session,
+            logged_words: 0,
             renaming: None,
             annotating: None,
             renumbering: None,
@@ -248,6 +254,8 @@ impl TypewriterApp {
             view: View::Typing,
             calm: false,
             selected: 0,
+            log_back: 0,
+            log_open: false,
             zoom_percent,
             scroll_zoom: 0.0,
             knobs: Vec::new(),
@@ -278,6 +286,19 @@ impl TypewriterApp {
         let actions = self.input.actions(&events, shift_down);
         // egui closes an open menu on Esc: don't also close the view.
         let menu_open = egui::Popup::is_any_open(ctx);
+        if self.log_open {
+            for action in actions {
+                match action {
+                    Action::Fullscreen => self.toggle_fullscreen(ctx, now),
+                    Action::Save => self.filing.save_now(&self.machine, ctx, now),
+                    Action::PageUp => self.turn_log(-1),
+                    Action::PageDown => self.turn_log(1),
+                    Action::Escape => self.log_open = false,
+                    _ => {}
+                }
+            }
+            return;
+        }
         if self.view == View::Settings {
             // Keys belong to the card. Esc leaves a focused field first.
             let editing = ctx.memory(|m| m.focused().is_some());
@@ -429,12 +450,16 @@ impl TypewriterApp {
         {
             audio.play(Event::Bell);
         }
-        self.record_session();
+        self.record_words();
     }
 
-    fn record_session(&mut self) {
-        if let Some(stats) = self.session.stats() {
-            self.machine.record_session(stats);
+    /// Brings today's words in the log up to date with the session.
+    fn record_words(&mut self) {
+        let words = self.session.net_words();
+        if words != self.logged_words {
+            self.machine
+                .log_words(calendar::today(), words - self.logged_words);
+            self.logged_words = words;
         }
     }
 
@@ -533,7 +558,8 @@ impl TypewriterApp {
         self.wind_back = reopened.then(|| WindBack::to(machine.reinsert()));
         // New session, same goal.
         let goal = self.session.goal();
-        self.session = Session::start(machine.document(), unix_now());
+        self.session = Session::start(machine.document());
+        self.logged_words = 0;
         self.session.set_goal(goal);
         self.machine = machine;
         self.filing = filing;
@@ -547,6 +573,7 @@ impl TypewriterApp {
         self.annotating = None;
         self.renumbering = None;
         self.scratchpad = None;
+        self.log_open = false;
         self.holder = None;
         self.confirm_scrunch = None;
         self.scrunching = None;
@@ -651,7 +678,7 @@ impl TypewriterApp {
         let count = self.machine.document().finished().len();
         self.selected = self.selected.min(count.saturating_sub(1));
         self.session.recount(self.machine.document());
-        self.record_session();
+        self.record_words();
         self.filing.changed(now);
     }
 
@@ -923,6 +950,8 @@ impl TypewriterApp {
     /// Opens the folder with the newest sheet chosen.
     fn open_folder(&mut self) {
         self.view = View::Folder;
+        self.log_back = 0;
+        self.log_open = false;
         self.selected = self.machine.document().finished().len().saturating_sub(1);
     }
 
@@ -1308,6 +1337,40 @@ impl TypewriterApp {
         }
     }
 
+    /// The writing log's month as shown.
+    fn log(&self) -> calendar::Month {
+        calendar::Month::of(self.machine.log(), self.log_back, calendar::today())
+    }
+
+    /// Turns the log back (-1) or on (1) a month, where there is one.
+    fn turn_log(&mut self, step: isize) {
+        let month = self.log();
+        if step < 0 && month.earlier {
+            self.log_back += 1;
+        } else if step > 0 && month.later {
+            self.log_back -= 1;
+        }
+    }
+
+    /// The writing log up close, or sliding away.
+    fn show_log(&mut self, ui: &mut egui::Ui, view: Rect) {
+        let shown = ui.ctx().animate_bool_with_time(
+            egui::Id::new("writing-log-up-close"),
+            self.log_open,
+            calendar::SLIDE_SECONDS,
+        );
+        if shown <= 0.0 {
+            return;
+        }
+        let asked = calendar::show_up_close(ui, view, shown, &self.log(), self.log_open);
+        if let Some(step) = asked.turn {
+            self.turn_log(step);
+        }
+        if asked.close {
+            self.log_open = false;
+        }
+    }
+
     fn open_scratchpad(&mut self) {
         self.scratchpad = Some(pad::Writing::open(self.machine.document().scratchpad()));
     }
@@ -1396,7 +1459,8 @@ impl eframe::App for TypewriterApp {
                     View::Folder => {
                         let name = self.filing.name();
                         let location = self.filing.location();
-                        let stats = sessions_line(Totals::of(self.machine.sessions()));
+                        let stats = calendar::log_line(self.machine.log());
+                        let log = self.log();
                         let project = ProjectLabel {
                             name: &name,
                             location: &location,
@@ -1411,12 +1475,18 @@ impl eframe::App for TypewriterApp {
                             &self.machine.profile().margins,
                             self.selected,
                             &project,
+                            &log,
                             self.renaming.as_mut(),
                             self.renumbering.as_mut(),
+                            self.log_open,
                         );
                         self.pulled = response.pulled;
                         if response.open_scratchpad {
                             self.open_scratchpad();
+                        }
+                        if response.open_log {
+                            self.log_open = true;
+                            self.scratchpad = None;
                         }
                         if let Some(i) = response.opened {
                             self.view = View::Sheet(i);
@@ -1472,6 +1542,9 @@ impl eframe::App for TypewriterApp {
                     }
                 }
                 self.show_scratchpad(ui, view, now);
+                if self.view == View::Folder {
+                    self.show_log(ui, view);
+                }
                 if let Some(scrunching) = &self.scrunching {
                     let t = now - scrunching.started;
                     if t < render::scrunch::SECONDS {
@@ -1556,47 +1629,6 @@ fn first_project(
 
 fn points_per_inch(zoom_percent: u16) -> f32 {
     POINTS_PER_INCH * f32::from(zoom_percent) / 100.0
-}
-
-fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
-}
-
-/// "4 sessions · 2 h 10 min · 1,840 words", `""` before the first.
-fn sessions_line(totals: Totals) -> String {
-    if totals.sessions == 0 {
-        return String::new();
-    }
-    let minutes = totals.seconds / 60;
-    let time = match (minutes / 60, minutes % 60) {
-        (0, m) => format!("{m} min"),
-        (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m} min"),
-    };
-    let plural = |n: i64, word: &str| {
-        let s = if n == 1 { "" } else { "s" };
-        format!("{} {word}{s}", thousands(n))
-    };
-    format!(
-        "{}  \u{b7}  {time}  \u{b7}  {}",
-        plural(totals.sessions as i64, "session"),
-        plural(totals.words, "word")
-    )
-}
-
-/// 1840 as "1,840".
-fn thousands(n: i64) -> String {
-    let digits = n.unsigned_abs().to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    if n < 0 { format!("-{out}") } else { out }
 }
 
 /// Makes a plate clickable, with a tooltip.
@@ -1722,29 +1754,6 @@ mod tests {
         assert_eq!(zoomed(100, -1), 90);
         assert_eq!(zoomed(200, 1), 200);
         assert_eq!(zoomed(50, -1), 50);
-    }
-
-    #[test]
-    fn sessions_add_up_in_words() {
-        assert_eq!(sessions_line(Totals::default()), "");
-        let totals = Totals {
-            sessions: 4,
-            seconds: 7_830,
-            words: 1_840,
-        };
-        assert_eq!(
-            sessions_line(totals),
-            "4 sessions  \u{b7}  2 h 10 min  \u{b7}  1,840 words"
-        );
-        let one = Totals {
-            sessions: 1,
-            seconds: 59,
-            words: -1_234_567,
-        };
-        assert_eq!(
-            sessions_line(one),
-            "1 session  \u{b7}  0 min  \u{b7}  -1,234,567 words"
-        );
     }
 
     #[test]

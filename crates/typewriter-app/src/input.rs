@@ -26,6 +26,8 @@
 //! - Left / Right: free movement (if allowed)
 //! - Page Up / Page Down, arrows, Shift+arrows, Enter, Esc: the folder;
 //!   `app.rs` redirects them there
+//! - the writing log up close (click the calendar in the folder): Page Up /
+//!   Page Down turn the months, Esc or a click away puts it back
 //! - Esc: calm mode (typing view)
 //! - F11: fullscreen
 //! - Ctrl+S: save (Save As for a draft)

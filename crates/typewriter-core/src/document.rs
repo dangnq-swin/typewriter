@@ -8,11 +8,12 @@ use crate::carriage::Carriage;
 use crate::constraints::Constraints;
 use crate::page::{Page, Shift};
 use crate::scratchpad::Scratchpad;
-use crate::session::SessionStats;
+use crate::session::{SessionStats, WritingLog};
 
 /// Bump when older versions can't read the file. 2: session stats. 3: notes.
 /// 4: scratchpad. 5: type jams, the Delete correction. 6: re-fed sheets.
-pub const FORMAT_VERSION: u32 = 6;
+/// 7: words per day instead of sessions.
+pub const FORMAT_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
@@ -166,9 +167,12 @@ pub(crate) struct FolderFile {
     pub constraints: Constraints,
     pub carriage: Carriage,
     pub document: Document,
-    /// Absent before version 2.
-    #[serde(default)]
+    /// Versions 2 to 6: read to fold into `log`, never written.
+    #[serde(default, skip_serializing)]
     pub sessions: Vec<SessionStats>,
+    /// Absent before version 7.
+    #[serde(default)]
+    pub log: WritingLog,
 }
 
 #[derive(Debug, Error)]

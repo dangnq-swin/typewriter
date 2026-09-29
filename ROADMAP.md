@@ -47,7 +47,11 @@ M0–M9 are done; the git history has the details.
 
 ## M14: Writing log
 
-- [ ] Words per day as a small calendar in the folder view
+- [x] Words per day as a small calendar in the folder view: a month tent calendar standing
+      beyond the scratchpad, brought up close with a click, each day's net words pencilled in
+      (days in local time, weeks from Monday), turned back month by month to the first day
+      written on. The folder file keeps words per day in place of sessions (format version 7;
+      older files' sessions are folded into their days)
 
 ## M15: Desktop integration
 

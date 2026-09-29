@@ -18,6 +18,9 @@ toml = "1"
 ron = "0.12"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 rfd = "0.17"
+# Days for the writing log: local ones (std can't read the time zone), and
+# dates in folder files.
+jiff = { version = "0.2", features = ["serde"] }
 # Without its HTML layout engine: pages are drawn op by op.
 printpdf = { version = "0.12", default-features = false }
 # Reading .odt files: only the decoder ODF packages need.

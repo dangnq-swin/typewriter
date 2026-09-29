@@ -10,7 +10,7 @@ use eframe::egui::{self, Color32, CornerRadius, FontId, Id, LayerId, Order, Rect
 use typewriter_core::{Typewriter, export};
 
 use crate::machines::Machines;
-use crate::render::pdf;
+use crate::render::{calendar, pdf};
 use crate::storage;
 
 /// Autosave after this pause in typing.
@@ -426,9 +426,12 @@ fn is_untouched(machine: &Typewriter) -> bool {
 /// Reads a project into the machine it was typed on.
 pub fn open(machines: &Machines, path: &Path) -> anyhow::Result<Typewriter> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    Ok(Typewriter::from_folder_ron(&text, |name| {
-        machines.find(name)
-    })?)
+    let machine = |name: &str| machines.find(name);
+    Ok(Typewriter::from_folder_ron(
+        &text,
+        machine,
+        calendar::local_day,
+    )?)
 }
 
 fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {

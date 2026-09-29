@@ -1,8 +1,11 @@
 //! Focus goals and session stats: words written and time typed, from opening
-//! a project until it is put away.
+//! a project until it is put away; and the writing log, words per day.
 //!
-//! No clock here: the app passes key times and the session's start time.
+//! No clock here: the app passes key times and days.
 
+use std::collections::BTreeMap;
+
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 
 use crate::document::Document;
@@ -62,7 +65,8 @@ impl Goal {
     }
 }
 
-/// One session, as kept in the project file.
+/// One session, as folder files kept them before format 7. Read only to fold
+/// into the [`WritingLog`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionStats {
     /// Unix seconds.
@@ -73,21 +77,40 @@ pub struct SessionStats {
     pub words: i64,
 }
 
-/// Every session of a project, added up.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Totals {
-    pub sessions: usize,
-    pub seconds: u64,
-    pub words: i64,
-}
+/// Net words per day: one entry for each day written on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct WritingLog(BTreeMap<Date, i64>);
 
-impl Totals {
-    pub fn of(sessions: &[SessionStats]) -> Self {
-        sessions.iter().fold(Self::default(), |t, s| Self {
-            sessions: t.sessions + 1,
-            seconds: t.seconds + u64::from(s.seconds),
-            words: t.words + s.words,
-        })
+impl WritingLog {
+    /// Old sessions, each counted on the day it started. `day`: Unix seconds
+    /// to their day.
+    pub fn from_sessions(sessions: &[SessionStats], day: impl Fn(u64) -> Date) -> Self {
+        let mut log = Self::default();
+        for s in sessions {
+            log.add(day(s.started), s.words);
+        }
+        log
+    }
+
+    /// Adds `words` (negative: corrections) to `day`. A day back at zero
+    /// is dropped.
+    pub fn add(&mut self, day: Date, words: i64) {
+        let total = self.0.entry(day).or_default();
+        *total += words;
+        if *total == 0 {
+            self.0.remove(&day);
+        }
+    }
+
+    /// Days written on, oldest first.
+    pub fn days(&self) -> &BTreeMap<Date, i64> {
+        &self.0
+    }
+
+    /// Words over every day.
+    pub fn words(&self) -> i64 {
+        self.0.values().sum()
     }
 }
 
@@ -104,7 +127,6 @@ pub struct Progress {
 /// The session in progress.
 #[derive(Debug, Clone)]
 pub struct Session {
-    started: u64,
     words_at_start: usize,
     /// (sheets counted, their words). Filed sheets don't change: count once.
     filed: (usize, usize),
@@ -117,9 +139,8 @@ pub struct Session {
 
 impl Session {
     /// Starts counting from what is on the sheets now.
-    pub fn start(document: &Document, started: u64) -> Self {
+    pub fn start(document: &Document) -> Self {
         let mut session = Self {
-            started,
             words_at_start: 0,
             filed: (0, 0),
             words: 0,
@@ -174,16 +195,6 @@ impl Session {
         })
     }
 
-    /// The session so far, `None` if nothing happened.
-    pub fn stats(&self) -> Option<SessionStats> {
-        let stats = SessionStats {
-            started: self.started,
-            seconds: self.whole_seconds(),
-            words: self.net_words(),
-        };
-        (stats.seconds > 0 || stats.words != 0).then_some(stats)
-    }
-
     fn is_met(&self) -> bool {
         let words = |target| self.net_words() >= i64::from(target);
         let minutes = |target: u32| self.whole_seconds() >= target.saturating_mul(60);
@@ -198,7 +209,8 @@ impl Session {
         }
     }
 
-    fn net_words(&self) -> i64 {
+    /// Words at the end less at the start: corrections subtract.
+    pub fn net_words(&self) -> i64 {
         // Word counts never near i64::MAX.
         self.words as i64 - self.words_at_start as i64
     }
@@ -266,13 +278,13 @@ mod tests {
         document.feed(Page::new(40, 10));
         typed(document.current_mut(), 0, "three");
         document.feed(Page::new(40, 10));
-        let mut session = Session::start(&document, 0);
+        let mut session = Session::start(&document);
         assert!(document.roll_in(0, crate::page::Shift::default()));
         typed(document.current_mut(), 2, "four");
         document.feed(Page::new(40, 10));
         // The same number of sheets filed, one of them changed and moved.
         session.recount(&document);
-        assert_eq!(session.stats().map(|s| s.words), Some(1));
+        assert_eq!(session.net_words(), 1);
     }
 
     #[test]
@@ -297,8 +309,8 @@ mod tests {
     fn a_session_counts_net_words_and_typing_time() {
         let mut document = Document::new(Page::new(40, 10));
         typed(document.current_mut(), 0, "already here");
-        let mut session = Session::start(&document, 1000);
-        assert_eq!(session.stats(), None);
+        let mut session = Session::start(&document);
+        assert_eq!((session.net_words(), session.whole_seconds()), (0, 0));
 
         typed(document.current_mut(), 2, "one two three");
         session.typed(&document, 10.0);
@@ -309,20 +321,13 @@ mod tests {
         document.feed(Page::new(40, 10));
         typed(document.current_mut(), 0, "four");
         session.typed(&document, 206.0);
-        assert_eq!(
-            session.stats(),
-            Some(SessionStats {
-                started: 1000,
-                seconds: 36,
-                words: 4
-            })
-        );
+        assert_eq!((session.net_words(), session.whole_seconds()), (4, 36));
     }
 
     #[test]
     fn the_goal_is_reached_once() {
         let mut document = Document::new(Page::new(40, 10));
-        let mut session = Session::start(&document, 0);
+        let mut session = Session::start(&document);
         session.set_goal(Some(Goal::Words(2)));
         typed(document.current_mut(), 0, "one");
         assert!(!session.typed(&document, 1.0));
@@ -341,7 +346,7 @@ mod tests {
     #[test]
     fn a_goal_already_met_is_reached_quietly() {
         let mut document = Document::new(Page::new(40, 10));
-        let mut session = Session::start(&document, 0);
+        let mut session = Session::start(&document);
         typed(document.current_mut(), 0, "one two three");
         session.typed(&document, 1.0);
         session.set_goal(Some(Goal::Words(2)));
@@ -389,7 +394,7 @@ mod tests {
     #[test]
     fn words_or_minutes_is_reached_by_whichever_comes_first() {
         let mut document = Document::new(Page::new(40, 10));
-        let mut session = Session::start(&document, 0);
+        let mut session = Session::start(&document);
         session.set_goal(Goal::custom(Some(3), Some(1)));
         typed(document.current_mut(), 0, "one two");
         assert!(!session.typed(&document, 0.0));
@@ -403,26 +408,26 @@ mod tests {
     }
 
     #[test]
-    fn totals_add_up_sessions() {
-        let sessions = [
-            SessionStats {
-                started: 1,
-                seconds: 600,
-                words: 300,
-            },
-            SessionStats {
-                started: 2,
-                seconds: 60,
-                words: -20,
-            },
-        ];
-        assert_eq!(
-            Totals::of(&sessions),
-            Totals {
-                sessions: 2,
-                seconds: 660,
-                words: 280
-            }
-        );
+    fn old_sessions_fold_into_the_days_they_started() {
+        let session = |started, words| SessionStats {
+            started,
+            seconds: 60,
+            words,
+        };
+        let day = |seconds: u64| jiff::civil::date(2026, 9, 1 + (seconds / 100) as i8);
+        let log =
+            WritingLog::from_sessions(&[session(10, 100), session(90, -5), session(150, 40)], day);
+        let days: Vec<_> = log.days().iter().map(|(d, &w)| (d.day(), w)).collect();
+        assert_eq!(days, [(1, 95), (2, 40)]);
+        assert_eq!(log.words(), 135);
+    }
+
+    #[test]
+    fn a_day_back_at_zero_leaves_the_log() {
+        let mut log = WritingLog::default();
+        let day = jiff::civil::date(2026, 9, 30);
+        log.add(day, 12);
+        log.add(day, -12);
+        assert!(log.days().is_empty());
     }
 }

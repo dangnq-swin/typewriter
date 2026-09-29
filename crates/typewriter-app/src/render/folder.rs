@@ -13,6 +13,7 @@ use typewriter_core::carriage::Carriage;
 use typewriter_core::page::Page;
 use typewriter_core::profile::Margins;
 
+use super::calendar::{self, Month};
 use super::calm::Dimming;
 use super::note::{self, NoteArea};
 use super::paper::{self, INK};
@@ -33,6 +34,10 @@ const PULL_DEGREES: f32 = 45.0;
 const PULL_SECONDS: f32 = 0.25;
 /// The scratchpad, lying a little askew.
 const BOOK_TILT_DEGREES: f32 = 8.0;
+/// The calendar, turned a little towards the folder and leaning back as a
+/// tent calendar does.
+const CALENDAR_TURN_DEGREES: f32 = -50.0;
+const CALENDAR_LEAN_DEGREES: f32 = 20.0;
 
 const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
 const MANILA: Color32 = Color32::from_rgb(0xDD, 0xBF, 0x86);
@@ -41,6 +46,10 @@ const MANILA_EDGE: Color32 = Color32::from_rgb(0xA3, 0x85, 0x52);
 /// Lighter than elsewhere: stacked edges must not read as lines.
 const SHEET_EDGE: Color32 = Color32::from_rgb(0xC9, 0xC2, 0xB4);
 const SHADOW: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x30);
+/// The calendar's grey board stand; its inside in shade.
+const STAND: Color32 = Color32::from_rgb(0x5C, 0x5A, 0x5E);
+const STAND_INSIDE: Color32 = Color32::from_rgb(0x46, 0x44, 0x48);
+const STAND_EDGE: Color32 = Color32::from_rgb(0x30, 0x2E, 0x32);
 const LABEL: Color32 = Color32::from_rgb(0xEE, 0xE8, 0xDC);
 const LABEL_DARK: Color32 = Color32::from_rgb(0x5A, 0x48, 0x2A);
 
@@ -98,64 +107,125 @@ impl Placement {
     }
 }
 
-/// The scratchpad, true to scale, on the desk to the folder's right.
-struct Book<'a> {
+/// Something on the desk, a little askew: the scratchpad lying flat, the
+/// calendar standing.
+struct OnDesk<'a> {
     camera: &'a Camera,
     size: Vec2,
+    /// Lying: its centre. Standing: its foot's.
     centre: Vec2,
+    /// Clockwise radians.
+    angle: f32,
+    /// Standing, leaning back this many radians from upright.
+    lean: Option<f32>,
     /// Its corners on screen.
     quad: [Pos2; 4],
 }
 
-impl<'a> Book<'a> {
-    /// `size`: a sheet's; `folder_half`, `folder_bottom`: the folder's
-    /// right edge and near edge, desk units.
-    fn beside(
-        camera: &'a Camera,
-        size: Vec2,
-        metrics: &Metrics,
-        folder_half: f32,
-        folder_bottom: f32,
-    ) -> Self {
-        let book =
-            scratchpad::BOOK_INCHES * metrics.points_per_inch * size.x / metrics.paper_size.x;
-        let centre = vec2(
-            folder_half + 0.12 * size.x + book.x / 2.0,
-            folder_bottom + 0.08 * size.y + book.y / 2.0,
-        );
+impl<'a> OnDesk<'a> {
+    /// `size`, `centre`: desk units.
+    fn lying(camera: &'a Camera, size: Vec2, centre: Vec2, degrees: f32) -> Self {
+        Self::new(camera, size, centre, degrees, None)
+    }
+
+    fn standing(camera: &'a Camera, size: Vec2, foot: Vec2, degrees: f32, lean: f32) -> Self {
+        Self::new(camera, size, foot, degrees, Some(lean.to_radians()))
+    }
+
+    fn new(camera: &'a Camera, size: Vec2, centre: Vec2, degrees: f32, lean: Option<f32>) -> Self {
         let mut this = Self {
             camera,
-            size: book,
+            size,
             centre,
+            angle: degrees.to_radians(),
+            lean,
             quad: [Pos2::ZERO; 4],
         };
-        this.quad = [
-            Pos2::ZERO,
-            pos2(book.x, 0.0),
-            pos2(book.x, book.y),
-            pos2(0.0, book.y),
-        ]
-        .map(|p| this.to_screen(p));
+        this.quad = this.on_screen(Rect::from_min_size(Pos2::ZERO, size));
         this
     }
 
-    /// A point on the cover (from its top-left, y down) on screen.
-    fn to_screen(&self, p: Pos2) -> Pos2 {
-        let d = vec2(p.x - self.size.x / 2.0, self.size.y / 2.0 - p.y);
-        let on_desk = self.centre + rotate(d, BOOK_TILT_DEGREES.to_radians());
-        self.camera.project(on_desk, 0.0)
+    /// A point on it (from its top-left, y down) on the desk plane, and
+    /// its height above it. `shadow`: where it falls, cast from the front.
+    fn on_desk(&self, p: Pos2, shadow: bool) -> (Vec2, f32) {
+        let across = p.x - self.size.x / 2.0;
+        let (d, lift) = match self.lean {
+            None => (vec2(across, self.size.y / 2.0 - p.y), 0.0),
+            Some(lean) => {
+                let up = self.size.y - p.y;
+                let (back, lift) = (up * lean.sin(), up * lean.cos());
+                if shadow {
+                    (vec2(across, back + 0.6 * lift), 0.0)
+                } else {
+                    (vec2(across, back), lift)
+                }
+            }
+        };
+        (self.centre + rotate(d, self.angle), lift)
     }
 
-    fn paint(&self, painter: &Painter, hovered: bool) {
-        let outline: Vec<Pos2> = scratchpad::outline(self.size)
+    fn to_screen(&self, p: Pos2) -> Pos2 {
+        let (plane, lift) = self.on_desk(p, false);
+        self.camera.project(plane, lift)
+    }
+
+    fn on_screen(&self, rect: Rect) -> [Pos2; 4] {
+        [
+            rect.left_top(),
+            rect.right_top(),
+            rect.right_bottom(),
+            rect.left_bottom(),
+        ]
+        .map(|p| self.to_screen(p))
+    }
+
+    /// Draws `shapes`, laid out flat on it, over the shadow of `outline`.
+    fn paint(&self, painter: &Painter, outline: Vec<Pos2>, shapes: Vec<Shape>) {
+        let shadow = outline
             .into_iter()
-            .map(|p| self.to_screen(p) + vec2(3.0, 5.0))
+            .map(|p| match self.lean {
+                None => self.to_screen(p) + vec2(3.0, 5.0),
+                Some(_) => {
+                    let (plane, _) = self.on_desk(p, true);
+                    self.camera.project(plane, 0.0)
+                }
+            })
             .collect();
-        painter.add(Shape::convex_polygon(outline, SHADOW, Stroke::NONE));
-        let cover = scratchpad::cover(painter, self.size, hovered);
-        painter.add(Shape::mesh(scratchpad::warp(painter, cover, |p| {
+        painter.add(Shape::convex_polygon(shadow, SHADOW, Stroke::NONE));
+        if let Some(lean) = self.lean {
+            self.paint_stand(painter, lean);
+        }
+        painter.add(Shape::mesh(scratchpad::warp(painter, shapes, |p| {
             self.to_screen(p)
         })));
+    }
+
+    /// A tent stand behind a standing card: a base on the desk, and a back
+    /// board leaning in to meet the card at the top. Its outside faces away:
+    /// only the inside shows, past the card's open side.
+    fn paint_stand(&self, painter: &Painter, lean: f32) {
+        let point = |across: f32, back: f32, lift: f32| {
+            let plane = self.centre + rotate(vec2(across, back), self.angle);
+            self.camera.project(plane, lift)
+        };
+        let half = 0.5 * self.size.x;
+        let (top_back, top_lift) = (self.size.y * lean.sin(), self.size.y * lean.cos());
+        let foot_back = 2.0 * top_back;
+        let base = [
+            point(-half, 0.0, 0.0),
+            point(half, 0.0, 0.0),
+            point(half, foot_back, 0.0),
+            point(-half, foot_back, 0.0),
+        ];
+        let board = [
+            point(-half, top_back, top_lift),
+            point(half, top_back, top_lift),
+            point(half, foot_back, 0.0),
+            point(-half, foot_back, 0.0),
+        ];
+        let edge = Stroke::new(1.0, STAND_EDGE);
+        painter.add(Shape::convex_polygon(base.to_vec(), STAND, edge));
+        painter.add(Shape::convex_polygon(board.to_vec(), STAND_INSIDE, edge));
     }
 }
 
@@ -259,6 +329,8 @@ pub struct FolderResponse {
     pub pulled: Option<[Pos2; 4]>,
     /// The scratchpad beside the folder was clicked.
     pub open_scratchpad: bool,
+    /// The calendar beside the folder was clicked.
+    pub open_log: bool,
 }
 
 /// The project's labels in the folder view.
@@ -273,8 +345,9 @@ pub struct ProjectLabel<'a> {
     pub stats: &'a str,
 }
 
-/// Draws the folder with sheet `selected` pulled out. `renaming` turns the
-/// tab into a name field; `renumbering`, the chosen sheet's number into one.
+/// Draws the folder with sheet `selected` pulled out, and `log` beside it.
+/// `renaming` turns the tab into a name field; `renumbering`, the chosen
+/// sheet's number into one. `covered`: something lies over the view.
 #[allow(clippy::too_many_arguments)]
 pub fn show_folder(
     ui: &mut Ui,
@@ -284,8 +357,10 @@ pub fn show_folder(
     margins: &Margins,
     selected: usize,
     project: &ProjectLabel<'_>,
+    log: &Month,
     renaming: Option<&mut String>,
     renumbering: Option<&mut String>,
+    covered: bool,
 ) -> FolderResponse {
     let painter = ui.painter_at(view);
     painter.rect_filled(view, CornerRadius::ZERO, DIM);
@@ -327,18 +402,49 @@ pub fn show_folder(
             Stroke::new(1.0, MANILA_EDGE),
         ));
     }
-    let book = Book::beside(&camera, size, metrics, half, bottom);
-    let book_hovered = ui
-        .input(|i| i.pointer.hover_pos())
-        .is_some_and(|p| contains(&book.quad, p));
-    book.paint(&painter, book_hovered);
+    // True to scale on the desk right of the folder: the book near, the
+    // calendar standing beyond it. Nothing answers the pointer when covered.
+    let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|_| !covered);
+    let desk = |inches: Vec2| inches * metrics.points_per_inch * size.x / metrics.paper_size.x;
+    let left = half + 0.12 * size.x;
+    let book_size = desk(scratchpad::BOOK_INCHES);
+    let book_centre = vec2(left, bottom + 0.08 * size.y) + book_size / 2.0;
+    let calendar_size = desk(calendar::CALENDAR_INCHES);
+    let calendar_foot = vec2(
+        left + 0.5 * calendar_size.x,
+        book_centre.y + 0.5 * book_size.y + 0.1 * size.y,
+    );
+    let calendar = OnDesk::standing(
+        &camera,
+        calendar_size,
+        calendar_foot,
+        CALENDAR_TURN_DEGREES,
+        CALENDAR_LEAN_DEGREES,
+    );
+    let calendar_hovered = pointer.is_some_and(|p| contains(&calendar.quad, p));
+    let card = Rect::from_min_size(Pos2::ZERO, calendar_size);
+    calendar.paint(
+        &painter,
+        [
+            card.left_top(),
+            card.right_top(),
+            card.right_bottom(),
+            card.left_bottom(),
+        ]
+        .to_vec(),
+        calendar::Layout::new(calendar_size).paint(&painter, log, None, calendar_hovered),
+    );
+    let book = OnDesk::lying(&camera, book_size, book_centre, BOOK_TILT_DEGREES);
+    let book_hovered = pointer.is_some_and(|p| contains(&book.quad, p));
+    book.paint(
+        &painter,
+        scratchpad::outline(book_size),
+        scratchpad::cover(&painter, book_size, book_hovered),
+    );
     let tab_quad = tab.map(|p| camera.project(p, 0.0));
     let tab_centre = camera.project(vec2(-0.35 * size.x, top + 0.035 * size.y), 0.0);
     let renaming_now = renaming.is_some();
-    let tab_hovered = !renaming_now
-        && ui
-            .input(|i| i.pointer.hover_pos())
-            .is_some_and(|p| contains(&tab_quad, p));
+    let tab_hovered = !renaming_now && pointer.is_some_and(|p| contains(&tab_quad, p));
     let mut tab_action = None;
     if let Some(name) = renaming {
         tab_action = rename_field(ui, tab_centre, name);
@@ -529,11 +635,22 @@ pub fn show_folder(
     if book_hovered {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
+    let calendar_response = ui
+        .interact(
+            Rect::from_points(&calendar.quad),
+            Id::new("writing-log"),
+            super::CLICK,
+        )
+        .on_hover_text("Writing log");
+    if calendar_hovered {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
     FolderResponse {
         opened,
         action,
         pulled: pulled_quad,
         open_scratchpad: book_hovered && book_response.clicked(),
+        open_log: calendar_hovered && calendar_response.clicked(),
     }
 }
 
@@ -912,6 +1029,22 @@ mod tests {
         let bottom_left = out.on_plane(size, vec2(0.0, size.y));
         assert!(top_left.x < bottom_left.x);
         assert!((out.angle.to_degrees() - PULL_DEGREES).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_standing_card_rises_from_its_foot_leaning_back() {
+        let camera = Camera::new(pos2(500.0, 500.0), 1000.0);
+        let size = vec2(60.0, 45.0);
+        let card = OnDesk::standing(&camera, size, vec2(0.0, 100.0), 0.0, 20.0);
+        let (foot, foot_lift) = card.on_desk(pos2(30.0, size.y), false);
+        assert_eq!((foot, foot_lift), (vec2(0.0, 100.0), 0.0));
+        let (top, lift) = card.on_desk(pos2(30.0, 0.0), false);
+        assert!(top.y > foot.y && lift > 0.9 * size.y);
+        // Its shadow falls further back on the desk.
+        let (shadow, shadow_lift) = card.on_desk(pos2(30.0, 0.0), true);
+        assert!(shadow.y > top.y && shadow_lift == 0.0);
+        let [top_left, .., bottom_left] = card.quad;
+        assert!(top_left.y < bottom_left.y, "{top_left:?} {bottom_left:?}");
     }
 
     #[test]
