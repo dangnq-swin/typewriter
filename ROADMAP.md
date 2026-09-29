@@ -1,8 +1,7 @@
 # Roadmap
 
 Milestones are ordered. Each one should leave the app in a working, testable state.
-Decisions already made are listed in [`AGENTS.md`](AGENTS.md#decision-log). Items marked
-❓ need input from the maintainer before implementation starts.
+Items marked ❓ need input from the maintainer before implementation starts.
 
 ---
 
