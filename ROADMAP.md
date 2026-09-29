@@ -45,8 +45,9 @@ M0–M8 are done; the git history has the details.
 - [x] Roll a finished sheet back in from the folder (Sheet… → Roll back in) and keep typing
       on it, out of line by a random third of a cell per feeding; fed out, it goes back to
       its place (folder format version 6)
-- [ ] ❓ Copy holder: put a finished sheet on a stand beside the machine and read it while
-      typing (e.g. retyping a page), with a line guide to keep your place
+- [x] Copy holder: put a finished sheet on a stand left of the machine (Sheet… → Put on the
+      copy holder) and read it while typing, under a line guide moved by clicking a line.
+      Not saved with the project
 - [ ] ❓ Carbon copy: type with a carbon sheet for a faded duplicate in the folder
 - [ ] ❓ Paper sizes: US Letter and index cards
 

@@ -246,6 +246,8 @@ pub enum FolderAction {
     Scrunch,
     /// Roll the chosen sheet back into the machine.
     RollIn,
+    /// Stand the chosen sheet on the copy holder.
+    PutOnHolder,
 }
 
 #[derive(Debug, Default)]
@@ -641,6 +643,12 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<Folde
                         (
                             "Roll back in",
                             FolderAction::RollIn,
+                            has_sheets,
+                            "No finished sheets yet.",
+                        ),
+                        (
+                            "Put on the copy holder",
+                            FolderAction::PutOnHolder,
                             has_sheets,
                             "No finished sheets yet.",
                         ),

@@ -90,7 +90,7 @@ typewriter/
 │       └── src/
 │           ├── main.rs
 │           ├── app.rs          # eframe::App impl, top-level state
-│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad, platen knob
+│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad, platen knob, copy holder
 │           ├── input.rs        # key events -> core commands
 │           ├── import.rs       # `typewriter import x.odt`: an .odt retyped into a new project
 │           ├── odt.rs          # .odt read as plain paragraphs (zip, quick-xml)

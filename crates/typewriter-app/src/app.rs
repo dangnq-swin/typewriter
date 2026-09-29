@@ -20,6 +20,7 @@ use crate::render::background::Background;
 use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
+use crate::render::holder;
 use crate::render::knob;
 use crate::render::platen::{self, PlatenView};
 use crate::render::{
@@ -134,6 +135,8 @@ pub struct TypewriterApp {
     renumbering: Option<String>,
     /// Open: where the pencil is.
     scratchpad: Option<pad::Writing>,
+    /// A finished sheet on the copy holder. Not saved.
+    holder: Option<holder::Holder>,
     /// The sheet awaiting a yes to scrunch.
     confirm_scrunch: Option<usize>,
     scrunching: Option<Scrunching>,
@@ -220,6 +223,7 @@ impl TypewriterApp {
             annotating: None,
             renumbering: None,
             scratchpad: None,
+            holder: None,
             confirm_scrunch: None,
             scrunching: None,
             leaving: None,
@@ -537,6 +541,7 @@ impl TypewriterApp {
         self.annotating = None;
         self.renumbering = None;
         self.scratchpad = None;
+        self.holder = None;
         self.confirm_scrunch = None;
         self.scrunching = None;
         // Another machine may have another pitch and paper.
@@ -568,6 +573,12 @@ impl TypewriterApp {
             FolderAction::Scrunch => {
                 if self.selected < self.machine.document().finished().len() {
                     self.confirm_scrunch = Some(self.selected);
+                }
+            }
+            FolderAction::PutOnHolder => {
+                if let Some(page) = self.machine.document().finished().get(self.selected) {
+                    self.holder = Some(holder::Holder::new(page.clone()));
+                    self.view = View::Typing;
                 }
             }
             FolderAction::RollIn => {
@@ -1165,6 +1176,17 @@ impl TypewriterApp {
         }
     }
 
+    /// The copy holder, if a sheet is on it.
+    fn show_holder(&mut self, ui: &mut egui::Ui, view: Rect) {
+        let Some(stand) = &mut self.holder else {
+            return;
+        };
+        let ink_realism = self.settings.look.ink_realism;
+        if holder::show(ui, view, self.machine.profile(), stand, ink_realism) {
+            self.holder = None;
+        }
+    }
+
     /// Drag the knob to roll the paper, a half-line a notch.
     fn platen_knob(&mut self, ui: &egui::Ui, name: &str, knob: Rect, now: f64) {
         self.knobs.push(knob);
@@ -1359,7 +1381,12 @@ impl eframe::App for TypewriterApp {
                 self.background.paint(&ui.painter_at(view), view);
                 let sheets = self.machine.document().finished();
                 match self.view {
-                    View::Typing => self.show_typing(ui, now),
+                    View::Typing => {
+                        self.show_typing(ui, now);
+                        // Last: above the paper and the knob beside it,
+                        // for clicks too.
+                        self.show_holder(ui, view);
+                    }
                     View::Folder => {
                         let name = self.filing.name();
                         let location = self.filing.location();

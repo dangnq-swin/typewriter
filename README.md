@@ -108,8 +108,9 @@ Opened with **Page Up** or the folder icon.
 | 1 or ! | Open the scratchpad (or click the notebook beside the folder) |
 
 The plates below the folder save, open, rename and export the project; click the name on
-the folder's tab to rename it. The **Sheet…** plate rolls the chosen sheet back into the
-machine (a little out of line, as a re-fed sheet is; it goes back to its place when fed
+the folder's tab to rename it. The **Sheet…** plate puts the chosen sheet on the
+copy holder left of the machine (click a line to move its guide, ✕ to take it down), rolls it
+back into the machine (a little out of line, as a re-fed sheet is; it goes back to its place when fed
 out), renumbers it, or scrunches it up, deleting after asking.
 
 In an open sheet, click its top margin to pencil a note there (Enter for a new line, as many

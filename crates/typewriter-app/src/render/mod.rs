@@ -5,6 +5,7 @@ pub mod background;
 pub mod calm;
 pub mod feed;
 pub mod folder;
+pub mod holder;
 pub mod knob;
 pub mod note;
 pub mod pad;
