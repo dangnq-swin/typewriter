@@ -9,7 +9,7 @@ use eframe::egui::{self, FontData, FontDefinitions, FontFamily, Painter, Pos2, R
 use typewriter_core::page::Page;
 use typewriter_core::session::Totals;
 use typewriter_core::{
-    Command, Constraints, Direction, EraseMode, Event, Goal, Session, Side, Typewriter,
+    BlockReason, Command, Constraints, Direction, EraseMode, Event, Goal, Session, Side, Typewriter,
 };
 
 use crate::audio::{self, Audio};
@@ -35,6 +35,7 @@ const SCROLL_POINTS_PER_STEP: f32 = 40.0;
 /// Strikes closer than this tangle, with type jams on. Frame-timed: keys
 /// in one frame count as together.
 const JAM_SECONDS: f64 = 0.03;
+const JAMMED: &str = "Jammed: Backspace frees the typebars";
 /// The most notches one frame's knob turn rolls.
 const KNOB_NOTCHES_PER_FRAME: f32 = 3.0;
 /// Platen guides stay this long after the knob stops, then fade.
@@ -361,7 +362,14 @@ impl TypewriterApp {
                 Event::PageEnd => page_end = true,
                 // Only a roll that happened shows the guides.
                 Event::LineFeed if knob => self.knob_turned = now,
-                Event::Blocked(_) => self.platen.jolt(now),
+                Event::Blocked(reason) => {
+                    self.platen.jolt(now);
+                    // Shown again at each blocked key: it stays while tried.
+                    if reason == BlockReason::Jammed {
+                        self.filing.notify(JAMMED.to_owned(), now);
+                    }
+                }
+                Event::Freed => self.filing.withdraw(JAMMED),
                 Event::Erase(EraseMode::Fluid) => {
                     let c = self.machine.carriage();
                     self.wet.insert((c.half_line, c.column), now);

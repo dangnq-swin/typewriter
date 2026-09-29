@@ -367,6 +367,13 @@ impl Filing {
         self.notice = Some((text, now));
     }
 
+    /// Takes the notice down early, if it still says `text`.
+    pub fn withdraw(&mut self, text: &str) {
+        if self.notice.as_ref().is_some_and(|(shown, _)| shown == text) {
+            self.notice = None;
+        }
+    }
+
     pub fn is_animating(&self, now: f64) -> bool {
         self.dialog.is_some()
             || self
@@ -433,6 +440,16 @@ fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_notice_is_withdrawn_only_while_it_still_says_so() {
+        let mut filing = Filing::draft();
+        filing.notify("Jammed".into(), 0.0);
+        filing.withdraw("Saved");
+        assert!(filing.notice.is_some());
+        filing.withdraw("Jammed");
+        assert!(filing.notice.is_none());
+    }
 
     #[test]
     fn the_autosave_plate_follows_the_last_write() {
