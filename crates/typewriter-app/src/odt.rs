@@ -11,25 +11,37 @@ const MIMETYPE: &str = "application/vnd.oasis.opendocument.text";
 /// Not the body's text: comments, footnotes, deleted changes.
 const ASIDES: [&str; 3] = ["office:annotation", "text:note", "text:tracked-changes"];
 const SOFT_HYPHEN: char = '\u{ad}';
+/// Far more than any manuscript's text.
+const CONTENT_MOST_BYTES: u64 = 64 * 1024 * 1024;
+const MIMETYPE_MOST_BYTES: u64 = 1024;
 
 /// The .odt's paragraphs, headings and list items included; a `\n` in one is
 /// a line break. Formatting is dropped.
 pub fn paragraphs(file: impl Read + Seek) -> anyhow::Result<Vec<String>> {
     let mut archive = zip::ZipArchive::new(file).context("not an OpenDocument file")?;
-    let mut mimetype = String::new();
-    archive
+    let mimetype = archive
         .by_name("mimetype")
-        .context("not an OpenDocument file")?
-        .read_to_string(&mut mimetype)?;
+        .context("not an OpenDocument file")?;
+    let mimetype = read_at_most(mimetype, MIMETYPE_MOST_BYTES, "its mimetype")?;
     if mimetype.trim() != MIMETYPE {
         bail!("not an OpenDocument text document ({})", mimetype.trim());
     }
-    let mut content = String::new();
-    archive
+    let content = archive
         .by_name("content.xml")
-        .context("the document has no content")?
-        .read_to_string(&mut content)?;
+        .context("the document has no content")?;
+    let content = read_at_most(content, CONTENT_MOST_BYTES, "its content")?;
     parse(&content).context("the document's content is damaged")
+}
+
+/// `entry` unpacked, refused past `most` bytes: a small file can unpack to
+/// gigabytes (a zip bomb).
+fn read_at_most(entry: impl Read, most: u64, what: &str) -> anyhow::Result<String> {
+    let mut text = String::new();
+    entry.take(most + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > most {
+        bail!("{what} is over {} MiB", most / (1024 * 1024));
+    }
+    Ok(text)
 }
 
 fn parse(xml: &str) -> anyhow::Result<Vec<String>> {
@@ -132,6 +144,16 @@ mod tests {
                 "Last",
             ]
         );
+    }
+
+    #[test]
+    fn unpacking_stops_at_the_limit() {
+        let small = read_at_most(&b"12345"[..], 5, "it").unwrap();
+        assert_eq!(small, "12345");
+        let error = read_at_most(&[b'x'; 3 * 1024 * 1024][..], 2 * 1024 * 1024, "it")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, "it is over 2 MiB");
     }
 
     #[test]
