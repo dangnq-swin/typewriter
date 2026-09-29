@@ -1,18 +1,21 @@
-//! Everything drawn: sheets, platen view, folder, plates, settings, PDF.
+//! Everything drawn: sheets, platen view, folder, plates, scratchpad,
+//! settings, PDF.
 
 pub mod background;
 pub mod calm;
 pub mod feed;
 pub mod folder;
 pub mod note;
+pub mod pad;
 pub mod paper;
 pub mod pdf;
 pub mod platen;
 pub mod ruler;
+pub mod scratchpad;
 pub mod scrunch;
 pub mod settings;
 
-use eframe::egui::{Color32, FontFamily, FontId, Vec2, vec2};
+use eframe::egui::{Color32, FontFamily, FontId, Sense, Vec2, vec2};
 use typewriter_core::Profile;
 
 pub const FONT_FAMILY: &str = "typewriter";
@@ -28,6 +31,10 @@ pub const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
 pub const SHEET_EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
 /// Hovered controls and the typing pointer.
 pub const HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
+
+/// Clickable, never focused: Tab and Enter belong to the typewriter, and a
+/// focused control would take Enter as a click.
+pub const CLICK: Sense = Sense::CLICK;
 
 /// Page geometry in screen points.
 #[derive(Debug, Clone)]
@@ -85,6 +92,12 @@ impl Metrics {
 pub fn smoothstep(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
+}
+
+/// `v` turned by `angle` radians: clockwise on screen, where y is down.
+pub fn rotate(v: Vec2, angle: f32) -> Vec2 {
+    let (sin, cos) = angle.sin_cos();
+    vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
 }
 
 /// Bits `shift..shift + 16` of `bits` as 0..=1.

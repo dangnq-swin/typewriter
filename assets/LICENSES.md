@@ -6,6 +6,7 @@ Every file under `assets/` must be listed here with its source and license.
 |---|---|---|
 | `fonts/courier-prime/CourierPrime-Regular.ttf` | [google/fonts `ofl/courierprime`](https://github.com/google/fonts/tree/main/ofl/courierprime), upstream [quoteunquoteapps/CourierPrime](https://github.com/quoteunquoteapps/CourierPrime) | SIL OFL 1.1 (`fonts/courier-prime/OFL.txt`) |
 | `fonts/caveat/Caveat-Regular.ttf` | [googlefonts/caveat](https://github.com/googlefonts/caveat) (`fonts/ttf`), the Caveat Project Authors | SIL OFL 1.1 (`fonts/caveat/OFL.txt`) |
+| `fonts/jost/Jost-Bold.ttf` | [indestructible-type/Jost](https://github.com/indestructible-type/Jost) (`fonts/ttf/Jost-700-Bold.ttf`), the Jost Project Authors | SIL OFL 1.1 (`fonts/jost/OFL.txt`) |
 | `icons/typewriter.svg` | Drawn for this project | GPL-3.0-or-later |
 | `paper/ivory-off-white-paper-texture.jpg` | [Ivory Off White Paper Texture](https://www.photos-public-domain.com/2012/05/24/ivory-off-white-paper-texture/), photos-public-domain.com | Public domain |
 | `sounds/key-1.wav`, `sounds/backspace.wav`, `sounds/blocked.wav` | [Typewriter, Key](https://bigsoundbank.com/typewriter-key-s2842.html) (Hermes Precisa 305), Joseph Sardin, BigSoundBank | CC0 |

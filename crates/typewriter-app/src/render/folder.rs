@@ -5,7 +5,7 @@
 //! faint ink bars until opened.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Mesh, Pos2, Rect, Sense, Shape,
+    self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Mesh, Painter, Pos2, Rect, Shape,
     Stroke, Ui, Vec2, pos2, vec2,
 };
 use typewriter_core::Profile;
@@ -16,7 +16,7 @@ use typewriter_core::profile::Margins;
 use super::calm::Dimming;
 use super::note::{self, NoteArea};
 use super::paper::{self, INK};
-use super::{HIGHLIGHT, Metrics, SHEET};
+use super::{HIGHLIGHT, Metrics, SHEET, rotate, scratchpad};
 use crate::filing::ExportFormat;
 
 const TILT_DEGREES: f32 = 38.0;
@@ -31,6 +31,8 @@ const MAX_STACK: f32 = 0.03;
 const PULL: f32 = 1.0;
 const PULL_DEGREES: f32 = 45.0;
 const PULL_SECONDS: f32 = 0.25;
+/// The scratchpad, lying a little askew.
+const BOOK_TILT_DEGREES: f32 = 8.0;
 
 const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
 const MANILA: Color32 = Color32::from_rgb(0xDD, 0xBF, 0x86);
@@ -82,8 +84,7 @@ impl Placement {
     /// A sheet point (`y` down the page) on the desk plane.
     fn on_plane(&self, size: Vec2, local: Vec2) -> Vec2 {
         let d = vec2(local.x - size.x / 2.0, size.y / 2.0 - local.y);
-        let (sin, cos) = self.angle.sin_cos();
-        self.centre + vec2(d.x * cos - d.y * sin, d.x * sin + d.y * cos)
+        self.centre + rotate(d, self.angle)
     }
 
     fn quad(&self, camera: &Camera, size: Vec2, min: Vec2, max: Vec2, lift: f32) -> [Pos2; 4] {
@@ -94,6 +95,67 @@ impl Placement {
             vec2(min.x, max.y),
         ]
         .map(|p| camera.project(self.on_plane(size, p), lift))
+    }
+}
+
+/// The scratchpad, true to scale, on the desk to the folder's right.
+struct Book<'a> {
+    camera: &'a Camera,
+    size: Vec2,
+    centre: Vec2,
+    /// Its corners on screen.
+    quad: [Pos2; 4],
+}
+
+impl<'a> Book<'a> {
+    /// `size`: a sheet's; `folder_half`, `folder_bottom`: the folder's
+    /// right edge and near edge, desk units.
+    fn beside(
+        camera: &'a Camera,
+        size: Vec2,
+        metrics: &Metrics,
+        folder_half: f32,
+        folder_bottom: f32,
+    ) -> Self {
+        let book =
+            scratchpad::BOOK_INCHES * metrics.points_per_inch * size.x / metrics.paper_size.x;
+        let centre = vec2(
+            folder_half + 0.12 * size.x + book.x / 2.0,
+            folder_bottom + 0.08 * size.y + book.y / 2.0,
+        );
+        let mut this = Self {
+            camera,
+            size: book,
+            centre,
+            quad: [Pos2::ZERO; 4],
+        };
+        this.quad = [
+            Pos2::ZERO,
+            pos2(book.x, 0.0),
+            pos2(book.x, book.y),
+            pos2(0.0, book.y),
+        ]
+        .map(|p| this.to_screen(p));
+        this
+    }
+
+    /// A point on the cover (from its top-left, y down) on screen.
+    fn to_screen(&self, p: Pos2) -> Pos2 {
+        let d = vec2(p.x - self.size.x / 2.0, self.size.y / 2.0 - p.y);
+        let on_desk = self.centre + rotate(d, BOOK_TILT_DEGREES.to_radians());
+        self.camera.project(on_desk, 0.0)
+    }
+
+    fn paint(&self, painter: &Painter, hovered: bool) {
+        let outline: Vec<Pos2> = scratchpad::outline(self.size)
+            .into_iter()
+            .map(|p| self.to_screen(p) + vec2(3.0, 5.0))
+            .collect();
+        painter.add(Shape::convex_polygon(outline, SHADOW, Stroke::NONE));
+        let cover = scratchpad::cover(painter, self.size, hovered);
+        painter.add(Shape::mesh(scratchpad::warp(painter, cover, |p| {
+            self.to_screen(p)
+        })));
     }
 }
 
@@ -191,6 +253,8 @@ pub struct FolderResponse {
     pub action: Option<FolderAction>,
     /// The chosen sheet's outline: where a scrunch starts.
     pub pulled: Option<[Pos2; 4]>,
+    /// The scratchpad beside the folder was clicked.
+    pub open_scratchpad: bool,
 }
 
 /// The project's labels in the folder view.
@@ -259,6 +323,11 @@ pub fn show_folder(
             Stroke::new(1.0, MANILA_EDGE),
         ));
     }
+    let book = Book::beside(&camera, size, metrics, half, bottom);
+    let book_hovered = ui
+        .input(|i| i.pointer.hover_pos())
+        .is_some_and(|p| contains(&book.quad, p));
+    book.paint(&painter, book_hovered);
     let tab_quad = tab.map(|p| camera.project(p, 0.0));
     let tab_centre = camera.project(vec2(-0.35 * size.x, top + 0.035 * size.y), 0.0);
     let renaming_now = renaming.is_some();
@@ -377,7 +446,7 @@ pub fn show_folder(
     }
 
     // Clicks only open the pulled-out sheet; choosing is keys only.
-    let response = ui.interact(view, Id::new("folder"), Sense::click());
+    let response = ui.interact(view, Id::new("folder"), super::CLICK);
     let hovered = match (response.hover_pos(), pulled_quad, chosen) {
         (Some(pointer), Some(quad), Some(i)) if contains(&quad, pointer) => Some(i),
         _ => None,
@@ -445,10 +514,22 @@ pub fn show_folder(
             opened = hovered;
         }
     }
+    // After the folder's own: the book takes clicks over it.
+    let book_response = ui
+        .interact(
+            Rect::from_points(&book.quad),
+            Id::new("scratchpad-book"),
+            super::CLICK,
+        )
+        .on_hover_text("Scratchpad (1)");
+    if book_hovered {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
     FolderResponse {
         opened,
         action,
         pulled: pulled_quad,
+        open_scratchpad: book_hovered && book_response.clicked(),
     }
 }
 
@@ -513,7 +594,7 @@ fn menus(ui: &mut Ui, view: Rect, saved: bool, has_sheets: bool) -> Option<Folde
     for (index, (galley, width)) in galleys.into_iter().zip(widths).enumerate() {
         let rect = Rect::from_min_size(pos2(x, y), vec2(width, 26.0));
         x += width + gap;
-        let plate = ui.interact(rect, Id::new(("desk-menu", index)), Sense::click());
+        let plate = ui.interact(rect, Id::new(("desk-menu", index)), super::CLICK);
         let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&plate));
         let (fill, edge) = if plate.hovered() || open {
             (MANILA_HOVER, HIGHLIGHT)
@@ -689,7 +770,7 @@ pub fn show_sheet(
                 .interact(
                     area.margin_rect(origin, metrics.paper_size.x),
                     Id::new("note-margin"),
-                    Sense::click(),
+                    super::CLICK,
                 )
                 .on_hover_text("Pencil a note");
             if margin.hovered() {
@@ -704,29 +785,18 @@ pub fn show_sheet(
 /// The note being written on the paper. Refuses input past the margin's
 /// lines. Esc or a click away finishes.
 fn note_field(ui: &mut Ui, area: &NoteArea, paper: Pos2, text: &mut String) -> Option<String> {
+    let field = note::PencilField {
+        rect: area.writing_rect(paper),
+        id: Id::new("note-field"),
+        font: area.font(),
+        rows: area.max_lines,
+    };
     let before = text.clone();
-    let rect = area.writing_rect(paper);
-    let output = ui
-        .scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-            egui::TextEdit::multiline(text)
-                .id(Id::new("note-field"))
-                .font(area.font())
-                .text_color(note::GRAPHITE)
-                .frame(egui::Frame::NONE)
-                .margin(egui::Margin::ZERO)
-                .desired_width(area.width)
-                .desired_rows(area.max_lines)
-                .show(ui)
-        })
-        .inner;
-    if output.galley.rows.len() > area.max_lines {
+    let written = field.show(ui, text, true);
+    if written.galley.rows.len() > field.rows {
         *text = before;
     }
-    let field = output.response;
-    if !field.has_focus() && !field.lost_focus() {
-        field.request_focus();
-    }
-    field.lost_focus().then(|| {
+    written.response.lost_focus().then(|| {
         let galley = ui
             .painter()
             .layout(text.clone(), area.font(), note::GRAPHITE, area.width);
@@ -743,7 +813,7 @@ pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize, opacity: f32) -> bool {
     let hit = body.expand2(vec2(0.0, 6.0)).translate(vec2(0.0, -3.0));
     // React only when fully shown, not mid-fade.
     let response = (opacity >= 1.0).then(|| {
-        ui.interact(hit, Id::new("folder-icon"), Sense::click())
+        ui.interact(hit, Id::new("folder-icon"), super::CLICK)
             .on_hover_text("Finished sheets (Page Up)")
     });
     let hovered = response.as_ref().is_some_and(|r| r.hovered());

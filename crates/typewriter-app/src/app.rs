@@ -21,7 +21,9 @@ use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
 use crate::render::platen::{self, PlatenView};
-use crate::render::{COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, paper, ruler};
+use crate::render::{
+    COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, pad, paper, ruler, scratchpad,
+};
 use crate::settings::{SettingsFile, ZOOM_DEFAULT, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
 use crate::{render, settings, storage};
 
@@ -93,6 +95,8 @@ pub struct TypewriterApp {
     renaming: Option<String>,
     annotating: Option<String>,
     renumbering: Option<String>,
+    /// Open: where the pencil is.
+    scratchpad: Option<pad::Writing>,
     /// The sheet awaiting a yes to scrunch.
     confirm_scrunch: Option<usize>,
     scrunching: Option<Scrunching>,
@@ -170,6 +174,7 @@ impl TypewriterApp {
             renaming: None,
             annotating: None,
             renumbering: None,
+            scratchpad: None,
             confirm_scrunch: None,
             scrunching: None,
             leaving: None,
@@ -207,6 +212,7 @@ impl TypewriterApp {
         if self.renaming.is_some()
             || self.annotating.is_some()
             || self.renumbering.is_some()
+            || self.scratchpad.is_some()
             || self.confirm_scrunch.is_some()
             || self.leaving.is_some()
         {
@@ -235,6 +241,7 @@ impl TypewriterApp {
                 // Not the machine's: allowed while feeding.
                 Action::Fullscreen => self.toggle_fullscreen(ctx, now),
                 Action::Save => self.filing.save_now(&self.machine, ctx, now),
+                Action::Scratchpad => self.open_scratchpad(),
                 _ if feeding => {}
                 Action::Machine(command) => self.key(command, now),
                 Action::PageUp => self.page_up(),
@@ -438,6 +445,7 @@ impl TypewriterApp {
         self.renaming = None;
         self.annotating = None;
         self.renumbering = None;
+        self.scratchpad = None;
         self.confirm_scrunch = None;
         self.scrunching = None;
         // Another machine may have another pitch and paper.
@@ -896,6 +904,9 @@ impl TypewriterApp {
         if folder::desk_icon(ui, view, finished, chrome) && !feeding {
             self.open_folder();
         }
+        if scratchpad::desk_icon(ui, view, chrome) {
+            self.open_scratchpad();
+        }
         if calm::calm_icon(ui, view) && !feeding {
             self.calm = !self.calm;
         }
@@ -999,6 +1010,49 @@ impl TypewriterApp {
         }
     }
 
+    /// The open scratchpad, or sliding away. Writing or turning a leaf
+    /// changes the project.
+    fn show_scratchpad(&mut self, ui: &mut egui::Ui, view: Rect, now: f64) {
+        let shown = ui.ctx().animate_bool_with_time(
+            egui::Id::new("scratchpad"),
+            self.scratchpad.is_some(),
+            pad::SLIDE_SECONDS,
+        );
+        if shown <= 0.0 {
+            return;
+        }
+        let points_per_inch = self.points_per_inch();
+        let book = self.machine.scratchpad_mut();
+        let mut pad = pad::Pad::rising(view, points_per_inch, shown, book.spread());
+        let mut changed = false;
+        if let Some(writing) = &mut self.scratchpad
+            && let Some(step) = pad.turn_asked(ui)
+            && writing.turn(book, step)
+        {
+            changed = true;
+            pad = pad::Pad::rising(view, points_per_inch, shown, book.spread());
+        }
+        let painter = ui.painter_at(view);
+        pad.paint(&painter, ui.input(|i| i.pointer.hover_pos()));
+        match &mut self.scratchpad {
+            Some(writing) => {
+                let outcome = pad::write(ui, &pad, book, writing);
+                changed |= outcome.changed;
+                if outcome.done {
+                    self.scratchpad = None;
+                }
+            }
+            None => pad.paint_text(&painter, book),
+        }
+        if changed {
+            self.filing.changed(now);
+        }
+    }
+
+    fn open_scratchpad(&mut self) {
+        self.scratchpad = Some(pad::Writing::open(self.machine.document().scratchpad()));
+    }
+
     fn paint_page(
         &self,
         painter: &Painter,
@@ -1097,6 +1151,9 @@ impl eframe::App for TypewriterApp {
                             self.renumbering.as_mut(),
                         );
                         self.pulled = response.pulled;
+                        if response.open_scratchpad {
+                            self.open_scratchpad();
+                        }
                         if let Some(i) = response.opened {
                             self.view = View::Sheet(i);
                         }
@@ -1126,6 +1183,7 @@ impl eframe::App for TypewriterApp {
                         None => self.view = View::Folder,
                     },
                     View::Settings => {
+                        self.scratchpad = None;
                         let before = self.settings.clone();
                         let response = render::settings::show_settings(
                             ui,
@@ -1143,6 +1201,7 @@ impl eframe::App for TypewriterApp {
                         }
                     }
                 }
+                self.show_scratchpad(ui, view, now);
                 if let Some(scrunching) = &self.scrunching {
                     let t = now - scrunching.started;
                     if t < render::scrunch::SECONDS {
@@ -1270,7 +1329,7 @@ fn thousands(n: i64) -> String {
 /// Makes a plate clickable, with a tooltip.
 fn plate_button(ui: &mut egui::Ui, rect: Rect, id: &str, tip: &str) -> egui::Response {
     let response = ui
-        .interact(rect, egui::Id::new(id), egui::Sense::click())
+        .interact(rect, egui::Id::new(id), render::CLICK)
         .on_hover_text(tip);
     if response.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1303,6 +1362,12 @@ fn install_fonts(ctx: &egui::Context) {
         &mut fonts,
         note::PENCIL_FAMILY,
         note::CAVEAT,
+        FontFamily::Proportional,
+    );
+    add_family(
+        &mut fonts,
+        scratchpad::COVER_FAMILY,
+        scratchpad::JOST,
         FontFamily::Proportional,
     );
     ctx.set_fonts(fonts);

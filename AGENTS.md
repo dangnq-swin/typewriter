@@ -50,6 +50,9 @@ Check every new or changed binding against these:
   percentage plate that resets on double-click. The one exception is F11 (fullscreen), which the desktop can do on its own.
 - **No auto-repeat unless the machine would repeat.** Keys that a real typewriter does not
   repeat (e.g. Space, Backspace) ignore key repeat.
+- **Controls never take keyboard focus.** Sense clicks with `render::CLICK`, not
+  `Sense::click()`: egui moves focus with Tab and clicks a focused control on Enter, so the
+  typewriter's own keys would press it.
 - **Document it.** The full key map is the module doc of `crates/typewriter-app/src/input.rs`.
   Keep the README's *Controls* section in step; the rest of the README is the maintainer's.
 
@@ -73,6 +76,7 @@ typewriter/
 │   │       ├── page.rs         # page grid, cells, overtyped glyph stacks
 │   │       ├── carriage.rs     # carriage position, margins, bell zone, line feed
 │   │       ├── profile.rs      # machine profiles (SM9 first), pitch, paper size
+│   │       ├── scratchpad.rs   # the 48-page memo book: pages, spreads
 │   │       ├── constraints.rs  # strictness settings (backspace, margins, ...)
 │   │       ├── machine.rs      # Typewriter: commands in, events out
 │   │       ├── document.rs     # multi-page document + native format (serde)
@@ -83,7 +87,7 @@ typewriter/
 │       └── src/
 │           ├── main.rs
 │           ├── app.rs          # eframe::App impl, top-level state
-│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes
+│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad
 │           ├── input.rs        # key events -> core commands
 │           ├── filing.rs       # projects: autosave, Save / Save As / Rename / Open (rfd), export
 │           ├── machines.rs     # built-in and user profiles
@@ -139,7 +143,8 @@ A change is done when fmt, clippy (warnings denied) and tests all pass.
 - Errors: `thiserror` in the core, `anyhow` at the app boundary.
 - No `unwrap()`/`expect()` outside tests unless the invariant is stated at the call site.
 - Reuse before adding. Shared drawing helpers and the palette live in `render/mod.rs`
-  (`smoothstep`, `unit`, `splitmix64`, `SHEET`, `SHEET_EDGE`, `HIGHLIGHT`); shared path and
+  (`smoothstep`, `unit`, `splitmix64`, `rotate`, `CLICK`, `SHEET`, `SHEET_EDGE`, `HIGHLIGHT`),
+  pencil text fields in `render/note.rs` (`PencilField`); shared path and
   file helpers in `storage.rs`. Extract a helper once the same logic appears twice.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
 - Config and data paths follow XDG (`$XDG_CONFIG_HOME/typewriter`, `$XDG_DATA_HOME/typewriter`).

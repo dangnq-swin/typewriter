@@ -3,8 +3,8 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{
-    self, Color32, CornerRadius, CursorIcon, Id, Margin, RichText, Sense, Shape, Stroke, Ui,
-    UiBuilder, pos2, vec2,
+    self, Color32, CornerRadius, CursorIcon, Id, Margin, RichText, Shape, Stroke, Ui, UiBuilder,
+    pos2, vec2,
 };
 use eframe::egui::{Pos2, Rect};
 
@@ -203,10 +203,10 @@ pub fn gear_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
     if opacity <= 0.0 {
         return false;
     }
-    let centre = view.left_bottom() + vec2(126.0, -31.0);
+    let centre = view.left_bottom() + vec2(160.0, -31.0);
     let hit = Rect::from_center_size(centre, vec2(30.0, 30.0));
     let response = (opacity >= 1.0).then(|| {
-        ui.interact(hit, Id::new("settings-icon"), Sense::click())
+        ui.interact(hit, Id::new("settings-icon"), super::CLICK)
             .on_hover_text("Settings")
     });
     let hovered = response.as_ref().is_some_and(|r| r.hovered());

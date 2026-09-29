@@ -7,15 +7,20 @@ use thiserror::Error;
 use crate::carriage::Carriage;
 use crate::constraints::Constraints;
 use crate::page::Page;
+use crate::scratchpad::Scratchpad;
 use crate::session::SessionStats;
 
 /// Bump when older versions can't read the file. 2: session stats. 3: notes.
-pub const FORMAT_VERSION: u32 = 3;
+/// 4: scratchpad.
+pub const FORMAT_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     finished: Vec<Page>,
     current: Page,
+    /// Absent before version 4.
+    #[serde(default)]
+    scratchpad: Scratchpad,
 }
 
 impl Document {
@@ -23,6 +28,7 @@ impl Document {
         Self {
             finished: Vec::new(),
             current: first,
+            scratchpad: Scratchpad::default(),
         }
     }
 
@@ -63,6 +69,14 @@ impl Document {
             .get_mut(index)
             .map(|page| page.set_note(note))
             .is_some()
+    }
+
+    pub fn scratchpad(&self) -> &Scratchpad {
+        &self.scratchpad
+    }
+
+    pub fn scratchpad_mut(&mut self) -> &mut Scratchpad {
+        &mut self.scratchpad
     }
 
     /// Files the sheet and puts `fresh` in. A blank sheet just stays in.

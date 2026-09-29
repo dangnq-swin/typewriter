@@ -12,8 +12,13 @@ M0–M8 are done; the git history has the details.
 
 ## M10: Scratchpad
 
-- [ ] ❓ A scratchpad opened with the 1 / ! key (typewriters have no such key, so it types
-      nothing on the machine). Details to be decided
+- [x] A 48-page pocket memo book (dot grid, kraft cover), written in pencil, opened with the
+      1 / ! key (typewriters have no such key), the notebook icon beside the folder icon, or
+      the book lying true to scale beside the folder in the folder view. It slides up in the
+      bottom right corner: page 1 alone, then two pages to a spread. Page Up / Page Down or the
+      corner arrows turn leaves; a full page runs on to the next. One per project, saved with
+      the spread it lies open at in the folder file (format version 4), left out of exports.
+      Esc or a click away closes it
 
 ## M11: Margins & machine rules
 

@@ -3,19 +3,22 @@
 
 use std::sync::Arc;
 
-use eframe::egui::{Color32, FontFamily, FontId, Galley, Painter, Pos2, Rect, Vec2, pos2, vec2};
+use eframe::egui::{
+    self, Color32, FontFamily, FontId, Galley, Id, Painter, Pos2, Rect, Response, Stroke, Ui, pos2,
+    vec2,
+};
 use typewriter_core::profile::Margins;
 
-use super::{Metrics, splitmix64, unit};
+use super::{Metrics, rotate, splitmix64, unit};
 
 pub const PENCIL_FAMILY: &str = "pencil";
 pub const CAVEAT: &[u8] = include_bytes!("../../../../assets/fonts/caveat/Caveat-Regular.ttf");
 /// Caveat's hhea metrics in em (960 / -300 / 0 per 1000). egui rows are
 /// ascent - descent + gap high, baseline an ascent below the top.
 pub const ASCENT_EM: f32 = 0.96;
-const LINE_EM: f32 = 1.26;
+pub const LINE_EM: f32 = 1.26;
 /// Em size. Larger than the type, as handwriting is.
-const SIZE_INCHES: f32 = 0.2;
+pub const SIZE_INCHES: f32 = 0.2;
 /// Gaps: paper edge to first line, last line to margin frame.
 const TOP_PAD_INCHES: f32 = 0.12;
 const BOTTOM_PAD_INCHES: f32 = 0.06;
@@ -73,12 +76,12 @@ impl NoteArea {
 
     /// Top-left of line `line`, turned with the note, on a sheet at `paper`.
     pub fn line_origin(&self, paper: Pos2, line: usize) -> Pos2 {
-        paper + self.origin.to_vec2() + self.rotate(vec2(0.0, line as f32 * self.pitch))
+        paper + self.origin.to_vec2() + rotate(vec2(0.0, line as f32 * self.pitch), self.angle)
     }
 
     /// Start of line `line`'s baseline.
     pub fn baseline(&self, paper: Pos2, line: usize) -> Pos2 {
-        self.line_origin(paper, line) + self.rotate(vec2(0.0, ASCENT_EM * self.size))
+        self.line_origin(paper, line) + rotate(vec2(0.0, ASCENT_EM * self.size), self.angle)
     }
 
     /// The whole top margin: clicking it starts a note.
@@ -93,11 +96,6 @@ impl NoteArea {
             vec2(self.width, self.pitch * self.max_lines as f32),
         )
     }
-
-    fn rotate(&self, v: Vec2) -> Vec2 {
-        let (sin, cos) = self.angle.sin_cos();
-        vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
-    }
 }
 
 /// Draws `note` line by line, turned.
@@ -109,6 +107,70 @@ pub fn paint_note(painter: &Painter, area: &NoteArea, paper: Pos2, note: &str, o
             eframe::egui::epaint::TextShape::new(area.line_origin(paper, i), galley, color)
                 .with_angle(area.angle),
         );
+    }
+}
+
+/// A pencil text field: `rows` lines over `rect`.
+pub struct PencilField {
+    pub rect: Rect,
+    pub id: Id,
+    pub font: FontId,
+    pub rows: usize,
+}
+
+/// What a field did this frame.
+pub struct Written {
+    pub response: Response,
+    /// As laid out: may run past the field's rows.
+    pub galley: Arc<Galley>,
+    /// The cursor, in chars.
+    pub cursor: Option<usize>,
+}
+
+impl PencilField {
+    /// Shows `text` for editing. `focus`: take focus after this frame, so
+    /// the key or click that asked for it isn't written.
+    pub fn show(&self, ui: &mut Ui, text: &mut String, focus: bool) -> Written {
+        let output = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(self.rect), |ui| {
+                ui.visuals_mut().text_cursor.stroke = Stroke::new(1.0, GRAPHITE);
+                // Invisible here, painted below: the field clips Caveat's
+                // overhangs (l, f) at its edges.
+                egui::TextEdit::multiline(text)
+                    .id(self.id)
+                    .font(self.font.clone())
+                    .text_color(Color32::TRANSPARENT)
+                    .frame(egui::Frame::NONE)
+                    .margin(egui::Margin::ZERO)
+                    .desired_width(self.rect.width())
+                    .desired_rows(self.rows)
+                    .show(ui)
+            })
+            .inner;
+        ui.painter().galley_with_override_text_color(
+            output.galley_pos,
+            output.galley.clone(),
+            GRAPHITE,
+        );
+        let response = output.response.response;
+        if focus && !response.has_focus() && !response.lost_focus() {
+            response.request_focus();
+        }
+        Written {
+            response,
+            galley: output.galley,
+            cursor: output.cursor_range.map(|range| range.primary.index.0),
+        }
+    }
+
+    /// Puts the cursor before char `index`, for the next [`Self::show`].
+    pub fn place_cursor(&self, ctx: &egui::Context, index: usize) {
+        let mut state = egui::text_edit::TextEditState::load(ctx, self.id).unwrap_or_default();
+        let cursor = egui::text::CCursor::new(index);
+        state
+            .cursor
+            .set_char_range(Some(egui::text::CCursorRange::one(cursor)));
+        state.store(ctx, self.id);
     }
 }
 

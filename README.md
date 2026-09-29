@@ -55,6 +55,8 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 | Insert | Take the sheet out and feed a new one. Enter on the last line does the same |
 | F1/F2/F3 | Line spacing 1/1.5/2 |
 | F4 | Change correction method |
+| 1 or ! | Open the scratchpad (Esc or a click away puts it back) |
+| Page Up / Page Down | In the open scratchpad: turn a leaf (or click the arrows in its bottom corners) |
 | Esc | Calm mode on/off |
 | F11 | Fullscreen |
 | Ctrl+S | Save |
@@ -78,6 +80,7 @@ You can then write over your mistakes. Shift+Backspace again to remove the corre
 | **Goal** plate | Click: next session goal (words or minutes, or off) |
 | **Autosave** plate (right) | How the project is kept; the dot is the status. Click: save|
 | Folder icon (bottom left) | The finished sheets and the project menus |
+| Notebook icon | Scratchpad |
 | Sheet icon | Calm mode on/off |
 | Gear icon | Settings |
 
@@ -93,6 +96,7 @@ Opened with **Page Up** or the folder icon.
 | Enter or click | Read the chosen sheet; the same keys flip through sheets |
 | Esc | Back one level |
 | Typing | Back to the typewriter |
+| 1 or ! | Open the scratchpad (or click the notebook beside the folder) |
 
 The plates below the folder save, open, rename and export the project; click the name on
 the folder's tab to rename it. The **Sheet…** plate renumbers the chosen sheet 

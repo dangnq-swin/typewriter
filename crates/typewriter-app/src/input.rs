@@ -4,6 +4,8 @@
 //! unless a real machine would: only letters, arrows and Enter do.
 //!
 //! - printable keys: type, except 1 and ! (no such keys)
+//! - 1 / !: the scratchpad; Esc or a click away puts it back. While it is
+//!   open, Page Up / Page Down turn its leaves (`render/pad.rs`)
 //! - Enter: return; held, rolls the paper a line per key repeat
 //! - Insert: feed a new sheet
 //! - Backspace: carriage back (no erase)
@@ -23,9 +25,9 @@
 use eframe::egui::{Event, Key, Modifiers};
 use typewriter_core::{Command, Direction, LineSpacing};
 
-/// No such keys: type 1 as l, and ! as ' Backspace . (overstruck). Keep the
-/// key free for the scratchpad.
-const RESERVED: [char; 2] = ['1', '!'];
+/// No such keys: type 1 as l, and ! as ' Backspace . (overstruck). The key
+/// opens the scratchpad instead.
+const SCRATCHPAD_KEYS: [char; 2] = ['1', '!'];
 
 /// A machine command, or something for the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +39,7 @@ pub enum Action {
     Fullscreen,
     NextCorrection,
     Save,
+    Scratchpad,
     /// Erase; in the folder, scrunch up the chosen sheet.
     Delete,
     /// In the folder, moves the chosen sheet; elsewhere a plain arrow.
@@ -113,8 +116,14 @@ fn action_for(event: &Event) -> Vec<Action> {
     match event {
         Event::Text(text) => text
             .chars()
-            .filter(|c| !c.is_control() && !RESERVED.contains(c))
-            .map(|c| Action::Machine(Command::Type(c)))
+            .filter(|c| !c.is_control())
+            .map(|c| {
+                if SCRATCHPAD_KEYS.contains(&c) {
+                    Action::Scratchpad
+                } else {
+                    Action::Machine(Command::Type(c))
+                }
+            })
             .collect(),
         Event::Key {
             key,
@@ -235,10 +244,14 @@ mod tests {
     }
 
     #[test]
-    fn there_is_no_one_or_exclamation_key() {
+    fn one_and_exclamation_open_the_scratchpad() {
         assert_eq!(
-            one_frame(&[Event::Text("1!l'".into())]),
-            [Command::Type('l'), Command::Type('\'')]
+            Input::default().actions(&[Event::Text("1!l".into())], false),
+            [
+                Action::Scratchpad,
+                Action::Scratchpad,
+                Action::Machine(Command::Type('l'))
+            ]
         );
     }
 

@@ -5,6 +5,7 @@ use crate::constraints::{Constraints, EraseMode};
 use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
 use crate::page::{Correction, Page};
 use crate::profile::{Profile, ProfileError};
+use crate::scratchpad::Scratchpad;
 use crate::session::SessionStats;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -195,6 +196,10 @@ impl Typewriter {
     /// Pencils a note in finished sheet `index`'s top margin.
     pub fn annotate(&mut self, index: usize, note: &str) -> bool {
         self.document.annotate(index, note)
+    }
+
+    pub fn scratchpad_mut(&mut self) -> &mut Scratchpad {
+        self.document.scratchpad_mut()
     }
 
     pub fn sessions(&self) -> &[SessionStats] {
@@ -611,10 +616,14 @@ mod tests {
         tw.record_session(session(200, 1));
         assert!(tw.annotate(0, "tighten\nthe opening"));
         assert!(!tw.annotate(1, "the sheet in the machine"));
+        assert!(tw.scratchpad_mut().write(3, "call the printer"));
+        assert!(tw.scratchpad_mut().open_at(2));
         let text = tw.to_folder_ron().unwrap();
         let back = Typewriter::from_folder_ron(&text, by_name(tw.profile())).unwrap();
         assert_eq!(back.sessions(), [session(100, 7), session(200, 1)]);
         assert_eq!(back.document(), tw.document());
+        assert_eq!(back.document().scratchpad().page(3), "call the printer");
+        assert_eq!(back.document().scratchpad().spread(), 2);
         assert_eq!(back.carriage(), tw.carriage());
         assert_eq!(back.constraints, tw.constraints);
     }
@@ -654,7 +663,7 @@ mod tests {
         let start = text.find("sessions:").unwrap();
         let old = text[..start]
             .trim_end()
-            .replacen("version: 3", "version: 1", 1)
+            .replacen("version: 4", "version: 1", 1)
             + "\n)";
         let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
         assert_eq!(back.document(), tw.document());
@@ -662,11 +671,38 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_file_from_before_the_scratchpad_opens() {
+        let mut tw = sm9();
+        type_str(&mut tw, "old");
+        let text = tw.to_folder_ron().unwrap();
+        // Drop the scratchpad's lines, from its field to its closing one.
+        let mut skipping = false;
+        let old: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                if line.trim_start().starts_with("scratchpad:") {
+                    skipping = true;
+                }
+                let keep = !skipping;
+                if skipping && line.trim() == ")," {
+                    skipping = false;
+                }
+                keep
+            })
+            .collect();
+        let old = old.join("\n").replacen("version: 4", "version: 3", 1);
+        assert!(!old.contains("pages:"));
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
+        assert_eq!(back.document(), tw.document());
+        assert!(back.document().scratchpad().is_fresh());
+    }
+
+    #[test]
     fn folder_files_from_elsewhere_are_refused() {
         let tw = sm9();
         let text = tw.to_folder_ron().unwrap();
         let profile = tw.profile().clone();
-        let newer = text.replacen("version: 3", "version: 99", 1);
+        let newer = text.replacen("version: 4", "version: 99", 1);
         assert!(matches!(
             Typewriter::from_folder_ron(&newer, by_name(&profile)),
             Err(FolderError::NewerVersion(99))

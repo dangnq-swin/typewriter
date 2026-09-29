@@ -411,7 +411,9 @@ impl Filing {
 /// Nothing typed yet.
 fn is_untouched(machine: &Typewriter) -> bool {
     let document = machine.document();
-    document.finished().is_empty() && document.current().is_blank()
+    document.finished().is_empty()
+        && document.current().is_blank()
+        && document.scratchpad().is_fresh()
 }
 
 /// Reads a project into the machine it was typed on.

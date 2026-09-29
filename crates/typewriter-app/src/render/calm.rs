@@ -1,6 +1,6 @@
 //! Calm mode: chrome fades out, lines dim with distance from the typing line.
 
-use eframe::egui::{self, CornerRadius, CursorIcon, Id, Rect, Sense, Stroke, Ui, vec2};
+use eframe::egui::{self, CornerRadius, CursorIcon, Id, Rect, Stroke, Ui, vec2};
 
 use super::paper::INK;
 use super::{HIGHLIGHT, SHEET, SHEET_EDGE, smoothstep};
@@ -56,9 +56,9 @@ impl Dimming {
 /// A small sheet whose lines fade from the middle, right of the folder
 /// icon. Stays shown in calm mode: it is the way out.
 pub fn calm_icon(ui: &mut Ui, view: Rect) -> bool {
-    let sheet = Rect::from_min_size(view.left_bottom() + vec2(76.0, -46.0), vec2(23.0, 30.0));
+    let sheet = Rect::from_min_size(view.left_bottom() + vec2(110.0, -46.0), vec2(23.0, 30.0));
     let response = ui
-        .interact(sheet, Id::new("calm-icon"), Sense::click())
+        .interact(sheet, Id::new("calm-icon"), super::CLICK)
         .on_hover_text("Calm mode (Esc)");
     let hovered = response.hovered();
     let painter = ui.painter_at(view);
