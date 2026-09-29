@@ -197,24 +197,57 @@ impl FolderFile {
         Ok(ron::ser::to_string_pretty(self, pretty)?)
     }
 
+    /// A newer file says so, whether or not it parses.
     pub fn from_ron(text: &str) -> Result<Self, FolderError> {
-        // Check the version first: a newer file should say so, not fail on
-        // an unknown field.
-        #[derive(Deserialize)]
-        struct Version {
-            version: u32,
+        // Never parse just the version: ron skips the rest of the file in
+        // quadratic time, hours for a novel.
+        let newer = |version: u32| (version > FORMAT_VERSION).then_some(version);
+        match ron::from_str::<Self>(text) {
+            Ok(file) => match newer(file.version) {
+                Some(version) => Err(FolderError::NewerVersion(version)),
+                None => Ok(file),
+            },
+            Err(err) => match leading_version(text).and_then(newer) {
+                Some(version) => Err(FolderError::NewerVersion(version)),
+                None => Err(err.into()),
+            },
         }
-        let Version { version } = ron::from_str(text)?;
-        if version > FORMAT_VERSION {
-            return Err(FolderError::NewerVersion(version));
-        }
-        Ok(ron::from_str(text)?)
     }
+}
+
+/// The version from a folder file's opening `(version: N`, as written.
+fn leading_version(text: &str) -> Option<u32> {
+    let rest = text.trim_start().strip_prefix('(')?.trim_start();
+    let rest = rest
+        .strip_prefix("version")?
+        .trim_start()
+        .strip_prefix(':')?;
+    let rest = rest.trim_start();
+    let digits = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..digits].parse().ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_newer_folder_file_says_so_even_when_it_does_not_parse() {
+        let newer = "(\n    version: 99,\n    sheets: [\"something new\"],\n)";
+        assert!(matches!(
+            FolderFile::from_ron(newer),
+            Err(FolderError::NewerVersion(99))
+        ));
+        let broken = format!("(version: {FORMAT_VERSION}, sheets: 1)");
+        assert!(matches!(
+            FolderFile::from_ron(&broken),
+            Err(FolderError::Unreadable(_))
+        ));
+        assert_eq!(leading_version("  ( version :12, x"), Some(12));
+        assert_eq!(leading_version("(profile: \"x\", version: 3)"), None);
+    }
 
     #[test]
     fn feeding_files_the_typed_sheet() {
