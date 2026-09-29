@@ -7,6 +7,8 @@ mod machines;
 mod odt;
 mod render;
 mod settings;
+#[cfg(test)]
+mod simulate;
 mod storage;
 
 fn main() -> anyhow::Result<()> {

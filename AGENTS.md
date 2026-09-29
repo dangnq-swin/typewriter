@@ -101,7 +101,8 @@ typewriter/
 │           ├── machines.rs     # built-in and user profiles
 │           ├── storage.rs      # XDG paths, drafts, crash-safe writes
 │           ├── audio.rs        # sound playback
-│           └── settings.rs     # user settings, config.toml (XDG paths)
+│           ├── settings.rs     # user settings, config.toml (XDG paths)
+│           └── simulate.rs     # tests only: a writer's months of work, simulated (seeded)
 ├── assets/
 │   ├── paper/                  # paper textures (default provided by maintainer)
 │   ├── fonts/                  # typewriter fonts (license must be GPL-compatible)
