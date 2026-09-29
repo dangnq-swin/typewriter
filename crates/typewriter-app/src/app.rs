@@ -192,6 +192,7 @@ pub struct TypewriterApp {
     settings: settings::Settings,
     settings_file: SettingsFile,
     machines: Machines,
+    running: storage::Running,
 }
 
 impl TypewriterApp {
@@ -212,7 +213,7 @@ impl TypewriterApp {
             .inspect_err(|err| eprintln!("sound unavailable, typing silently: {err:#}"))
             .ok();
         let wind_back = filing.is_saved_somewhere().then(|| machine.reinsert());
-        let crashed = storage::mark_running();
+        let (running, crashed) = storage::Running::mark();
         let recovered = (crashed && filing.is_saved_somewhere()).then(|| {
             "Recovered your work from when Typewriter last closed unexpectedly.".to_owned()
         });
@@ -265,6 +266,7 @@ impl TypewriterApp {
             settings,
             settings_file,
             machines,
+            running,
         })
     }
 
@@ -1600,7 +1602,7 @@ impl eframe::App for TypewriterApp {
             self.filing.changed(0.0);
         }
         self.filing.keep(&self.machine, 0.0, autosave);
-        storage::clear_running();
+        self.running.clear();
         if let Err(err) = self.settings_file.keep(&self.settings, 0.0, true) {
             eprintln!("{err}");
         }

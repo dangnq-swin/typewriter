@@ -135,7 +135,8 @@ cargo test -p typewriter-app --release -- --ignored --nocapture novel
   text fields in `render/note.rs` (`PencilField`), path and file helpers in `storage.rs`: read
   them before writing a helper. Extract one once the same logic appears twice.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
-- Config and data paths follow XDG (`$XDG_CONFIG_HOME/typewriter`, `$XDG_DATA_HOME/typewriter`).
+- Config and data paths follow XDG (`$XDG_CONFIG_HOME/typewriter`, `$XDG_DATA_HOME/typewriter`);
+  on Windows both live in `%APPDATA%\typewriter`. Windows shows paths in full, never as `~`.
 
 ## Comment style
 

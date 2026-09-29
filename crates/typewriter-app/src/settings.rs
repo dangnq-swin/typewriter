@@ -1,4 +1,5 @@
-//! User settings in `$XDG_CONFIG_HOME/typewriter/config.toml`.
+//! User settings in `$XDG_CONFIG_HOME/typewriter/config.toml`
+//! (`%APPDATA%\typewriter\config.toml` on Windows).
 //!
 //! Give every field a default: missing keys must load, unknown ones are
 //! ignored.

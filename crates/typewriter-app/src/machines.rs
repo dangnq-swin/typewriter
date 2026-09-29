@@ -1,5 +1,5 @@
 //! The machines: built-in profiles, then the user's own in
-//! `$XDG_DATA_HOME/typewriter/profiles/*.toml`.
+//! `$XDG_DATA_HOME/typewriter/profiles/*.toml` (`%APPDATA%\typewriter\profiles` on Windows).
 
 use std::fs;
 

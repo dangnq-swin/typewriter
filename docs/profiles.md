@@ -8,7 +8,8 @@ without changing any code.
 ## Adding a machine
 
 1. Copy `profiles/olympia-sm9.toml` to `$XDG_DATA_HOME/typewriter/profiles/` (usually
-   `~/.local/share/typewriter/profiles/`), under any name ending in `.toml`.
+   `~/.local/share/typewriter/profiles/`; on Windows `%APPDATA%\typewriter\profiles\`),
+   under any name ending in `.toml`.
 2. Give it a new `name` and change what differs.
 3. Open **Settings** (the gear at the bottom left) and choose it under **Machine**. New
    projects are typed on it; a project always keeps the machine it was started on.

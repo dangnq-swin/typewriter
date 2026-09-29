@@ -55,8 +55,8 @@ M0–M9 are done; the git history has the details.
 
 ## M15: Windows builds for testers
 
-- [ ] ❓ Projects, drafts and settings kept where Windows keeps them (`%APPDATA%\typewriter`)
-      instead of the XDG paths, which Windows lacks
+- [x] Projects, drafts and settings kept where Windows keeps them (`%APPDATA%\typewriter`)
+      instead of the XDG paths, which Windows lacks; paths shown in full, not as `~`
 - [ ] No console window beside the app on Windows
 - [ ] Typing on Windows keyboard layouts, dead keys included, checked by a tester
 - [ ] CI (GitHub Actions): fmt, clippy and tests on Linux for every push; a Windows build,
