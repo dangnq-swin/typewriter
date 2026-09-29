@@ -4,7 +4,7 @@ use crate::accents;
 use crate::carriage::{Carriage, LineSpacing};
 use crate::constraints::{Constraints, EraseMode};
 use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
-use crate::page::{Correction, Page, Shift};
+use crate::page::{Correction, Mark, Page, Shift};
 use crate::profile::{Profile, ProfileError};
 use crate::scratchpad::Scratchpad;
 use crate::session::SessionStats;
@@ -393,19 +393,33 @@ impl Typewriter {
             return vec![Event::Blocked(reason)];
         }
         let half_line = self.carriage.half_line;
+        let dead = self.profile.dead_keys.contains(&c);
         let page = self.document.current_mut();
         let mut events = if c.is_whitespace() {
             vec![Event::Space]
         } else {
-            if self.slip_in {
-                page.cover(half_line, column, Correction::Chalk(c));
+            let mark = if self.slip_in {
+                Mark::Correction(Correction::Chalk(c))
             } else {
-                page.strike(half_line, column, c);
+                Mark::Glyph(c)
+            };
+            // A held dead key strikes its own mark again and again, never
+            // moving on: one is enough, or the cell grows without end.
+            let again = dead
+                && page
+                    .cell(half_line, column)
+                    .is_some_and(|cell| cell.marks().last() == Some(&mark));
+            if !again {
+                if self.slip_in {
+                    page.cover(half_line, column, Correction::Chalk(c));
+                } else {
+                    page.strike(half_line, column, c);
+                }
             }
             vec![Event::KeyStrike(c)]
         };
         // A dead key's typebar strikes, but the carriage doesn't escape.
-        if !self.profile.dead_keys.contains(&c) {
+        if !dead {
             self.advance_to(column + 1, &mut events);
         }
         events
@@ -1157,6 +1171,17 @@ mod tests {
         let cell = tw.page().cell(12, 10).unwrap();
         assert_eq!(cell.visible_glyphs().collect::<String>(), "^o");
         assert_eq!(cell.reads_as(), Some('\u{f4}'));
+    }
+
+    #[test]
+    fn a_held_dead_key_leaves_one_mark() {
+        let mut tw = with_dead_keys();
+        let events = type_str(&mut tw, &"^".repeat(100));
+        assert_eq!(events.len(), 100, "every repeat still strikes");
+        assert_eq!(tw.page().cell(12, 10).unwrap().marks().len(), 1);
+        type_str(&mut tw, "o^");
+        assert_eq!(tw.page().cell(12, 10).unwrap().marks().len(), 2);
+        assert_eq!(tw.page().cell(12, 11).unwrap().marks().len(), 1);
     }
 
     #[test]
