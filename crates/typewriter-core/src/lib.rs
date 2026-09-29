@@ -7,6 +7,7 @@ pub mod export;
 pub mod machine;
 pub mod page;
 pub mod profile;
+pub mod retype;
 pub mod scratchpad;
 pub mod session;
 

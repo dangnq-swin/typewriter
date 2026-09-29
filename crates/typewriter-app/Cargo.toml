@@ -20,6 +20,8 @@ rfd.workspace = true
 printpdf.workspace = true
 serde.workspace = true
 toml.workspace = true
+zip.workspace = true
+quick-xml.workspace = true
 
 [build-dependencies]
 image.workspace = true

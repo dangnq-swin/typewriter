@@ -20,6 +20,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 rfd = "0.17"
 # Without its HTML layout engine: pages are drawn op by op.
 printpdf = { version = "0.12", default-features = false }
+# Reading .odt files: only the decoder ODF packages need.
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+quick-xml = "0.42"
 rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
 
 # Optimise image decoding even in debug: the paper texture is painfully slow

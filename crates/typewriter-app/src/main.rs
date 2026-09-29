@@ -1,13 +1,21 @@
 mod app;
 mod audio;
 mod filing;
+mod import;
 mod input;
 mod machines;
+mod odt;
 mod render;
 mod settings;
 mod storage;
 
 fn main() -> anyhow::Result<()> {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if let [command, rest @ ..] = args.as_slice()
+        && command == import::COMMAND
+    {
+        return import::run(rest);
+    }
     // Load before the window opens: it must open fullscreen at once.
     let settings = settings::SettingsFile::load();
     let options = eframe::NativeOptions {
