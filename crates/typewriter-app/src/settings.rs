@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use typewriter_core::{Constraints, EraseMode, Goal};
 
-use crate::render::calm;
 use crate::storage;
 
 /// Write once settings rest this long: a dragged slider mustn't write every
@@ -24,6 +23,9 @@ pub const ZOOM_DEFAULT: u16 = 100;
 pub const VOLUME_MAX: u8 = 100;
 pub const CALM_FALLOFF_LINES: std::ops::RangeInclusive<u8> = 1..=10;
 pub const CALM_MINIMUM_PERCENT: std::ops::RangeInclusive<u8> = 0..=60;
+/// Strong by default: only a line or two around the typing line stay legible.
+pub const CALM_FALLOFF_LINES_DEFAULT: u8 = 4;
+pub const CALM_MINIMUM_PERCENT_DEFAULT: u8 = 10;
 pub const CUSTOM_WORDS_MAX: u32 = 100_000;
 pub const CUSTOM_MINUTES_MAX: u32 = 600;
 
@@ -108,8 +110,8 @@ impl Default for Look {
             ink_realism: true,
             carriage_travel: true,
             fullscreen: true,
-            calm_falloff_lines: calm::DEFAULT_FALLOFF_LINES,
-            calm_minimum_percent: calm::DEFAULT_MINIMUM_PERCENT,
+            calm_falloff_lines: CALM_FALLOFF_LINES_DEFAULT,
+            calm_minimum_percent: CALM_MINIMUM_PERCENT_DEFAULT,
             zoom_percent: ZOOM_DEFAULT,
             platen_guides: true,
         }

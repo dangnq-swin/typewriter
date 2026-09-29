@@ -10,6 +10,10 @@ publish.workspace = true
 name = "typewriter"
 path = "src/main.rs"
 
+[[bin]]
+name = "typewriter-import"
+path = "src/bin/typewriter-import.rs"
+
 [dependencies]
 typewriter-core.workspace = true
 eframe.workspace = true

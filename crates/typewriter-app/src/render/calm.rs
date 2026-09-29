@@ -4,12 +4,10 @@ use eframe::egui::{self, CornerRadius, CursorIcon, Id, Rect, Stroke, Ui, vec2};
 
 use super::paper::INK;
 use super::{HIGHLIGHT, SHEET, SHEET_EDGE, smoothstep};
+use crate::settings::{CALM_FALLOFF_LINES_DEFAULT, CALM_MINIMUM_PERCENT_DEFAULT};
 
 /// Chrome and dimming fade together over this.
 pub const FADE_SECONDS: f32 = 0.25;
-/// Strong by default: only a line or two around the typing line stay legible.
-pub const DEFAULT_FALLOFF_LINES: u8 = 4;
-pub const DEFAULT_MINIMUM_PERCENT: u8 = 10;
 
 /// How much ink each line keeps.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,7 +67,12 @@ pub fn calm_icon(ui: &mut Ui, view: Rect) -> bool {
         Stroke::new(1.0, if hovered { HIGHLIGHT } else { SHEET_EDGE }),
         egui::StrokeKind::Inside,
     );
-    let lines = Dimming::calm(4, 1.0, DEFAULT_FALLOFF_LINES, DEFAULT_MINIMUM_PERCENT);
+    let lines = Dimming::calm(
+        4,
+        1.0,
+        CALM_FALLOFF_LINES_DEFAULT,
+        CALM_MINIMUM_PERCENT_DEFAULT,
+    );
     for line in 0..5_u16 {
         let y = sheet.top() + 7.0 + f32::from(line) * 4.0;
         painter.hline(
@@ -95,14 +98,14 @@ mod tests {
         }
     }
 
-    const MIN_OPACITY: f32 = DEFAULT_MINIMUM_PERCENT as f32 / 100.0;
+    const MIN_OPACITY: f32 = CALM_MINIMUM_PERCENT_DEFAULT as f32 / 100.0;
 
     fn calm(half_line: u16, amount: f32) -> Dimming {
         Dimming::calm(
             half_line,
             amount,
-            DEFAULT_FALLOFF_LINES,
-            DEFAULT_MINIMUM_PERCENT,
+            CALM_FALLOFF_LINES_DEFAULT,
+            CALM_MINIMUM_PERCENT_DEFAULT,
         )
     }
 

@@ -70,7 +70,10 @@ than keep a listing here.
   folder format), unit-tested without a window.
 - `crates/typewriter-app`: the `typewriter` binary: the eframe window, drawing (`render/`), input,
   audio, settings, filing and `typewriter import`. `simulate.rs` is test-only: a writer's months
-  of work, seeded.
+  of work, seeded. `lib.rs` holds what it shares with `typewriter-import`.
+- The command line (flags, `typewriter import`) is Linux only, in `terminal.rs`. On Windows,
+  `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
+  console program there.
 - `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
 - `scripts/`: `install.sh` builds and installs for the current user; `prepare-sounds.sh` cuts

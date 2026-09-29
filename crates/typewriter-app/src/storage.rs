@@ -26,8 +26,9 @@ fn xdg_dir(variable: &str, fallback: &str) -> Option<PathBuf> {
     Some(base.join("typewriter"))
 }
 
+/// Drafts, machine profiles and the app's markers.
 #[cfg(not(windows))]
-fn data_dir() -> Option<PathBuf> {
+pub fn data_dir() -> Option<PathBuf> {
     xdg_dir("XDG_DATA_HOME", ".local/share")
 }
 
@@ -38,7 +39,7 @@ fn config_dir() -> Option<PathBuf> {
 
 /// `%APPDATA%\typewriter`, for config and data alike.
 #[cfg(windows)]
-fn data_dir() -> Option<PathBuf> {
+pub fn data_dir() -> Option<PathBuf> {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())?;

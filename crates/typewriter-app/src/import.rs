@@ -14,14 +14,27 @@ use crate::machines::Machines;
 use crate::{odt, settings, storage};
 
 pub const COMMAND: &str = "import";
-const USAGE: &str = "usage: typewriter import manuscript.odt [project]";
 
-/// Runs the command on the arguments after `import`.
-pub fn run(args: &[OsString]) -> anyhow::Result<()> {
+/// Runs the command on its arguments. `command`: as typed, for the help.
+pub fn run(command: &str, args: &[OsString]) -> anyhow::Result<()> {
+    let usage = format!("usage: {command} manuscript.odt [project]");
+    if let [first, ..] = args {
+        if crate::is_help(first) {
+            println!("{}", help(command, &usage));
+            return Ok(());
+        }
+        if crate::is_version(first) {
+            println!("{command} {}", crate::VERSION);
+            return Ok(());
+        }
+        if crate::is_option(first) {
+            bail!("unknown option {}\n{usage}", first.display());
+        }
+    }
     let (source, target) = match args {
         [source] => (Path::new(source), beside(Path::new(source))),
         [source, target] => (Path::new(source), storage::with_extension(target.into())),
-        _ => bail!(USAGE),
+        _ => bail!(usage),
     };
     if target.exists() {
         bail!("{} already exists", target.display());
@@ -54,6 +67,23 @@ pub fn run(args: &[OsString]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn help(command: &str, usage: &str) -> String {
+    format!(
+        "\
+{command} {}: an .odt manuscript retyped into a new Typewriter project
+
+{usage}
+
+Types each paragraph on the machine new projects use, sheet after sheet, into
+`project`, or else beside the manuscript under its name (.folder.ron). Never
+overwrites a file.
+
+{}",
+        crate::VERSION,
+        crate::OPTIONS,
+    )
+}
+
 /// `notes/draft.odt` → `notes/draft.folder.ron`.
 fn beside(source: &Path) -> PathBuf {
     storage::with_extension(source.with_extension(""))
@@ -73,7 +103,15 @@ mod tests {
 
     #[test]
     fn wrong_arguments_show_the_usage() {
-        let error = run(&[]).err().map(|e| e.to_string());
-        assert_eq!(error.as_deref(), Some(USAGE));
+        let usage = "usage: typewriter-import manuscript.odt [project]";
+        let error = |args: &[&str]| {
+            let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+            run("typewriter-import", &args).err().map(|e| e.to_string())
+        };
+        assert_eq!(error(&[]).as_deref(), Some(usage));
+        assert_eq!(
+            error(&["--bogus"]),
+            Some(format!("unknown option --bogus\n{usage}"))
+        );
     }
 }

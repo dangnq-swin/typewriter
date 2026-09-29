@@ -1,22 +1,29 @@
+// Release builds on Windows: no console window beside the app. Nothing
+// printed shows there.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod audio;
 mod filing;
-mod import;
 mod input;
-mod machines;
-mod odt;
 mod render;
-mod settings;
 #[cfg(test)]
 mod simulate;
-mod storage;
+#[cfg(not(windows))]
+mod terminal;
+
+// The library's modules, reached as `crate::…` like the app's own.
+#[cfg(test)]
+use typewriter_app::odt;
+use typewriter_app::{machines, settings, storage};
 
 fn main() -> anyhow::Result<()> {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if let [command, rest @ ..] = args.as_slice()
-        && command == import::COMMAND
+    #[cfg(not(windows))]
     {
-        return import::run(rest);
+        let args: Vec<_> = std::env::args_os().skip(1).collect();
+        if terminal::run(&args)? {
+            return Ok(());
+        }
     }
     // Load before the window opens: it must open fullscreen at once.
     let settings = settings::SettingsFile::load();
