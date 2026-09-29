@@ -120,6 +120,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 A change is done when fmt, clippy (warnings denied) and tests all pass.
 
+CI (`.github/workflows/`) runs those three on Linux for every push. The Windows build is started
+by hand (Actions → Windows build → Run workflow) and leaves the programs as a download on the
+run. Keep the workflows in step with the commands above.
+
+After pushing, check that the push's Checks run passed, with whatever GitHub access you have (the
+`gh` CLI, or a GitHub MCP server with its Actions tools), and report a failure with its log. With
+none, say the run is unchecked rather than assume it passed.
+
 A novel-sized simulation, for measuring by hand (`TYPEWRITER_MANUSCRIPT=novel.odt` types a real
 manuscript instead of seeded prose):
 
