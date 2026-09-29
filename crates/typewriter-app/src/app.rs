@@ -591,7 +591,7 @@ impl TypewriterApp {
                 seed: index as u64 ^ now.to_bits(),
             });
         }
-        if let Some(audio) = &self.audio {
+        if let Some(audio) = &mut self.audio {
             audio.play_crumple();
         }
         // Reset the slot's pull: the next sheet must slide out, not start out.
@@ -804,7 +804,7 @@ impl TypewriterApp {
             }
             let lines_on = (self.machine.carriage().half_line - from).is_multiple_of(2);
             if lines_on && let Some(audio) = &mut self.audio {
-                audio.play_wind_back_click(now);
+                audio.play_wind_back_click();
             }
         }
         if target >= to {
