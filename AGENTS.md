@@ -68,9 +68,10 @@ than keep a listing here.
 
 - `crates/typewriter-core`: the machine as a library (pages, carriage, profiles, sessions, the
   folder format), unit-tested without a window.
-- `crates/typewriter-app`: the `typewriter` binary: the eframe window, drawing (`render/`), input,
-  audio, settings, filing and `typewriter import`. `simulate.rs` is test-only: a writer's months
-  of work, seeded. `lib.rs` holds what it shares with `typewriter-import`.
+- `crates/typewriter-app`: the app as a library, opened by `run()` in `lib.rs`: the eframe window,
+  drawing (`render/`), input, audio, settings, filing and `typewriter import`. `main.rs` only
+  calls `run()`. Modules stay private unless `typewriter-import` needs them. `simulate.rs` is
+  test-only: a writer's months of work, seeded.
 - The command line (flags, `typewriter import`) is Linux only, in `terminal.rs`. On Windows,
   `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
   console program there.

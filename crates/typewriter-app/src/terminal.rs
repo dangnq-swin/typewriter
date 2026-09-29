@@ -5,7 +5,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use anyhow::bail;
-use typewriter_app::{OPTIONS, VERSION, import, is_help, is_option, is_version, storage};
+
+use crate::{OPTIONS, VERSION, import, is_help, is_option, is_version, storage};
 
 const USAGE: &str = "\
 usage: typewriter [project.folder.ron]
