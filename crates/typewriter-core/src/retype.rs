@@ -19,34 +19,60 @@ const SUBSTITUTES: [(char, &[Command]); 2] = [
 /// line; blank paragraphs are left out. `!` needs backspace allowed.
 /// Accented letters are kept even where the machine has no dead key.
 pub fn retype(machine: &mut Typewriter, paragraphs: &[impl AsRef<str>]) {
+    let width = line_width(machine);
+    let mut typist = Typist::new(machine);
+    for (line, returns) in lines(paragraphs, width) {
+        typist.type_line(&line, returns);
+    }
+}
+
+/// Margin to margin, in characters.
+pub fn line_width(machine: &Typewriter) -> usize {
     let carriage = machine.carriage();
-    let width = usize::from(carriage.right_margin.saturating_sub(carriage.left_margin)).max(1);
-    let mut typist = Typist {
-        machine,
-        typed: false,
-    };
+    usize::from(carriage.right_margin.saturating_sub(carriage.left_margin)).max(1)
+}
+
+/// `paragraphs` as lines at most `width` long, each with the returns thrown
+/// before it: two between paragraphs, one within.
+pub fn lines(paragraphs: &[impl AsRef<str>], width: usize) -> Vec<(String, usize)> {
+    let mut lines = Vec::new();
     for paragraph in paragraphs.iter().map(AsRef::as_ref) {
         if paragraph.trim().is_empty() {
             continue;
         }
         let mut returns = 2;
         for line in paragraph.lines().flat_map(|line| wrap(line, width)) {
-            typist.type_line(&line, returns);
+            lines.push((line, returns));
             returns = 1;
         }
     }
+    lines
 }
 
-struct Typist<'a> {
+/// Types lines as [`retype`] does.
+pub struct Typist<'a> {
     machine: &'a mut Typewriter,
     /// Anything typed yet: the first line needs no return before it.
     typed: bool,
 }
 
-impl Typist<'_> {
+impl<'a> Typist<'a> {
+    pub fn new(machine: &'a mut Typewriter) -> Self {
+        Self {
+            machine,
+            typed: false,
+        }
+    }
+
+    /// For keys between lines, or within one.
+    pub fn machine(&mut self) -> &mut Typewriter {
+        self.machine
+    }
+
     /// Types `line` after `returns` throws of the lever. Past the bottom
     /// margin, feeds a sheet instead: a new sheet starts with no blank line.
-    fn type_line(&mut self, line: &str, returns: usize) {
+    /// With `returns` 0, carries on the line.
+    pub fn type_line(&mut self, line: &str, returns: usize) {
         if std::mem::replace(&mut self.typed, true) {
             for _ in 0..returns {
                 let events = self.machine.apply(Command::Return);
