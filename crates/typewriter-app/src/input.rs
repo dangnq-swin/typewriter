@@ -3,12 +3,13 @@
 //! No Ctrl bindings (a typewriter has none), except Ctrl+S. Keys don't repeat
 //! unless a real machine would: only letters, arrows and Enter do.
 //!
-//! - printable keys: type, except 1 and ! (no such keys)
+//! - printable keys: type, except 1 and ! (no such keys). Accented letters
+//!   need the machine's dead key (`Profile::dead_keys`); the SM9 has none
 //! - 1 / !: the scratchpad; Esc or a click away puts it back. While it is
 //!   open, Page Up / Page Down turn its leaves (`render/pad.rs`)
 //! - Enter: return; held, rolls the paper a line per key repeat
 //! - Insert: feed a new sheet
-//! - Backspace: carriage back (no erase)
+//! - Backspace: carriage back (no erase); frees jammed typebars
 //! - Shift+Backspace, Delete: erase (in the folder, Delete scrunches up)
 //! - Tab: tabulate
 //! - hold Shift, tap Tab: 1× set a stop, 2× clear the nearest, 3× clear all;
@@ -19,7 +20,9 @@
 //!   or drag the stops along the scale
 //! - F1 / F2 / F3: line spacing 1 / 1.5 / 2
 //! - F4: next correction method
-//! - arrows: free movement (if allowed)
+//! - Up / Down: platen knob, a half-line (superscripts, footnote marks); or
+//!   drag / scroll a knob either side of the paper
+//! - Left / Right: free movement (if allowed)
 //! - Page Up / Page Down, arrows, Shift+arrows, Enter, Esc: the folder;
 //!   `app.rs` redirects them there
 //! - Esc: calm mode (typing view)

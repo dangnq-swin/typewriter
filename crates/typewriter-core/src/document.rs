@@ -11,8 +11,8 @@ use crate::scratchpad::Scratchpad;
 use crate::session::SessionStats;
 
 /// Bump when older versions can't read the file. 2: session stats. 3: notes.
-/// 4: scratchpad.
-pub const FORMAT_VERSION: u32 = 4;
+/// 4: scratchpad. 5: type jams, the Delete correction.
+pub const FORMAT_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {

@@ -97,6 +97,8 @@ pub struct Look {
     pub calm_minimum_percent: u8,
     /// As the mouse wheel left it.
     pub zoom_percent: u16,
+    /// Type-line guides while the platen knob turns.
+    pub platen_guides: bool,
 }
 
 impl Default for Look {
@@ -108,6 +110,7 @@ impl Default for Look {
             calm_falloff_lines: calm::DEFAULT_FALLOFF_LINES,
             calm_minimum_percent: calm::DEFAULT_MINIMUM_PERCENT,
             zoom_percent: ZOOM_DEFAULT,
+            platen_guides: true,
         }
     }
 }
@@ -176,6 +179,7 @@ pub struct Rules {
     pub free_movement: bool,
     /// Digital delete joins the correction cycle.
     pub delete_in_cycle: bool,
+    pub type_jams: bool,
 }
 
 impl Default for Rules {
@@ -186,6 +190,7 @@ impl Default for Rules {
             lock_at_right_margin: machine.lock_at_right_margin,
             free_movement: machine.free_movement,
             delete_in_cycle: false,
+            type_jams: machine.type_jams,
         }
     }
 }
@@ -198,6 +203,7 @@ impl Rules {
             erase,
             lock_at_right_margin: self.lock_at_right_margin,
             free_movement: self.free_movement,
+            type_jams: self.type_jams,
         }
     }
 
@@ -215,6 +221,9 @@ impl Rules {
         }
         if self.free_movement != before.free_movement {
             machine.free_movement = self.free_movement;
+        }
+        if self.type_jams != before.type_jams {
+            machine.type_jams = self.type_jams;
         }
         // Out of the cycle: no longer the method either.
         if !self.delete_in_cycle && machine.erase == EraseMode::Delete {

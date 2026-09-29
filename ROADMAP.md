@@ -31,12 +31,14 @@ M0–M8 are done; the git history has the details.
 
 ## M12: Mechanics
 
-- [ ] ❓ Platen knob: roll the paper up or down by half lines (superscripts, footnote marks)
-- [ ] ❓ Dead keys: accents strike without moving the carriage, so é, ü, ñ are overtyped
-- [ ] ❓ Type jams: two keys struck almost together tangle their typebars and print nothing
-      until freed (a strictness setting, off by default)
-- [ ] Shift misalignment: capitals sit a hair off the baseline, as on a worn machine (part of
-      ink realism)
+- [x] Platen knob: Up / Down roll the paper a half-line whatever the rules (superscripts,
+      footnote marks); knobs either side of the paper turn with a drag or the wheel
+- [x] Dead keys, per machine profile (`dead_keys`; the SM9 has none): the accent strikes
+      without moving the carriage, é from the keyboard is typed as accent then letter and
+      drawn as the font's é. Without the dead key, accented letters don't type
+- [x] Type jams: a rule (off by default). Two strikes within 30 ms tangle, and only
+      Backspace frees them (folder format version 5)
+- [x] Shift misalignment: with ink realism, capitals sit a hair above the line
 
 ## M13: Paper handling
 

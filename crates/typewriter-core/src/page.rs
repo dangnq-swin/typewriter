@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::accents;
+
 /// Something applied to a cell, in order. Later marks sit on top.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mark {
@@ -74,11 +76,19 @@ impl Cell {
         self.visible_glyphs().last()
     }
 
-    /// What the cell reads as: its top glyph, except `'` over `.` reads `!`.
+    /// What the cell reads as: its top glyph, except `'` over `.` reads `!`
+    /// and an accent over a letter reads as the accented letter.
     pub fn reads_as(&self) -> Option<char> {
         let visible: Vec<char> = self.visible_glyphs().collect();
         if visible.contains(&'\'') && visible.contains(&'.') {
             return Some('!');
+        }
+        let (dead, letters): (Vec<char>, Vec<char>) =
+            visible.iter().partition(|&&c| accents::is_accent(c));
+        if let ([accent], [letter]) = (dead.as_slice(), letters.as_slice())
+            && let Some(accented) = accents::compose(*letter, *accent)
+        {
+            return Some(accented);
         }
         visible.last().copied()
     }

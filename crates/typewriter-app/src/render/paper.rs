@@ -3,6 +3,7 @@
 use eframe::egui::{
     Align2, Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2,
 };
+use typewriter_core::accents;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::page::{Correction, Mark, Page};
 
@@ -31,6 +32,9 @@ pub const FRAME_PADDING_MM: f32 = 1.0;
 /// Ink realism: max strike offset (points at 96 ppi) and max lightening.
 const INK_MAX_OFFSET: f32 = 0.4;
 const INK_DENSITY_VARIANCE: f32 = 0.1;
+/// Worn shift: capitals print this far above the line (points at 96 ppi,
+/// about 0.3 pt), always the same way.
+const SHIFT_MISALIGNMENT: f32 = 0.4;
 
 /// The sheet has no fill: a frame round the writing area, sides extended to
 /// the paper's edges, shows it. No bottom margin: the frame runs to the
@@ -185,16 +189,25 @@ pub fn sheet_marks(
         }
         let ink = INK.gamma_multiply(dimming.opacity(half_line));
         let marks = cell.marks();
+        // Only while the cell reads so: an erased accent stays erased.
+        let composed = composed(marks).filter(|&(_, _, c)| cell.reads_as() == Some(c));
         for (index, mark) in marks.iter().enumerate() {
             let seed = mark_seed(half_line, column, index);
             let (offset, density) = if ink_realism {
-                ink_variation(half_line, column, index)
+                let (offset, density) = ink_variation(half_line, column, index);
+                (offset + shift_misalignment(mark), density)
             } else {
                 (Vec2::ZERO, 1.0)
             };
             let at = cell_rect.min + offset * scale;
             match mark {
                 Mark::Glyph(c) | Mark::Smudged(c) => {
+                    let c = match composed {
+                        // Drawn with its letter.
+                        Some((accent, _, _)) if index == accent => continue,
+                        Some((_, letter, accented)) if index == letter => accented,
+                        _ => *c,
+                    };
                     // Each eraser pass leaves a ghost.
                     let rubbed = marks[index + 1..]
                         .iter()
@@ -202,9 +215,9 @@ pub fn sheet_marks(
                         .count();
                     let color = ink.gamma_multiply(density * ERASER_GHOST.powi(rubbed as i32));
                     if matches!(mark, Mark::Smudged(_)) {
-                        smudged(&mut out, at, *c, color, scale, seed);
+                        smudged(&mut out, at, c, color, scale, seed);
                     } else {
-                        out.push(Drawn::Glyph { at, c: *c, color });
+                        out.push(Drawn::Glyph { at, c, color });
                     }
                 }
                 Mark::Correction(Correction::Eraser) => scuff(&mut out, cell_rect, scale, seed),
@@ -328,6 +341,32 @@ fn ink_variation(half_line: u16, column: u16, index: usize) -> (Vec2, f32) {
     (offset, density)
 }
 
+/// A dead key's accent and the letter struck on it, as mark indices and the
+/// font's composed letter: its accent sits clear of capitals and ascenders,
+/// where two glyphs struck in one cell collide.
+fn composed(marks: &[Mark]) -> Option<(usize, usize, char)> {
+    let struck = |m: &Mark| match m {
+        Mark::Glyph(c) | Mark::Smudged(c) => Some(*c),
+        Mark::Correction(_) => None,
+    };
+    let (accent, a) = marks
+        .iter()
+        .enumerate()
+        .find_map(|(i, m)| struck(m).filter(|&c| accents::is_accent(c)).map(|c| (i, c)))?;
+    marks.iter().enumerate().find_map(|(i, m)| {
+        let letter = struck(m)?;
+        accents::compose(letter, a).map(|c| (accent, i, c))
+    })
+}
+
+/// Where a worn shift puts `mark`: capitals up a hair, the rest true.
+fn shift_misalignment(mark: &Mark) -> Vec2 {
+    match mark {
+        Mark::Glyph(c) | Mark::Smudged(c) if c.is_uppercase() => vec2(0.0, -SHIFT_MISALIGNMENT),
+        _ => Vec2::ZERO,
+    }
+}
+
 /// Stable random bits for one mark.
 fn mark_seed(half_line: u16, column: u16, index: usize) -> u64 {
     splitmix64((u64::from(half_line) << 40) ^ (u64::from(column) << 20) ^ index as u64)
@@ -336,6 +375,58 @@ fn mark_seed(half_line: u16, column: u16, index: usize) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_accent_and_its_letter_draw_as_one_composed_letter() {
+        let marks = [Mark::Glyph('\u{b4}'), Mark::Glyph('E')];
+        assert_eq!(composed(&marks), Some((0, 1, '\u{c9}')));
+        let after = [Mark::Glyph('e'), Mark::Glyph('^')];
+        assert_eq!(composed(&after), Some((1, 0, '\u{ea}')));
+        assert_eq!(composed(&[Mark::Glyph('^'), Mark::Glyph('q')]), None);
+        assert_eq!(composed(&[Mark::Glyph('x')]), None);
+    }
+
+    #[test]
+    fn an_erased_accent_stays_erased_under_its_letter() {
+        let profile = typewriter_core::Profile::from_toml_str(include_str!(
+            "../../../../profiles/olympia-sm9.toml"
+        ))
+        .unwrap();
+        let metrics = Metrics::new(&profile, 96.0);
+        let mut page = Page::new(profile.columns(), profile.half_lines());
+        page.strike(12, 10, '\u{b4}');
+        page.cover(12, 10, Correction::Eraser);
+        page.strike(12, 10, 'e');
+        let glyphs = |page: &Page| -> String {
+            sheet_marks(
+                &metrics,
+                page,
+                Pos2::ZERO,
+                false,
+                Dimming::NONE,
+                &dry,
+                |_| true,
+            )
+            .into_iter()
+            .filter_map(|drawn| match drawn {
+                Drawn::Glyph { c, .. } => Some(c),
+                _ => None,
+            })
+            .collect()
+        };
+        assert_eq!(glyphs(&page), "\u{b4}e", "the ghost, then a plain e");
+        page.strike(12, 11, '\u{b4}');
+        page.strike(12, 11, 'e');
+        assert!(glyphs(&page).ends_with('\u{e9}'));
+    }
+
+    #[test]
+    fn a_worn_shift_lifts_only_capitals() {
+        assert!(shift_misalignment(&Mark::Glyph('A')).y < 0.0);
+        assert!(shift_misalignment(&Mark::Smudged('\u{c9}')).y < 0.0);
+        assert_eq!(shift_misalignment(&Mark::Glyph('a')), Vec2::ZERO);
+        assert_eq!(shift_misalignment(&Mark::Glyph('!')), Vec2::ZERO);
+    }
 
     #[test]
     fn ink_variation_is_stable_and_subtle() {

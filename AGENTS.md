@@ -74,6 +74,7 @@ typewriter/
 │   ├── typewriter-core/        # library: no GUI, no audio, no I/O side effects
 │   │   └── src/
 │   │       ├── lib.rs
+│   │       ├── accents.rs      # accents: dead keys (per profile), é as ´ + e
 │   │       ├── page.rs         # page grid, cells, overtyped glyph stacks
 │   │       ├── carriage.rs     # carriage position, margins, bell zone, line feed
 │   │       ├── profile.rs      # machine profiles (SM9 first), pitch, paper size
@@ -89,7 +90,7 @@ typewriter/
 │       └── src/
 │           ├── main.rs
 │           ├── app.rs          # eframe::App impl, top-level state
-│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad
+│           ├── render/         # paper, glyphs, calm-mode dimming, platen view, settings card, notes, scratchpad, platen knob
 │           ├── input.rs        # key events -> core commands
 │           ├── import.rs       # `typewriter import x.odt`: an .odt retyped into a new project
 │           ├── odt.rs          # .odt read as plain paragraphs (zip, quick-xml)

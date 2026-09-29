@@ -5,6 +5,7 @@ pub mod background;
 pub mod calm;
 pub mod feed;
 pub mod folder;
+pub mod knob;
 pub mod note;
 pub mod pad;
 pub mod paper;
@@ -24,6 +25,11 @@ pub const COURIER_PRIME: &[u8] =
 
 /// Every Courier glyph advances 0.6 em.
 const COURIER_ADVANCE_EM: f32 = 0.6;
+/// Courier Prime's hhea ascent: a glyph's top to its baseline, in em.
+pub const COURIER_ASCENT_EM: f32 = 1600.0 / 2048.0;
+/// How far `l` rises and `g` drops from the baseline, in em.
+const COURIER_ASCENDER_EM: f32 = 1312.0 / 2048.0;
+const COURIER_DESCENDER_EM: f32 = 410.0 / 2048.0;
 pub const MM_PER_INCH: f32 = 25.4;
 
 /// A sheet drawn flat (folder, icons, cards).
@@ -85,6 +91,17 @@ impl Metrics {
             )
     }
 
+    /// Ascender, baseline and descender heights below a cell's top.
+    pub fn type_lines(&self) -> [f32; 3] {
+        let size = self.font.size;
+        let baseline = COURIER_ASCENT_EM * size;
+        [
+            baseline - COURIER_ASCENDER_EM * size,
+            baseline,
+            baseline + COURIER_DESCENDER_EM * size,
+        ]
+    }
+
     pub fn cell_size(&self) -> Vec2 {
         vec2(self.column_width, self.half_line_height * 2.0)
     }
@@ -127,5 +144,15 @@ mod tests {
         assert!((m.column_width - 9.6).abs() < 1e-4);
         assert!((m.font.size - 16.0).abs() < 1e-4);
         assert!((m.cell_size().y - 16.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn type_lines_run_top_to_bottom_inside_the_cell() {
+        let profile =
+            Profile::from_toml_str(include_str!("../../../../profiles/olympia-sm9.toml")).unwrap();
+        let m = Metrics::new(&profile, 96.0);
+        let [ascender, baseline, descender] = m.type_lines();
+        assert!(0.0 < ascender && ascender < baseline && baseline < descender);
+        assert!(descender < m.cell_size().y);
     }
 }

@@ -48,11 +48,14 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 
 | Key | Does |
 |---|---|
-| Backspace | Move back one step |
+| Backspace | Move back one step. After a type jam: free the typebars |
+| é, ü, ç… | Not on the Olympia SM9: accented letters don't type (`typewriter import` keeps them). Machines with dead keys (see `docs/profiles.md`) strike the accent without moving on, so the next letter lands on it |
 | Shift+Backspace or Delete | Move back one step while fixing your mistake |
 | Tab | Jump to the next tab stop |
 | Shift + Tab (tap while holding Shift) | Once: set a tab stop at the carriage. Twice: clear the nearest stop. Three times: clear all stops |
 | Insert | Take the sheet out and feed a new one. Enter on the last line does the same |
+| Up / Down | Platen knob: roll the paper a half-line, for superscripts and footnote marks (or drag or scroll a knob either side of the paper). Faint guides show where the next letter will sit (Settings → Look) |
+| Left / Right | Move the carriage without typing (only with *Free movement* on in the settings) |
 | Home | Margin release: type past the margins until the next return (or click a margin stop) |
 | Shift+Home / Shift+End | Set the left / right margin at the carriage (or drag the stops on the scale) |
 | F1/F2/F3 | Line spacing 1/1.5/2 |
@@ -78,6 +81,7 @@ Shift+Backspace removes the letter before the carriage without a trace, digital 
 
 | Control | Does |
 |---|---|
+| Platen knobs (either side of the paper) | Drag or scroll: roll the paper a half-line a notch |
 | Red margin stops on the scale | Drag: move the margin. Click: margin release |
 | **Spacing** plate | Click: next line spacing |
 | **Zoom** plate | Double-click: 100 % |

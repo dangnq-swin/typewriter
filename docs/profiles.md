@@ -31,6 +31,7 @@ TOML. Unknown keys are an error, so typos are caught.
 | `lines_per_inch` | integer > 0 | yes | Line pitch, usually 6. The platen turns in half-line steps |
 | `bell_columns_before_margin` | integer | yes | How many columns before the right margin the bell rings |
 | `tab_stops` | array of integers | no (empty) | Tab stops set when a project starts, as column numbers (0 = the paper's left edge) |
+| `dead_keys` | array of accents | no (none) | Accent keys that strike without moving the carriage, from `` ` `` `´` `^` `¨` `~`. A letter typed next lands on the accent, and é, ü, ñ from the keyboard are typed as accent then letter. Without the dead key, a letter carrying that accent can't be typed |
 | `[paper]` `width_mm`, `height_mm` | numbers > 0 | yes | Paper size. With the pitches it sets the grid: whole columns across and half-lines down |
 | `[margins]` `left_column` | integer | yes | Where the carriage returns to |
 | `[margins]` `right_column` | integer | yes | The first column the carriage locks at: typing stops before it. Must be greater than `left_column` and at most the number of columns |

@@ -123,6 +123,11 @@ fn look(ui: &mut Ui, look: &mut settings::Look) {
     );
     ui.checkbox(&mut look.fullscreen, "Fullscreen (F11)");
     ui.checkbox(
+        &mut look.platen_guides,
+        "Guides while the platen knob turns",
+    )
+    .on_hover_text("Faint lines at the ascender, baseline and descender");
+    ui.checkbox(
         &mut look.carriage_travel,
         "The paper slides sideways with the carriage",
     );
@@ -202,8 +207,10 @@ fn machine(ui: &mut Ui, machine: &mut settings::Machine, machines: &Machines) {
     ui.checkbox(&mut rules.backspace, "Backspace");
     ui.checkbox(&mut rules.lock_at_right_margin, "Lock at the right margin")
         .on_hover_text("Home releases it until the next return");
-    ui.checkbox(&mut rules.free_movement, "Free movement (arrow keys)")
-        .on_hover_text("Arrows move the carriage and roll the paper");
+    ui.checkbox(&mut rules.free_movement, "Free movement (Left / Right)")
+        .on_hover_text("Left / Right move the carriage without typing");
+    ui.checkbox(&mut rules.type_jams, "Type jams")
+        .on_hover_text("Two keys struck almost together tangle; Backspace frees them");
     ui.checkbox(
         &mut rules.delete_in_cycle,
         "Delete in the correction cycle (F4)",

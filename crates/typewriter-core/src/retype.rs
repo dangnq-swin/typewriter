@@ -1,5 +1,6 @@
 //! A typist retyping a manuscript: plain paragraphs typed out on the machine.
 
+use crate::accents;
 use crate::machine::{Command, Event, Typewriter};
 
 /// Keys the machine lacks, and what a typist strikes instead.
@@ -16,6 +17,7 @@ const SUBSTITUTES: [(char, &[Command]); 2] = [
 /// margins, a blank line between paragraphs, a fresh sheet on reaching a
 /// bottom margin as deep as the top one. A `\n` in a paragraph breaks the
 /// line; blank paragraphs are left out. `!` needs backspace allowed.
+/// Accented letters are kept even where the machine has no dead key.
 pub fn retype(machine: &mut Typewriter, paragraphs: &[impl AsRef<str>]) {
     let carriage = machine.carriage();
     let width = usize::from(carriage.right_margin.saturating_sub(carriage.left_margin)).max(1);
@@ -63,7 +65,10 @@ impl Typist<'_> {
                     self.machine.apply(stroke);
                 }),
                 None => {
-                    self.machine.apply(Command::Type(c));
+                    // No dead key for it: keep the manuscript's letter.
+                    if self.machine.apply(Command::Type(c)).is_empty() && accents::is_accented(c) {
+                        self.machine.strike(c);
+                    }
                 }
             }
         }
@@ -145,6 +150,19 @@ mod tests {
         assert_eq!(tw.page().line_text(12).trim(), "Page l!");
         let cell = tw.page().cell(12, 16).unwrap();
         assert_eq!(cell.visible_glyphs().collect::<String>(), "'.");
+    }
+
+    #[test]
+    fn accented_letters_are_kept_though_the_machine_lacks_them() {
+        let mut tw = sm9();
+        retype(&mut tw, &["Caf\u{e9} \u{e7}a"]);
+        assert_eq!(tw.page().line_text(12).trim(), "Caf\u{e9} \u{e7}a");
+        let cell = tw.page().cell(12, 13).unwrap();
+        assert_eq!(
+            cell.visible_glyphs().collect::<String>(),
+            "\u{e9}",
+            "one glyph"
+        );
     }
 
     #[test]

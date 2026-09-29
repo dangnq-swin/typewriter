@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::accents;
+
 const MM_PER_INCH: f64 = 25.4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -16,6 +18,10 @@ pub struct Profile {
     pub bell_columns_before_margin: u16,
     #[serde(default)]
     pub tab_stops: Vec<u16>,
+    /// Accents that strike without moving the carriage (`accents::ACCENTS`).
+    /// None: accented letters can't be typed.
+    #[serde(default)]
+    pub dead_keys: Vec<char>,
     pub paper: Paper,
     pub margins: Margins,
     #[serde(default)]
@@ -77,6 +83,8 @@ pub enum ProfileError {
     InvalidTopMargin { top_lines: u16 },
     #[error("tab stop {0} is outside the page")]
     InvalidTabStop(u16),
+    #[error("dead key {0} is not one of ` \u{b4} ^ \u{a8} ~")]
+    InvalidDeadKey(char),
 }
 
 impl Profile {
@@ -112,6 +120,9 @@ impl Profile {
         }
         if let Some(&stop) = self.tab_stops.iter().find(|&&s| s >= columns) {
             return Err(ProfileError::InvalidTabStop(stop));
+        }
+        if let Some(&key) = self.dead_keys.iter().find(|&&k| !accents::is_accent(k)) {
+            return Err(ProfileError::InvalidDeadKey(key));
         }
         Ok(())
     }

@@ -12,11 +12,9 @@ use typewriter_core::{Document, Profile, export};
 use super::calm::Dimming;
 use super::note::{self, NoteArea};
 use super::paper::{self, Drawn, RIM_WIDTH};
-use super::{COURIER_PRIME, Metrics};
+use super::{COURIER_ASCENT_EM, COURIER_PRIME, Metrics};
 
 const POINTS_PER_INCH: f32 = 72.0;
-/// Courier Prime's ascender in em. Converts screen tops to PDF baselines.
-const ASCENT_EM: f32 = 1600.0 / 2048.0;
 const ELLIPSE_POINTS: u16 = 32;
 
 pub fn render(
@@ -107,7 +105,8 @@ impl Page {
     fn draw(&self, ops: &mut Vec<Op>, drawn: Drawn) {
         match drawn {
             Drawn::Glyph { at, c, color } => {
-                let baseline = at.y + ASCENT_EM * self.size;
+                // Screen tops to PDF baselines.
+                let baseline = at.y + COURIER_ASCENT_EM * self.size;
                 let matrix = TextMatrix::Translate(Pt(at.x), Pt(self.height - baseline));
                 text(ops, &self.font, self.size, color, matrix, c.to_string());
             }

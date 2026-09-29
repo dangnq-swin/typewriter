@@ -83,7 +83,9 @@ enum Group {
 impl Group {
     fn of(event: Event) -> Option<Self> {
         Some(match event {
-            Event::KeyStrike(_) | Event::Space | Event::Backspace | Event::Tab => Self::Keys,
+            Event::KeyStrike(_) | Event::Space | Event::Backspace | Event::Tab | Event::Freed => {
+                Self::Keys
+            }
             Event::Bell => Self::Bell,
             Event::CarriageReturn | Event::LineFeed => Self::Platen,
             Event::SheetFed => Self::SheetFeed,
@@ -167,7 +169,8 @@ impl Audio {
             Event::KeyStrike(_) => self.key_variety.pick(&self.keys),
             Event::Bell => self.bell_variety.pick(&self.bells),
             Event::Space => Some(&self.space),
-            Event::Backspace => Some(&self.backspace),
+            // Typebars pulled apart clack like a backspace.
+            Event::Backspace | Event::Freed => Some(&self.backspace),
             Event::Tab => Some(&self.tab),
             Event::Erase(EraseMode::Fluid) => Some(&self.fluid),
             // Digital: nothing to hear.

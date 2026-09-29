@@ -20,6 +20,7 @@ use crate::render::background::Background;
 use crate::render::calm::{self, Dimming};
 use crate::render::feed::{self, FeedMotion};
 use crate::render::folder::{FolderAction, ProjectLabel};
+use crate::render::knob;
 use crate::render::platen::{self, PlatenView};
 use crate::render::{
     COURIER_PRIME, FONT_FAMILY, Metrics, folder, note, pad, paper, ruler, scratchpad,
@@ -31,6 +32,14 @@ use crate::{render, settings, storage};
 const POINTS_PER_INCH: f32 = 96.0;
 /// Scroll per zoom step: about one wheel notch.
 const SCROLL_POINTS_PER_STEP: f32 = 40.0;
+/// Strikes closer than this tangle, with type jams on. Frame-timed: keys
+/// in one frame count as together.
+const JAM_SECONDS: f64 = 0.03;
+/// The most notches one frame's knob turn rolls.
+const KNOB_NOTCHES_PER_FRAME: f32 = 3.0;
+/// Platen guides stay this long after the knob stops, then fade.
+const GUIDES_HOLD_SECONDS: f64 = 1.0;
+const GUIDES_FADE_SECONDS: f64 = 0.4;
 /// Fluid smudges strikes until dry.
 const FLUID_DRY_SECONDS: f64 = 3.0;
 /// Wind-back pace for a short way; a long one speeds up to fit
@@ -147,6 +156,15 @@ pub struct TypewriterApp {
     zoom_percent: u16,
     /// Scroll not yet turned into zoom steps.
     scroll_zoom: f32,
+    /// The platen knobs' grips as last drawn, while they can be turned. The
+    /// wheel turns them instead of zooming.
+    knobs: Vec<Rect>,
+    /// Knob turn not yet a whole notch: wheel or drag points, down positive.
+    knob_turn: f32,
+    /// The last strike from the keyboard, for type jams.
+    last_strike: f64,
+    /// When the platen knob last turned, for its guides.
+    knob_turned: f64,
     settings: settings::Settings,
     settings_file: SettingsFile,
     machines: Machines,
@@ -211,6 +229,10 @@ impl TypewriterApp {
             selected: 0,
             zoom_percent,
             scroll_zoom: 0.0,
+            knobs: Vec::new(),
+            knob_turn: 0.0,
+            last_strike: f64::NEG_INFINITY,
+            knob_turned: f64::NEG_INFINITY,
             settings,
             settings_file,
             machines,
@@ -275,6 +297,15 @@ impl TypewriterApp {
         if feeding {
             return;
         }
+        let over_knob = self.view == View::Typing
+            && ctx
+                .input(|i| i.pointer.hover_pos())
+                .is_some_and(|pointer| self.knobs.iter().any(|knob| knob.contains(pointer)));
+        if over_knob {
+            // Wheel down rolls on, like the Down key.
+            self.turn_knob(-scrolled, SCROLL_POINTS_PER_STEP, now);
+            return;
+        }
         // The paper never scrolls, so the wheel zooms: up is closer.
         self.scroll_zoom += scrolled;
         if self.scroll_zoom.abs() >= SCROLL_POINTS_PER_STEP {
@@ -286,15 +317,34 @@ impl TypewriterApp {
     /// A key for the machine: browses in the folder views, else types and
     /// counts towards the session.
     fn key(&mut self, command: Command, now: f64) {
-        if !self.browse_command(command) {
-            self.apply(command, now);
-            self.typed(now);
+        if self.browse_command(command) {
+            return;
+        }
+        let command = self.jams(command, now);
+        self.apply(command, now);
+        self.typed(now);
+    }
+
+    /// A strike too soon after the last tangles with it, if type jams are on.
+    fn jams(&mut self, command: Command, now: f64) -> Command {
+        let Command::Type(c) = command else {
+            return command;
+        };
+        if c.is_whitespace() {
+            return command;
+        }
+        let too_soon = now - std::mem::replace(&mut self.last_strike, now) < JAM_SECONDS;
+        if too_soon && self.machine.constraints.type_jams && !self.machine.is_jammed() {
+            Command::Jam
+        } else {
+            command
         }
     }
 
     /// Applies a command. Any machine command returns to the typing view.
     fn apply(&mut self, command: Command, now: f64) {
         self.view = View::Typing;
+        let knob = matches!(command, Command::Move(Direction::Up | Direction::Down));
         // Keep a copy: the filed sheet is still seen rolling out.
         let outgoing = (command == Command::FeedSheet).then(|| {
             (
@@ -309,6 +359,8 @@ impl TypewriterApp {
                 // Feed on a return at the page end: many keyboards lack
                 // Insert.
                 Event::PageEnd => page_end = true,
+                // Only a roll that happened shows the guides.
+                Event::LineFeed if knob => self.knob_turned = now,
                 Event::Blocked(_) => self.platen.jolt(now),
                 Event::Erase(EraseMode::Fluid) => {
                     let c = self.machine.carriage();
@@ -760,6 +812,15 @@ impl TypewriterApp {
         }
     }
 
+    /// 1 while the knob turns, fading out once it rests. 0 if switched off.
+    fn guides_opacity(&self, now: f64) -> f32 {
+        if !self.settings.look.platen_guides {
+            return 0.0;
+        }
+        let fading = now - self.knob_turned - GUIDES_HOLD_SECONDS;
+        (1.0 - fading / GUIDES_FADE_SECONDS).clamp(0.0, 1.0) as f32
+    }
+
     fn is_feeding(&self, now: f64) -> bool {
         self.feeding
             .as_ref()
@@ -872,6 +933,7 @@ impl TypewriterApp {
     }
 
     fn show_typing(&mut self, ui: &mut egui::Ui, now: f64) {
+        self.knobs.clear();
         let view = ui.max_rect();
         let carriage = self.machine.carriage();
         let cell = self
@@ -920,6 +982,13 @@ impl TypewriterApp {
         if self.machine.slip_in() {
             platen::paint_slip(&painter, &self.metrics, layout.strike_point);
         }
+        platen::paint_guides(
+            &painter,
+            &self.metrics,
+            layout.strike_point,
+            layout.paper_origin.x,
+            self.guides_opacity(now),
+        );
         platen::paint_strike_marker(
             &painter,
             &self.metrics,
@@ -955,6 +1024,20 @@ impl TypewriterApp {
             ruler_top,
         );
         ruler::paint_scale(&painter, &scale, carriage);
+        let paper_left = layout.paper_origin.x;
+        let knobs = [
+            (Side::Left, paper_left),
+            (Side::Right, paper_left + self.metrics.paper_size.x),
+        ]
+        .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, ruler_top));
+        for knob in &knobs {
+            let hovered = chrome >= 1.0 && !feeding && ui.rect_contains_pointer(knob.grip());
+            knob.paint(
+                &painter,
+                layout.strike_point.y - layout.paper_origin.y,
+                hovered,
+            );
+        }
         let spacing_plate = ruler::paint_spacing_indicator(
             &painter,
             carriage.line_spacing,
@@ -1041,6 +1124,48 @@ impl TypewriterApp {
         }
         if !feeding {
             self.margin_stops(ui, &scale, now);
+            for (name, knob) in ["left", "right"].into_iter().zip(&knobs) {
+                self.platen_knob(ui, name, knob.grip(), now);
+            }
+        }
+    }
+
+    /// Drag the knob to roll the paper, a half-line a notch.
+    fn platen_knob(&mut self, ui: &egui::Ui, name: &str, knob: Rect, now: f64) {
+        self.knobs.push(knob);
+        let response = ui
+            .interact(
+                knob,
+                egui::Id::new(("platen-knob", name)),
+                egui::Sense::DRAG,
+            )
+            .on_hover_text("Platen knob (\u{2191} / \u{2193}): drag or scroll to roll a half-line");
+        if response.hovered() || response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        if response.dragged() {
+            let points_per_notch =
+                knob::DRAG_POINTS_PER_NOTCH * self.metrics.points_per_inch / 96.0;
+            self.turn_knob(response.drag_delta().y, points_per_notch, now);
+        } else if response.drag_stopped() {
+            self.knob_turn = 0.0;
+        }
+    }
+
+    /// Adds `points` of turn (down positive); each `per_notch` rolls a half-line.
+    fn turn_knob(&mut self, points: f32, per_notch: f32, now: f64) {
+        // A flick drops what's past a few notches: each clicks, and clicks
+        // struck together get loud.
+        let most = KNOB_NOTCHES_PER_FRAME * per_notch;
+        self.knob_turn = (self.knob_turn + points).clamp(-most, most);
+        while self.knob_turn.abs() >= per_notch {
+            let direction = if self.knob_turn > 0.0 {
+                Direction::Down
+            } else {
+                Direction::Up
+            };
+            self.knob_turn -= per_notch.copysign(self.knob_turn);
+            self.apply(Command::Move(direction), now);
         }
     }
 
@@ -1314,6 +1439,7 @@ impl eframe::App for TypewriterApp {
         }
 
         if self.platen.is_animating(now)
+            || self.guides_opacity(now) > 0.0
             || self.feeding.is_some()
             || self.wind_back.is_some()
             || !self.wet.is_empty()

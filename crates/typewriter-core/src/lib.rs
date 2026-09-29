@@ -1,5 +1,6 @@
 //! Typewriter mechanics, free of GUI, audio and I/O concerns.
 
+pub mod accents;
 pub mod carriage;
 pub mod constraints;
 pub mod document;

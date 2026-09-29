@@ -10,9 +10,12 @@ pub struct Constraints {
     pub erase: EraseMode,
     /// Lock at the right margin until the margin release is used.
     pub lock_at_right_margin: bool,
-    /// Move the carriage and platen freely (release lever, platen knob), not
-    /// only by typing, backspace, tab and return.
+    /// Move the carriage freely (release lever), not only by typing,
+    /// backspace, tab and return. The platen knob always turns.
     pub free_movement: bool,
+    /// Two strikes too close together tangle the typebars. The app times
+    /// them; Backspace frees them.
+    pub type_jams: bool,
 }
 
 impl Default for Constraints {
@@ -22,6 +25,7 @@ impl Default for Constraints {
             erase: EraseMode::Paper,
             lock_at_right_margin: true,
             free_movement: false,
+            type_jams: false,
         }
     }
 }

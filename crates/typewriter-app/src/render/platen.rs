@@ -3,9 +3,10 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{
-    Color32, CornerRadius, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2, pos2, vec2,
+    Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2, pos2, vec2,
 };
 
+use super::paper::INK;
 use super::{HIGHLIGHT, Metrics};
 
 /// The typing line's height, as a share of the view.
@@ -13,6 +14,10 @@ const TYPING_LINE_HEIGHT: f32 = 0.62;
 const JOLT_SECONDS: f64 = 0.18;
 const JOLT_AMPLITUDE: f32 = 3.0;
 const JOLT_HZ: f32 = 28.0;
+/// The ink, a little fainter.
+const GUIDE_OPACITY: f32 = 0.75;
+const GUIDE_DASH: f32 = 4.0;
+const GUIDE_GAP: f32 = 4.0;
 
 #[derive(Debug)]
 pub struct PlatenView {
@@ -109,6 +114,31 @@ pub fn paint_strike_marker(painter: &Painter, metrics: &Metrics, strike_point: P
         color,
         Stroke::NONE,
     ));
+}
+
+/// Faint dashes across the paper at the strike point's ascender, baseline
+/// and descender: where a strike lands after the knob rolls the paper.
+pub fn paint_guides(
+    painter: &Painter,
+    metrics: &Metrics,
+    strike_point: Pos2,
+    paper_left: f32,
+    opacity: f32,
+) {
+    if opacity <= 0.0 {
+        return;
+    }
+    let stroke = Stroke::new(1.0, INK.gamma_multiply(GUIDE_OPACITY * opacity));
+    let right = paper_left + metrics.paper_size.x;
+    for height in metrics.type_lines() {
+        let y = strike_point.y + height;
+        painter.extend(Shape::dashed_line(
+            &[pos2(paper_left, y), pos2(right, y)],
+            stroke,
+            GUIDE_DASH,
+            GUIDE_GAP,
+        ));
+    }
 }
 
 /// Eased carriage movement. Long moves (a return) take longer than a step.

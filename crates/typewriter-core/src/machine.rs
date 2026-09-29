@@ -1,5 +1,6 @@
 //! The typewriter as a whole: commands in, events out.
 
+use crate::accents;
 use crate::carriage::{Carriage, LineSpacing};
 use crate::constraints::{Constraints, EraseMode};
 use crate::document::{Document, FORMAT_VERSION, FolderError, FolderFile};
@@ -42,10 +43,14 @@ pub enum Command {
     },
     MarginRelease,
     SetLineSpacing(LineSpacing),
-    /// Release lever / platen knob. Vertical steps are half-lines.
+    /// Left / right: release lever, if free movement is allowed. Up / down:
+    /// platen knob, a half-line notch, always.
     Move(Direction),
     /// File the sheet and feed a blank one, carriage at the top margin.
     FeedSheet,
+    /// Two strikes came too close: their typebars tangle, if type jams are on.
+    /// The core has no clock: the app says when.
+    Jam,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +86,8 @@ pub enum Event {
     /// A feed would roll past the bottom edge. The app feeds a new sheet.
     PageEnd,
     SheetFed,
+    /// Backspace pulled tangled typebars apart.
+    Freed,
     Blocked(BlockReason),
 }
 
@@ -93,6 +100,8 @@ pub enum BlockReason {
     NotAllowed,
     Unprintable,
     InvalidStop,
+    /// Tangled typebars: only Backspace frees them.
+    Jammed,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +111,8 @@ pub struct Typewriter {
     carriage: Carriage,
     document: Document,
     slip_in: bool,
+    /// Typebars tangled. Not saved: a reopened machine is freed.
+    jammed: bool,
     /// This project's sessions, oldest first.
     sessions: Vec<SessionStats>,
 }
@@ -121,6 +132,7 @@ impl Typewriter {
             carriage,
             document,
             slip_in: false,
+            jammed: false,
             sessions: Vec::new(),
         })
     }
@@ -226,12 +238,33 @@ impl Typewriter {
         }
     }
 
+    /// Typebars tangled: only Backspace does anything.
+    pub fn is_jammed(&self) -> bool {
+        self.jammed
+    }
+
     /// The correction slip is in front of the ribbon.
     pub fn slip_in(&self) -> bool {
         self.slip_in
     }
 
     pub fn apply(&mut self, command: Command) -> Vec<Event> {
+        if self.jammed {
+            match command {
+                Command::Backspace => {
+                    self.jammed = false;
+                    return vec![Event::Freed];
+                }
+                Command::Type(_)
+                | Command::Erase
+                | Command::Return
+                | Command::LineFeed
+                | Command::Tab
+                | Command::Move(_)
+                | Command::FeedSheet => return vec![Event::Blocked(BlockReason::Jammed)],
+                _ => {}
+            }
+        }
         match command {
             Command::Type(c) => self.type_char(c),
             Command::Backspace => self.backspace(),
@@ -284,6 +317,11 @@ impl Typewriter {
             }
             Command::Move(direction) => self.move_freely(direction),
             Command::FeedSheet => self.feed_sheet(),
+            Command::Jam if self.constraints.type_jams => {
+                self.jammed = true;
+                vec![Event::Blocked(BlockReason::Jammed)]
+            }
+            Command::Jam => vec![],
         }
     }
 
@@ -317,6 +355,26 @@ impl Typewriter {
     }
 
     fn type_char(&mut self, c: char) -> Vec<Event> {
+        // The typist's way to é: the dead ´, then e over it.
+        if let Some((base, accent)) = accents::decompose(c)
+            && self.profile.dead_keys.contains(&accent)
+        {
+            let mut events = self.type_char(accent);
+            if !events.iter().any(|e| matches!(e, Event::Blocked(_))) {
+                events.extend(self.type_char(base));
+            }
+            return events;
+        }
+        // No such key: nothing strikes.
+        if accents::is_accented(c) {
+            return vec![];
+        }
+        self.strike(c)
+    }
+
+    /// Strikes `c` as one glyph, key or no key: for a manuscript retyped
+    /// with its accents kept.
+    pub(crate) fn strike(&mut self, c: char) -> Vec<Event> {
         if c.is_control() {
             return vec![Event::Blocked(BlockReason::Unprintable)];
         }
@@ -337,7 +395,10 @@ impl Typewriter {
             }
             vec![Event::KeyStrike(c)]
         };
-        self.advance_to(column + 1, &mut events);
+        // A dead key's typebar strikes, but the carriage doesn't escape.
+        if !self.profile.dead_keys.contains(&c) {
+            self.advance_to(column + 1, &mut events);
+        }
         events
     }
 
@@ -479,7 +540,8 @@ impl Typewriter {
     }
 
     fn move_freely(&mut self, direction: Direction) -> Vec<Event> {
-        if !self.constraints.free_movement {
+        let knob = matches!(direction, Direction::Up | Direction::Down);
+        if !knob && !self.constraints.free_movement {
             return vec![Event::Blocked(BlockReason::NotAllowed)];
         }
         let columns = self.document.current().columns();
@@ -496,7 +558,8 @@ impl Typewriter {
         match target {
             Some(p) => {
                 *position = p;
-                vec![]
+                // The knob's ratchet clicks.
+                if knob { vec![Event::LineFeed] } else { vec![] }
             }
             None => vec![Event::Blocked(BlockReason::PaperEdge)],
         }
@@ -679,10 +742,11 @@ mod tests {
         type_str(&mut tw, "old");
         let text = tw.to_folder_ron().unwrap();
         let start = text.find("sessions:").unwrap();
-        let old = text[..start]
-            .trim_end()
-            .replacen("version: 4", "version: 1", 1)
-            + "\n)";
+        let old = text[..start].trim_end().replacen(
+            &format!("version: {FORMAT_VERSION}"),
+            "version: 1",
+            1,
+        ) + "\n)";
         let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
         assert_eq!(back.document(), tw.document());
         assert!(back.sessions().is_empty());
@@ -708,7 +772,9 @@ mod tests {
                 keep
             })
             .collect();
-        let old = old.join("\n").replacen("version: 4", "version: 3", 1);
+        let old = old
+            .join("\n")
+            .replacen(&format!("version: {FORMAT_VERSION}"), "version: 3", 1);
         assert!(!old.contains("pages:"));
         let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
         assert_eq!(back.document(), tw.document());
@@ -716,11 +782,23 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_file_from_before_type_jams_opens_with_them_off() {
+        let tw = sm9();
+        let text = tw.to_folder_ron().unwrap();
+        let old: Vec<&str> = text.lines().filter(|l| !l.contains("type_jams")).collect();
+        let old = old
+            .join("\n")
+            .replacen(&format!("version: {FORMAT_VERSION}"), "version: 4", 1);
+        let back = Typewriter::from_folder_ron(&old, by_name(tw.profile())).unwrap();
+        assert!(!back.constraints.type_jams);
+    }
+
+    #[test]
     fn folder_files_from_elsewhere_are_refused() {
         let tw = sm9();
         let text = tw.to_folder_ron().unwrap();
         let profile = tw.profile().clone();
-        let newer = text.replacen("version: 4", "version: 99", 1);
+        let newer = text.replacen(&format!("version: {FORMAT_VERSION}"), "version: 99", 1);
         assert!(matches!(
             Typewriter::from_folder_ron(&newer, by_name(&profile)),
             Err(FolderError::NewerVersion(99))
@@ -972,12 +1050,99 @@ mod tests {
     }
 
     #[test]
-    fn free_movement_is_off_by_default() {
+    fn free_movement_is_off_by_default_but_the_platen_knob_always_turns() {
         let mut tw = sm9();
         assert_eq!(
-            tw.apply(Command::Move(Direction::Up)),
+            tw.apply(Command::Move(Direction::Left)),
             [Event::Blocked(BlockReason::NotAllowed)]
         );
+        assert_eq!(tw.apply(Command::Move(Direction::Up)), [Event::LineFeed]);
+        assert_eq!(tw.apply(Command::Move(Direction::Down)), [Event::LineFeed]);
+        assert_eq!(tw.carriage().half_line, 12);
+    }
+
+    #[test]
+    fn tangled_typebars_block_the_keys_until_backspace_frees_them() {
+        let mut tw = sm9();
+        assert_eq!(tw.apply(Command::Jam), [], "off by default");
+        tw.constraints.type_jams = true;
+        type_str(&mut tw, "a");
+        assert_eq!(
+            tw.apply(Command::Jam),
+            [Event::Blocked(BlockReason::Jammed)]
+        );
+        assert!(tw.is_jammed());
+        for command in [Command::Type('b'), Command::Return, Command::Tab] {
+            assert_eq!(tw.apply(command), [Event::Blocked(BlockReason::Jammed)]);
+        }
+        assert_eq!(tw.apply(Command::Backspace), [Event::Freed]);
+        assert_eq!(
+            tw.carriage().column,
+            11,
+            "freeing doesn't move the carriage"
+        );
+        type_str(&mut tw, "b");
+        assert_eq!(tw.page().line_text(12).trim(), "ab");
+    }
+
+    /// The SM9 with dead ´ and ^, as on some national keyboards.
+    fn with_dead_keys() -> Typewriter {
+        let mut profile =
+            Profile::from_toml_str(include_str!("../../../profiles/olympia-sm9.toml")).unwrap();
+        profile.dead_keys = vec!['\u{b4}', '^'];
+        Typewriter::new(profile, Constraints::default()).unwrap()
+    }
+
+    #[test]
+    fn a_dead_key_waits_for_its_letter() {
+        let mut tw = with_dead_keys();
+        assert_eq!(type_str(&mut tw, "^"), [Event::KeyStrike('^')]);
+        assert_eq!(tw.carriage().column, 10);
+        type_str(&mut tw, "o");
+        assert_eq!(tw.carriage().column, 11);
+        let cell = tw.page().cell(12, 10).unwrap();
+        assert_eq!(cell.visible_glyphs().collect::<String>(), "^o");
+        assert_eq!(cell.reads_as(), Some('\u{f4}'));
+    }
+
+    #[test]
+    fn a_precomposed_letter_is_typed_as_accent_then_base() {
+        let mut tw = with_dead_keys();
+        let events = type_str(&mut tw, "\u{e9}t\u{e9}");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, Event::KeyStrike(_)))
+                .count(),
+            5
+        );
+        assert_eq!(tw.carriage().column, 13);
+        assert_eq!(tw.page().line_text(12).trim(), "\u{e9}t\u{e9}");
+    }
+
+    #[test]
+    fn without_the_dead_key_an_accented_letter_is_not_typed() {
+        let mut tw = with_dead_keys();
+        assert_eq!(
+            type_str(&mut tw, "\u{e8}\u{e7}"),
+            [],
+            "no dead ` or cedilla"
+        );
+        let mut tw = sm9();
+        assert_eq!(type_str(&mut tw, "\u{e9}"), []);
+        assert_eq!(tw.carriage().column, 10);
+        // Accent keys print like any other.
+        assert_eq!(type_str(&mut tw, "^"), [Event::KeyStrike('^')]);
+        assert_eq!(tw.carriage().column, 11);
+    }
+
+    #[test]
+    fn a_half_line_up_types_a_superscript() {
+        let mut tw = sm9();
+        type_str(&mut tw, "x");
+        tw.apply(Command::Move(Direction::Up));
+        type_str(&mut tw, "2");
+        assert_eq!(tw.page().cell(11, 11).unwrap().top_glyph(), Some('2'));
     }
 
     #[test]
@@ -993,9 +1158,8 @@ mod tests {
     }
 
     #[test]
-    fn free_movement_stops_at_paper_edge() {
+    fn the_platen_knob_stops_at_the_paper_edge() {
         let mut tw = sm9();
-        tw.constraints.free_movement = true;
         for _ in 0..12 {
             tw.apply(Command::Move(Direction::Up));
         }
