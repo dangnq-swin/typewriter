@@ -8,8 +8,9 @@ file: the git history and the release notes keep it.
 
 ## Look
 
+- [ ] The carriage-return lever at the carriage's left end, shared by both editions, thrown on
+      Return. No mouse throw, and no short throw for a line alone: Up / Down roll the platen
 - [ ] Night desk: a dim room with a lamp's pool of light on the paper
-- [ ] Carriage-return lever animation
 
 ## Ribbon
 
@@ -19,6 +20,9 @@ file: the git history and the release notes keep it.
 ## More machines
 
 - [ ] Profiles with their own sounds and typeface
+- [ ] ❓ A machine's look in its profile, built with the second machine: a `[look]` table the app
+      reads (knob and lever colours, the scale), the SM9's by default; and a `model` naming the
+      desk edition's drawing of it. Open: what the desk draws for a profile without one
 - [ ] Elite (12 cpi) type option for the SM9
 - [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
       its own pitch, typeface, bell offset and sounds
