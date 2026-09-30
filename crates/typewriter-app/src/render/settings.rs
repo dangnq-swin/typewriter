@@ -7,9 +7,10 @@ use eframe::egui::{
     vec2,
 };
 
-use super::{DIM, DeskIcon, HIGHLIGHT, SHEET, SHEET_EDGE};
+use super::{CLICK, DIM, DeskIcon, HIGHLIGHT, SHEET, SHEET_EDGE, background};
 use crate::machines::{self, Machines};
 use crate::settings::{self, Settings};
+use crate::storage;
 
 const TEXT: Color32 = Color32::from_rgb(0x2A, 0x26, 0x22);
 const QUIET: Color32 = Color32::from_rgb(0x6E, 0x66, 0x5A);
@@ -21,14 +22,17 @@ const CARD_WIDTH: f32 = 520.0;
 #[derive(Debug, Default)]
 pub struct SettingsResponse {
     pub close: bool,
+    pub choose_texture: bool,
 }
 
 /// Draws the card. Edits `settings` in place: changes apply at once.
+/// `background_problem`: why the own texture isn't showing.
 pub fn show_settings(
     ui: &mut Ui,
     view: Rect,
     settings: &mut Settings,
     machines: &Machines,
+    background_problem: Option<&str>,
 ) -> SettingsResponse {
     ui.painter_at(view)
         .rect_filled(view, CornerRadius::ZERO, DIM);
@@ -62,6 +66,8 @@ pub fn show_settings(
                     .show(ui, |ui| {
                         sound(ui, &mut settings.sound);
                         look(ui, &mut settings.look);
+                        response.choose_texture =
+                            background(ui, &mut settings.look, background_problem);
                         goals(ui, &mut settings.goals);
                         machine(ui, &mut settings.machine, machines);
                         section(ui, "Projects");
@@ -148,6 +154,66 @@ fn look(ui: &mut Ui, look: &mut settings::Look) {
             .suffix(" %"),
         );
     });
+}
+
+/// The background choice. True if the texture's file dialog was asked for.
+fn background(ui: &mut Ui, look: &mut settings::Look, problem: Option<&str>) -> bool {
+    let mut choose = false;
+    ui.horizontal(|ui| {
+        ui.label("Background");
+        ui.radio_value(&mut look.background, settings::Background::Paper, "Paper");
+        ui.radio_value(&mut look.background, settings::Background::Colour, "Plain");
+        ui.radio_value(
+            &mut look.background,
+            settings::Background::Texture,
+            "Own image",
+        );
+    });
+    match look.background {
+        settings::Background::Paper => {}
+        settings::Background::Colour => {
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                for tone in settings::PaperTone::ALL {
+                    if swatch(ui, tone, look.background_colour == tone) {
+                        look.background_colour = tone;
+                    }
+                }
+            });
+        }
+        settings::Background::Texture => {
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                choose = ui.button("Choose…").clicked();
+                match &look.background_texture {
+                    Some(path) => note(ui, storage::home_relative(path)),
+                    None => note(ui, "None chosen"),
+                }
+            });
+            if let Some(problem) = problem {
+                ui.colored_label(PROBLEM, problem);
+            }
+        }
+    }
+    choose
+}
+
+/// A square of paper `tone`, ringed if `chosen`. True if clicked.
+fn swatch(ui: &mut Ui, tone: settings::PaperTone, chosen: bool) -> bool {
+    let (rect, response) = ui.allocate_exact_size(vec2(26.0, 20.0), CLICK);
+    let edge = if chosen || response.hovered() {
+        Stroke::new(2.0, HIGHLIGHT)
+    } else {
+        Stroke::new(1.0, SHEET_EDGE)
+    };
+    ui.painter().rect(
+        rect,
+        CornerRadius::same(2),
+        background::tone(tone),
+        edge,
+        egui::StrokeKind::Inside,
+    );
+    response.on_hover_text(tone.name()).clicked()
 }
 
 fn goals(ui: &mut Ui, goals: &mut settings::Goals) {

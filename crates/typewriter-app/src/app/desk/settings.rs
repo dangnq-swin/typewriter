@@ -1,5 +1,7 @@
 //! The settings in effect: fullscreen, zoom, goals, and edits on the card.
 
+use std::path::PathBuf;
+
 use typewriter_core::Goal;
 
 use super::{Desk, View};
@@ -65,6 +67,14 @@ impl Desk {
         self.effects.push(Effect::SettingsChanged);
     }
 
+    /// A background image chosen: it shows at once.
+    pub(super) fn texture_picked(&mut self, path: PathBuf) {
+        let look = &mut self.settings.look;
+        look.background = settings::Background::Texture;
+        look.background_texture = Some(path);
+        self.effects.push(Effect::SettingsChanged);
+    }
+
     /// Editing the chosen custom goal changes the chosen goal with it.
     fn follow_custom_goal(&mut self, before: &settings::Goals) {
         let goals = &mut self.settings.goals;
@@ -88,6 +98,7 @@ mod tests {
     use super::*;
     use crate::app::intent::Intent;
     use crate::input::Action;
+    use crate::picker::{Dialog, Picked};
 
     #[test]
     fn zoom_steps_within_limits() {
@@ -130,5 +141,21 @@ mod tests {
         let goal = desk.project.session.goal();
         assert!(goal.is_some());
         assert_eq!(desk.settings.goals.goal, goal);
+    }
+
+    #[test]
+    fn a_chosen_texture_becomes_the_background() {
+        let mut desk = desk();
+        desk.update(Intent::OpenSettings, 10.0);
+        desk.take_effects();
+        desk.update(Intent::ChooseTexture, 10.0);
+        assert_eq!(desk.take_effects(), [Effect::Ask(Dialog::Texture)]);
+        let path = PathBuf::from("/desk/linen.png");
+        desk.update(Intent::Picked(Picked::Texture(path.clone())), 11.0);
+        let look = &desk.settings.look;
+        assert_eq!(look.background, settings::Background::Texture);
+        assert_eq!(look.background_texture, Some(path));
+        assert_eq!(desk.take_effects(), [Effect::SettingsChanged]);
+        assert_eq!(desk.view, View::Settings);
     }
 }

@@ -102,6 +102,60 @@ pub struct Look {
     pub zoom_percent: u16,
     /// Type-line guides while the platen knob turns.
     pub platen_guides: bool,
+    /// Behind everything, and the body of every sheet.
+    pub background: Background,
+    /// For [`Background::Colour`].
+    pub background_colour: PaperTone,
+    /// For [`Background::Texture`]: a JPEG or PNG.
+    pub background_texture: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Background {
+    /// The bundled photo.
+    #[default]
+    Paper,
+    Colour,
+    Texture,
+}
+
+/// Flat paper colours: stock a stationer sells.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PaperTone {
+    White,
+    #[default]
+    Ivory,
+    Cream,
+    Buff,
+    Blue,
+    Green,
+    Pink,
+}
+
+impl PaperTone {
+    pub const ALL: [Self; 7] = [
+        Self::White,
+        Self::Ivory,
+        Self::Cream,
+        Self::Buff,
+        Self::Blue,
+        Self::Green,
+        Self::Pink,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::White => "White",
+            Self::Ivory => "Ivory",
+            Self::Cream => "Cream",
+            Self::Buff => "Buff",
+            Self::Blue => "Pale blue",
+            Self::Green => "Pale green",
+            Self::Pink => "Pink",
+        }
+    }
 }
 
 impl Default for Look {
@@ -114,6 +168,9 @@ impl Default for Look {
             calm_minimum_percent: CALM_MINIMUM_PERCENT_DEFAULT,
             zoom_percent: ZOOM_DEFAULT,
             platen_guides: true,
+            background: Background::Paper,
+            background_colour: PaperTone::default(),
+            background_texture: None,
         }
     }
 }
@@ -429,5 +486,19 @@ mod tests {
         assert_eq!(settings.look.calm_falloff_lines, 1);
         let odd = Settings::from_toml("[look]\nzoom_percent = 137\n").unwrap();
         assert_eq!(odd.look.zoom_percent, 130);
+    }
+
+    #[test]
+    fn the_background_keeps_its_colour_and_texture_while_switched() {
+        let mut settings = Settings::default();
+        settings.look.background = Background::Texture;
+        settings.look.background_colour = PaperTone::Blue;
+        settings.look.background_texture = Some(PathBuf::from("/desk/linen.png"));
+        let text = toml::to_string(&settings).unwrap();
+        assert!(text.contains("background = \"texture\""), "{text}");
+        assert!(text.contains("background_colour = \"blue\""), "{text}");
+        assert_eq!(Settings::from_toml(&text).unwrap(), settings);
+        let text = toml::to_string(&Settings::default()).unwrap();
+        assert!(!text.contains("background_texture"), "{text}");
     }
 }

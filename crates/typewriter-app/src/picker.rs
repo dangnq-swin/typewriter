@@ -9,6 +9,8 @@ use eframe::egui;
 pub enum Dialog {
     SaveAs,
     Open,
+    /// An image for the background.
+    Texture,
 }
 
 /// A dialog's answer.
@@ -16,6 +18,7 @@ pub enum Dialog {
 pub enum Picked {
     SaveAs(PathBuf),
     Open(PathBuf),
+    Texture(PathBuf),
     Cancelled,
 }
 
@@ -41,7 +44,14 @@ impl Picker {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let mut picker = rfd::FileDialog::new().add_filter("Typewriter project", &["typr"]);
+            let mut picker = match dialog {
+                Dialog::Texture => {
+                    rfd::FileDialog::new().add_filter("JPEG or PNG image", &["jpg", "jpeg", "png"])
+                }
+                Dialog::SaveAs | Dialog::Open => {
+                    rfd::FileDialog::new().add_filter("Typewriter project", &["typr"])
+                }
+            };
             if let Some(directory) = directory {
                 picker = picker.set_directory(directory);
             }
@@ -51,6 +61,7 @@ impl Picker {
                     .set_file_name(file_name)
                     .save_file(),
                 Dialog::Open => picker.set_title("Open a project").pick_file(),
+                Dialog::Texture => picker.set_title("Choose a background").pick_file(),
             };
             let _ = sender.send(picked);
             ctx.request_repaint();
@@ -71,6 +82,7 @@ impl Picker {
         Some(match (picked, dialog) {
             (Some(path), Dialog::SaveAs) => Picked::SaveAs(path),
             (Some(path), Dialog::Open) => Picked::Open(path),
+            (Some(path), Dialog::Texture) => Picked::Texture(path),
             (None, _) => Picked::Cancelled,
         })
     }

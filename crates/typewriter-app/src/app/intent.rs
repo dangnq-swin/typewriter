@@ -37,6 +37,8 @@ pub enum Intent {
     CloseSettings,
     /// The settings card was edited, from these.
     SettingsEdited(Box<Settings>),
+    /// Pick an image for the background.
+    ChooseTexture,
     NextSpacing,
     ResetZoom,
     NextCorrection,

@@ -156,6 +156,7 @@ impl Desk {
             Intent::OpenSettings => self.open_settings(),
             Intent::CloseSettings => self.view = View::Typing,
             Intent::SettingsEdited(before) => self.settings_edited(&before, now),
+            Intent::ChooseTexture => self.effects.push(Effect::Ask(Dialog::Texture)),
             Intent::NextSpacing => self.next_spacing(now),
             Intent::ResetZoom => self.set_zoom(ZOOM_DEFAULT),
             Intent::NextCorrection => self.next_correction(now),

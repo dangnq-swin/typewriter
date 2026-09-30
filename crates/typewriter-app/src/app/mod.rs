@@ -7,7 +7,7 @@ mod fonts;
 mod intent;
 mod view;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Pos2, Rect};
 use typewriter_core::{Constraints, Typewriter};
@@ -17,7 +17,7 @@ use crate::filing::{self, Filing};
 use crate::input::{Action, Input};
 use crate::instance::{self, Listening};
 use crate::machines::Machines;
-use crate::picker::Picker;
+use crate::picker::{Dialog, Picker};
 use crate::printing::Printing;
 use crate::render::background::Background;
 use crate::render::platen::PlatenView;
@@ -85,7 +85,13 @@ impl TypewriterApp {
         let platen = PlatenView::new(settings.look.carriage_travel);
         let feed_motion = audio::sheet_feed_motion();
         let mut desk = Desk::new(machine, filing, settings, machines, feed_motion);
-        if let Some(trouble) = trouble.or(settings_trouble).or(recovered) {
+        let background = Background::load(&cc.egui_ctx, &mut desk.settings.look);
+        let background_trouble = background.problem().map(str::to_owned);
+        if let Some(trouble) = trouble
+            .or(settings_trouble)
+            .or(recovered)
+            .or(background_trouble)
+        {
             desk.notice.show(trouble, 0.0);
         }
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
@@ -94,7 +100,7 @@ impl TypewriterApp {
             input: Input::default(),
             picker: Picker::default(),
             audio,
-            background: Background::load(&cc.egui_ctx),
+            background,
             metrics,
             platen,
             knobs: Vec::new(),
@@ -158,6 +164,11 @@ impl TypewriterApp {
                     }
                     folder::put_back(ctx, index);
                 }
+                Effect::Ask(Dialog::Texture) => {
+                    let texture = self.desk.settings.look.background_texture.as_deref();
+                    let folder = texture.and_then(Path::parent).map(Path::to_path_buf);
+                    self.picker.ask(Dialog::Texture, folder, String::new(), ctx);
+                }
                 Effect::Ask(dialog) => {
                     let filing = &self.desk.project.filing;
                     let (folder, file_name) = (filing.dialog_folder(), filing.file_name());
@@ -178,6 +189,7 @@ impl TypewriterApp {
                     }
                 }
                 Effect::SettingsChanged => {
+                    self.background.follow(ctx, &mut self.desk.settings.look);
                     let settings = &self.desk.settings;
                     self.platen.carriage_travel = settings.look.carriage_travel;
                     if let Some(audio) = &mut self.audio {
@@ -263,14 +275,15 @@ impl TypewriterApp {
 impl TypewriterApp {
     /// The window's parts around a test desk: no sound, nothing on disk.
     fn for_tests(ctx: &egui::Context) -> Self {
-        let desk = desk::testing::desk();
+        let mut desk = desk::testing::desk();
+        let background = Background::load(ctx, &mut desk.settings.look);
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Self {
             desk,
             input: Input::default(),
             picker: Picker::default(),
             audio: None,
-            background: Background::load(ctx),
+            background,
             metrics,
             platen: PlatenView::new(true),
             knobs: Vec::new(),

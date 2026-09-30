@@ -18,7 +18,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "1"
 ron = "0.12"
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 rfd = "0.17"
 # Days for the writing log: local ones (std can't read the time zone), and
 # dates in folder files.
@@ -31,7 +31,7 @@ quick-xml = "0.42"
 rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
 
 # Optimise image decoding even in debug: the paper texture is painfully slow
-# to decode and resize otherwise (build script and startup).
+# to decode and resize otherwise (build script, startup, own textures).
 [profile.dev.build-override]
 opt-level = 3
 
@@ -39,6 +39,12 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.zune-jpeg]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
 opt-level = 3
 
 [workspace.lints.rust]

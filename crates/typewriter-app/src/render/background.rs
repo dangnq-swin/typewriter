@@ -1,4 +1,7 @@
-//! The paper texture behind everything, fixed to the window.
+//! The paper behind everything, fixed to the window: the bundled photo, a
+//! flat paper tone or the user's own texture.
+
+use std::path::{Path, PathBuf};
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{
@@ -7,36 +10,116 @@ use eframe::egui::{
 };
 
 use super::feed::convex_mesh;
+use crate::settings::{self, Look, PaperTone};
 
 /// Evened out and re-encoded by `build.rs`.
 const PAPER_JPEG: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/paper.jpg"));
-const FALLBACK: Color32 = Color32::from_rgb(0xF4, 0xF0, 0xE6);
+const FALLBACK: Color32 = tone(PaperTone::Ivory);
+
+pub const fn tone(tone: PaperTone) -> Color32 {
+    match tone {
+        PaperTone::White => Color32::from_rgb(0xFA, 0xF9, 0xF5),
+        PaperTone::Ivory => Color32::from_rgb(0xF4, 0xF0, 0xE6),
+        PaperTone::Cream => Color32::from_rgb(0xF3, 0xE9, 0xD2),
+        PaperTone::Buff => Color32::from_rgb(0xE6, 0xD6, 0xB2),
+        PaperTone::Blue => Color32::from_rgb(0xDE, 0xE7, 0xEF),
+        PaperTone::Green => Color32::from_rgb(0xE0, 0xEB, 0xDB),
+        PaperTone::Pink => Color32::from_rgb(0xF3, 0xDF, 0xDD),
+    }
+}
+
+/// The look's background keys, to tell when they change.
+#[derive(Clone, PartialEq)]
+struct Chosen(settings::Background, PaperTone, Option<PathBuf>);
+
+impl Chosen {
+    fn of(look: &Look) -> Self {
+        Self(
+            look.background,
+            look.background_colour,
+            look.background_texture.clone(),
+        )
+    }
+}
+
+enum Fill {
+    Texture(TextureHandle),
+    Flat(Color32),
+}
 
 pub struct Background {
-    texture: Option<TextureHandle>,
+    fill: Fill,
+    chosen: Chosen,
+    /// The bundled photo, once decoded. `None` inside: it failed.
+    paper: Option<Option<TextureHandle>>,
+    /// Why the chosen texture isn't showing.
+    problem: Option<String>,
 }
 
 impl Background {
-    pub fn load(ctx: &egui::Context) -> Self {
-        let max_side = ctx.input(|i| i.max_texture_side);
-        let texture = match decode(PAPER_JPEG, max_side) {
-            Ok(image) => Some(ctx.load_texture("paper", image, texture_options())),
-            Err(err) => {
-                eprintln!("paper texture unavailable, using a flat colour: {err}");
-                None
-            }
+    /// Forgets `look`'s texture if its file is gone.
+    pub fn load(ctx: &egui::Context, look: &mut Look) -> Self {
+        let mut background = Self {
+            fill: Fill::Flat(FALLBACK),
+            chosen: Chosen::of(look),
+            paper: None,
+            problem: None,
         };
-        Self { texture }
+        background.fill = background.choose(ctx);
+        look.background_texture.clone_from(&background.chosen.2);
+        background
+    }
+
+    /// Puts changed background settings into effect. Forgets `look`'s
+    /// texture if its file is gone.
+    pub fn follow(&mut self, ctx: &egui::Context, look: &mut Look) {
+        let chosen = Chosen::of(look);
+        if chosen != self.chosen {
+            self.chosen = chosen;
+            self.fill = self.choose(ctx);
+            look.background_texture.clone_from(&self.chosen.2);
+        }
+    }
+
+    /// Why the own texture fell back to the bundled paper.
+    pub fn problem(&self) -> Option<&str> {
+        self.problem.as_deref()
+    }
+
+    fn choose(&mut self, ctx: &egui::Context) -> Fill {
+        self.problem = None;
+        let Chosen(background, colour, texture) = &mut self.chosen;
+        match (background, texture.as_deref()) {
+            (settings::Background::Colour, _) => return Fill::Flat(tone(*colour)),
+            (settings::Background::Texture, Some(path)) => match own_texture(ctx, path) {
+                Ok(texture) => return Fill::Texture(texture),
+                // Deleted or moved: back to none chosen, no complaint.
+                Err(Unshown::Gone) => *texture = None,
+                Err(Unshown::Problem(err)) => self.problem = Some(err),
+            },
+            // No file chosen yet: the paper until one is.
+            (settings::Background::Texture, None) | (settings::Background::Paper, _) => {}
+        }
+        let paper = self.paper.get_or_insert_with(|| {
+            let image = decode(PAPER_JPEG, max_side(ctx))
+                .map_err(|err| eprintln!("paper texture unavailable, using a flat colour: {err}"))
+                .ok()?;
+            Some(ctx.load_texture("paper", image, texture_options()))
+        });
+        match paper {
+            Some(texture) => Fill::Texture(texture.clone()),
+            None => Fill::Flat(FALLBACK),
+        }
     }
 
     pub fn paint(&self, painter: &Painter, view: Rect) {
-        match &self.texture {
-            Some(texture) => {
+        match &self.fill {
+            Fill::Texture(texture) => {
                 let uv = cover_uv(texture.size_vec2(), view.size());
                 painter.image(texture.id(), view, uv, Color32::WHITE);
             }
-            None => {
-                painter.rect_filled(view, CornerRadius::ZERO, FALLBACK);
+            Fill::Flat(colour) => {
+                painter.rect_filled(view, CornerRadius::ZERO, *colour);
             }
         }
     }
@@ -44,8 +127,8 @@ impl Background {
     /// Fills a convex polygon with exactly the background behind it: hides
     /// what's under a lifted sheet without a seam.
     pub fn paint_polygon(&self, painter: &Painter, view: Rect, points: &[Pos2]) {
-        let mesh = match &self.texture {
-            Some(texture) => {
+        let mesh = match &self.fill {
+            Fill::Texture(texture) => {
                 let uv = cover_uv(texture.size_vec2(), view.size());
                 let mut mesh = convex_mesh(points, |pos| {
                     let at = (pos - view.min) / view.size();
@@ -58,24 +141,47 @@ impl Background {
                 mesh.texture_id = texture.id();
                 mesh
             }
-            None => convex_mesh(points, |pos| Vertex {
+            Fill::Flat(colour) => convex_mesh(points, |pos| Vertex {
                 pos,
                 uv: WHITE_UV,
-                color: FALLBACK,
+                color: *colour,
             }),
         };
         painter.add(Shape::mesh(mesh));
     }
 }
 
-/// Decodes, scaling down to the GPU's `max_side` if needed.
+/// Why an own texture isn't showing.
+enum Unshown {
+    /// No file there any more.
+    Gone,
+    /// For the settings card.
+    Problem(String),
+}
+
+fn own_texture(ctx: &egui::Context, path: &Path) -> Result<TextureHandle, Unshown> {
+    let shown = crate::storage::home_relative(path);
+    let bytes = std::fs::read(path).map_err(|err| match err.kind() {
+        std::io::ErrorKind::NotFound => Unshown::Gone,
+        _ => Unshown::Problem(format!("Could not read {shown}: {err}")),
+    })?;
+    let image = decode(&bytes, max_side(ctx))
+        .map_err(|err| Unshown::Problem(format!("{shown} is not a JPEG or PNG image: {err}")))?;
+    Ok(ctx.load_texture("own-paper", image, texture_options()))
+}
+
+fn max_side(ctx: &egui::Context) -> usize {
+    ctx.input(|i| i.max_texture_side)
+}
+
+/// Decodes a JPEG or PNG, scaling down to the GPU's `max_side` if needed.
 fn decode(bytes: &[u8], max_side: usize) -> image::ImageResult<ColorImage> {
-    let mut paper = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg)?;
+    let mut image = image::load_from_memory(bytes)?;
     let max_side = u32::try_from(max_side).unwrap_or(u32::MAX);
-    if paper.width().max(paper.height()) > max_side {
-        paper = paper.resize(max_side, max_side, image::imageops::FilterType::Triangle);
+    if image.width().max(image.height()) > max_side {
+        image = image.resize(max_side, max_side, image::imageops::FilterType::Triangle);
     }
-    let rgb = paper.to_rgb8();
+    let rgb = image.to_rgb8();
     let size = [rgb.width() as usize, rgb.height() as usize];
     Ok(ColorImage::from_rgb(size, rgb.as_raw()))
 }
@@ -119,6 +225,41 @@ mod tests {
     fn texture_fits_the_gpu_limit() {
         let image = decode(PAPER_JPEG, 1000).unwrap();
         assert_eq!(image.width().max(image.height()), 1000);
+    }
+
+    #[test]
+    fn a_gone_texture_is_forgotten_and_a_broken_one_complains() {
+        let ctx = egui::Context::default();
+        let dir = std::env::temp_dir().join(format!("typewriter-texture-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut look = Look {
+            background: settings::Background::Texture,
+            background_texture: Some(dir.join("gone.png")),
+            ..Look::default()
+        };
+        let background = Background::load(&ctx, &mut look);
+        assert_eq!(look.background_texture, None);
+        assert_eq!(look.background, settings::Background::Texture);
+        assert_eq!(background.problem(), None);
+
+        let broken = dir.join("broken.png");
+        std::fs::write(&broken, "not an image").unwrap();
+        look.background_texture = Some(broken.clone());
+        let mut background = background;
+        background.follow(&ctx, &mut look);
+        assert_eq!(look.background_texture, Some(broken));
+        assert!(background.problem().is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn png_textures_decode() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(4, 3, image::Rgb([200, 190, 170]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let image = decode(png.get_ref(), 2048).unwrap();
+        assert_eq!(image.size, [4, 3]);
     }
 
     #[test]

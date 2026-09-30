@@ -129,6 +129,7 @@ impl Desk {
                 }
             }
             Picked::Open(path) => self.leave(Leaving::Open(path), now),
+            Picked::Texture(path) => self.texture_picked(path),
             Picked::Cancelled => self.leaving_after_save_as = None,
         }
     }

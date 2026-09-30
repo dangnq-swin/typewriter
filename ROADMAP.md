@@ -8,8 +8,6 @@ file: the git history and the release notes keep it.
 
 ## Look
 
-- [ ] Configurable background: own texture path or a flat colour instead of the bundled
-      paper photo
 - [ ] Night desk: a dim room with a lamp's pool of light on the paper
 - [ ] Carriage-return lever animation
 
