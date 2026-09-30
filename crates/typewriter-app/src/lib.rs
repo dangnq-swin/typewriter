@@ -10,6 +10,7 @@ mod instance;
 pub mod machines;
 pub mod odt;
 mod picker;
+mod printing;
 mod render;
 pub mod settings;
 #[cfg(test)]

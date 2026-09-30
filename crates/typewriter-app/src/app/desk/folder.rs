@@ -8,7 +8,7 @@ use super::feeding::refeed_shift;
 use super::{Desk, Leaving, View};
 use crate::app::intent::{Effect, Sound};
 use crate::picker::Dialog;
-use crate::render::folder::FolderAction;
+use crate::render::folder::{FolderAction, Printout};
 use crate::render::{calendar, holder, pad, splitmix64};
 
 impl Desk {
@@ -117,6 +117,12 @@ impl Desk {
                 let shift = refeed_shift(splitmix64(now.to_bits()));
                 let sheet = self.selected;
                 self.apply(Command::RollIn { sheet, shift }, now);
+            }
+            FolderAction::Print(Printout::Project) => self.effects.push(Effect::Print(None)),
+            FolderAction::Print(Printout::ChosenSheet) => {
+                if self.selected < self.sheet_count() {
+                    self.effects.push(Effect::Print(Some(self.selected)));
+                }
             }
             FolderAction::Export(format) => {
                 let ink_realism = self.settings.look.ink_realism;
@@ -241,6 +247,30 @@ mod tests {
     fn sheet(desk: &Desk, index: usize) -> String {
         let page = &desk.project.machine.document().finished()[index];
         page.line_text(12).trim().to_owned()
+    }
+
+    #[test]
+    fn print_asks_for_every_sheet_or_the_chosen_one() {
+        let mut desk = with_sheets(3);
+        press(&mut desk, &[Action::PageUp], 1000.0);
+        desk.take_effects();
+        desk.update(
+            Intent::Folder(FolderAction::Print(Printout::Project)),
+            1000.0,
+        );
+        assert_eq!(desk.take_effects(), [Effect::Print(None)]);
+        press(
+            &mut desk,
+            &[Action::Machine(Command::Move(Direction::Up))],
+            1001.0,
+        );
+        let chosen = Intent::Folder(FolderAction::Print(Printout::ChosenSheet));
+        desk.update(chosen.clone(), 1001.0);
+        assert_eq!(desk.take_effects(), [Effect::Print(Some(1))]);
+
+        let mut empty = super::super::testing::desk();
+        empty.update(chosen, 10.0);
+        assert!(empty.take_effects().is_empty(), "no sheet to choose");
     }
 
     #[test]

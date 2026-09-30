@@ -94,6 +94,8 @@ pub enum Effect {
     SettingsChanged,
     /// List the machine profiles again: some may have been added.
     ReloadMachines,
+    /// Open finished sheet `Some(index)`, or every sheet, for printing.
+    Print(Option<usize>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

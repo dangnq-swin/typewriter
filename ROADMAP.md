@@ -70,7 +70,8 @@ M0–M9 are done; the git history has the details.
       open, a project goes to it, asking first about unsaved work
 - [x] Folder format 1.0, versioned major.minor: format 8 pinned, older files no longer opened
       (`scripts/convert-format-8.sh` converts format 8)
-- [ ] Print: send the PDF export to a printer
+- [x] Print: every sheet or the chosen one, from the folder's Export… plate, opened in the
+      desktop's PDF viewer to print from its own dialog (draft or not)
 - [ ] Verify and support X11 (Wayland is the current target)
 - [ ] macOS builds
 

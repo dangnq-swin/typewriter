@@ -8,7 +8,7 @@ mod menus;
 mod sheet;
 
 pub use flight::{Answer, Flight, Pose, Route};
-pub use menus::FolderAction;
+pub use menus::{FolderAction, Printout};
 pub use sheet::{OpenSheet, show_sheet};
 
 use eframe::egui::{

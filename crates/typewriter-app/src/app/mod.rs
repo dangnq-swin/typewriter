@@ -18,10 +18,11 @@ use crate::input::{Action, Input};
 use crate::instance::{self, Listening};
 use crate::machines::Machines;
 use crate::picker::Picker;
+use crate::printing::Printing;
 use crate::render::background::Background;
-use crate::render::folder;
 use crate::render::platen::PlatenView;
 use crate::render::{Metrics, scrunch};
+use crate::render::{folder, pdf};
 use crate::settings::{self, SettingsFile};
 use crate::storage;
 use desk::{Desk, View};
@@ -58,6 +59,7 @@ pub struct TypewriterApp {
     running: storage::Running,
     /// Projects later launches hand over. `None` if another app took them.
     listening: Option<Listening>,
+    printing: Printing,
 }
 
 impl TypewriterApp {
@@ -104,6 +106,7 @@ impl TypewriterApp {
             settings_file,
             running,
             listening: instance::listen(&cc.egui_ctx),
+            printing: Printing::default(),
         })
     }
 
@@ -182,6 +185,7 @@ impl TypewriterApp {
                     }
                     self.set_fullscreen(ctx, self.desk.settings.look.fullscreen, now);
                 }
+                Effect::Print(sheet) => self.print(ctx, sheet, now),
                 Effect::ReloadMachines => match Machines::load() {
                     Ok(machines) => self.desk.machines = machines,
                     Err(err) => eprintln!("could not reload the machines: {err:#}"),
@@ -200,6 +204,29 @@ impl TypewriterApp {
             Sound::WindIn => audio.play_wind_in(),
             Sound::WindBackClick => audio.play_wind_back_click(),
         }
+    }
+
+    /// Opens finished sheet `sheet`, or every sheet, in the PDF viewer.
+    fn print(&mut self, ctx: &egui::Context, sheet: Option<usize>, now: f64) {
+        let project = &self.desk.project;
+        let (document, name) = (project.machine.document(), project.filing.name());
+        let (title, sheets) = match sheet {
+            None => (name, pdf::project_sheets(document)),
+            Some(index) => (
+                format!("{name}, sheet {}", index + 1),
+                document
+                    .finished()
+                    .get(index)
+                    .map(|page| vec![(index, page)])
+                    .unwrap_or_default(),
+            ),
+        };
+        let profile = project.machine.profile();
+        let ink_realism = self.desk.settings.look.ink_realism;
+        let told = self
+            .printing
+            .print(ctx, profile, &sheets, &title, ink_realism);
+        self.desk.notice.show(told, now);
     }
 
     /// Page geometry for the machine and zoom, jumped to without gliding.
@@ -254,6 +281,7 @@ impl TypewriterApp {
             settings_file: SettingsFile::nowhere(),
             running: storage::Running::nowhere(),
             listening: None,
+            printing: Printing::default(),
         }
     }
 }
@@ -270,6 +298,9 @@ impl eframe::App for TypewriterApp {
         self.follow_fullscreen(&ctx, now);
         if let Some(picked) = self.picker.picked() {
             self.send(Intent::Picked(picked), &ctx, now);
+        }
+        if let Some(failed) = self.printing.failure() {
+            self.desk.notice.show(failed, now);
         }
         while let Some(project) = self.listening.as_ref().and_then(Listening::take) {
             // Wayland may refuse the focus; the desktop then flags the window.

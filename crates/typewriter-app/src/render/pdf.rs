@@ -1,5 +1,5 @@
-//! PDF export: one page per sheet, on white, drawn from the same marks as
-//! the screen.
+//! PDF export and printing: one page per sheet, on white, drawn from the
+//! same marks as the screen.
 
 use anyhow::Context as _;
 use eframe::egui::{Color32, Pos2, Vec2, vec2};
@@ -7,6 +7,7 @@ use printpdf::{
     Color, LinePoint, Mm, Op, PaintMode, ParsedFont, PdfDocument, PdfFontHandle, PdfPage,
     PdfSaveOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem, TextMatrix, WindingOrder,
 };
+use typewriter_core::page::Page as Sheet;
 use typewriter_core::{Document, Profile, export};
 
 use super::calm::Dimming;
@@ -17,9 +18,25 @@ use super::{COURIER_ASCENT_EM, COURIER_PRIME, Metrics};
 const POINTS_PER_INCH: f32 = 72.0;
 const ELLIPSE_POINTS: u16 = 32;
 
+/// Every sheet of the project, in order, the one in the machine included.
 pub fn render(
     profile: &Profile,
     document: &Document,
+    title: &str,
+    ink_realism: bool,
+) -> anyhow::Result<Vec<u8>> {
+    render_sheets(profile, &project_sheets(document), title, ink_realism)
+}
+
+/// Every sheet of the project with its place, for [`render_sheets`].
+pub fn project_sheets(document: &Document) -> Vec<(usize, &Sheet)> {
+    export::sheets(document).enumerate().collect()
+}
+
+/// `sheets`, each with its place in the folder: it tilts the pencilled note.
+pub fn render_sheets(
+    profile: &Profile,
+    sheets: &[(usize, &Sheet)],
     title: &str,
     ink_realism: bool,
 ) -> anyhow::Result<Vec<u8>> {
@@ -29,7 +46,7 @@ pub fn render(
     let mut pdf = PdfDocument::new(title);
     let font = PdfFontHandle::External(pdf.add_font(&font));
     // Embed Caveat only if some sheet has a note.
-    let pencil = if export::sheets(document).any(|sheet| !sheet.note().is_empty()) {
+    let pencil = if sheets.iter().any(|(_, sheet)| !sheet.note().is_empty()) {
         let parsed = ParsedFont::from_bytes(note::CAVEAT, 0, &mut Vec::new())
             .context("the handwriting font could not be read")?;
         Some(PdfFontHandle::External(pdf.add_font(&parsed)))
@@ -42,9 +59,9 @@ pub fn render(
         size: metrics.font.size,
         height: metrics.paper_size.y,
     };
-    let pages: Vec<PdfPage> = export::sheets(document)
-        .enumerate()
-        .map(|(index, sheet)| {
+    let pages: Vec<PdfPage> = sheets
+        .iter()
+        .map(|&(index, sheet)| {
             let marks = paper::sheet_marks(
                 &metrics,
                 sheet,

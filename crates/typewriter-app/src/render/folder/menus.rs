@@ -31,6 +31,15 @@ pub enum FolderAction {
     RollIn,
     /// Stand the chosen sheet on the copy holder.
     PutOnHolder,
+    Print(Printout),
+}
+
+/// What Print prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Printout {
+    /// Every sheet, the one in the machine included.
+    Project,
+    ChosenSheet,
 }
 
 /// A menu item: its label, what it asks, and why it is off (`None`: on).
@@ -81,6 +90,16 @@ fn plates(saved: bool, has_sheets: bool) -> [(&'static str, Vec<Item>); 4] {
                 export("To Markdown", ExportFormat::Markdown),
                 export("To Text file", ExportFormat::Text),
                 export("To PDF", ExportFormat::Pdf),
+                (
+                    "Print all sheets\u{2026}",
+                    FolderAction::Print(Printout::Project),
+                    None,
+                ),
+                (
+                    "Print the chosen sheet\u{2026}",
+                    FolderAction::Print(Printout::ChosenSheet),
+                    no_sheets,
+                ),
             ],
         ),
     ]
