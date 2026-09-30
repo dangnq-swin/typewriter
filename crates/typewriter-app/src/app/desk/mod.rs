@@ -24,6 +24,7 @@ use crate::filing::Filing;
 use crate::machines::Machines;
 use crate::picker::Dialog;
 use crate::render::feed::FeedMotion;
+use crate::render::machine::Throw;
 use crate::render::notice::Notice;
 use crate::render::{COURIER_PRIME, font_characters, holder, pad};
 use crate::settings::{Settings, ZOOM_DEFAULT};
@@ -84,6 +85,8 @@ pub struct Desk {
     last_strike: f64,
     /// When the platen knob last turned, for its guides.
     knob_turned: f64,
+    /// The carriage-return lever's last throw.
+    pub lever: Throw,
     pub feed: Feed,
     /// The leave dialog is open for this.
     pub leaving: Option<Leaving>,
@@ -120,6 +123,7 @@ impl Desk {
             knob_turn: 0.0,
             last_strike: f64::NEG_INFINITY,
             knob_turned: f64::NEG_INFINITY,
+            lever: Throw::RESTING,
             feed: Feed::new(feed_motion, wind_back),
             leaving: None,
             leaving_after_save_as: None,
@@ -218,6 +222,7 @@ impl Desk {
     /// Something moves or fades: draw again soon.
     pub fn is_animating(&self, now: f64) -> bool {
         self.guides_opacity(now) > 0.0
+            || self.lever.is_moving(now)
             || self.feed.is_moving()
             || self.feed.is_filing(now)
             || self.project.is_drying()

@@ -3,7 +3,7 @@
 //! The body is a model in inches, projected from a seated eye: `x` right of
 //! the machine's centre, `y` toward the writer, `z` up, the origin at the
 //! printing point. There the projection's scale is the sheet's, so the flat
-//! sheet and the carriage (platen, knobs, bail), which travel with it, line
+//! sheet and the carriage (platen, knobs, bail, lever), which travel with it, line
 //! up with the still body around them.
 //!
 //! Nothing sorts by depth: each part is drawn after what it hides, in the
@@ -16,12 +16,14 @@ mod cover;
 mod eye;
 mod geometry;
 mod keyboard;
+mod lever;
 mod light;
 mod panel;
 mod printing_point;
 mod side_controls;
 
 pub use carriage::{bail_scale_top, paint_bail, platen_ends};
+pub use lever::{Throw, paint_lever, paint_lever_base};
 pub use panel::{Control, Panel, PanelState};
 
 use eframe::egui::{Color32, Painter, Rect};

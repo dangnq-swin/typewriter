@@ -222,9 +222,18 @@ impl TypewriterApp {
             ]
             .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, ruler_top))
         };
+        // The return lever's base behind the left knob, the lever over it.
+        let lever = seated.then(|| machine::platen_ends(carriage_x, &self.metrics)[0]);
+        let (typing_y, throw) = (layout.strike_point.y, self.desk.lever.amount(now));
+        if let Some(left) = lever {
+            machine::paint_lever_base(&painter, view, &self.metrics, typing_y, left, throw);
+        }
         for knob in &knobs {
             let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
             knob.paint(&painter, knob_rolled, hovered);
+        }
+        if let Some(left) = lever {
+            machine::paint_lever(&painter, view, &self.metrics, typing_y, left, throw);
         }
         // The desk edition's controls are on its front panel instead.
         let plates = (!seated).then(|| {

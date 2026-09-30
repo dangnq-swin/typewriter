@@ -144,6 +144,11 @@ pub fn paint_guides(
     }
 }
 
+/// Seconds the carriage glides `inches`: a return takes longer than a step.
+pub fn glide_seconds(inches: f64) -> f64 {
+    (0.05 + inches * 0.05).clamp(0.05, 0.35)
+}
+
 /// Eased carriage movement. Long moves (a return) take longer than a step.
 #[derive(Debug, Default)]
 struct Glide {
@@ -169,7 +174,7 @@ impl Glide {
             self.from = self.value(now);
             self.to = target;
             self.start = now;
-            self.duration = (0.05 + inches * 0.05).clamp(0.05, 0.35);
+            self.duration = glide_seconds(inches);
         }
         self.value(now)
     }

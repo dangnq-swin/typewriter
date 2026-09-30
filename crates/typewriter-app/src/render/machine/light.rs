@@ -40,15 +40,8 @@ pub(super) fn paint_chrome(
     top: f32,
     height: f32,
 ) {
-    let bands = [
-        (0.0, METAL_SHINE),
-        (0.3, brighten(METAL, 0.8)),
-        (0.55, Color32::WHITE),
-        (0.75, METAL),
-        (1.0, brighten(METAL, 0.6)),
-    ];
     let mut mesh = Mesh::default();
-    for pair in bands.windows(2) {
+    for pair in chrome_bands().windows(2) {
         let [(from, upper), (to, lower)] = [pair[0], pair[1]];
         let at = |x: f32, t: f32| eye.at([x, y, top - height * t]);
         add_quad(
@@ -70,6 +63,31 @@ pub(super) fn paint_chrome(
         [left, y, bottom],
     ];
     eye.outline(painter, &outline);
+}
+
+/// Chrome from its top (0) to its bottom (1): the sky, a bright band where
+/// it turns to the light, the dark room.
+fn chrome_bands() -> [(f32, Color32); 5] {
+    [
+        (0.0, METAL_SHINE),
+        (0.3, brighten(METAL, 0.8)),
+        (0.55, Color32::WHITE),
+        (0.75, METAL),
+        (1.0, brighten(METAL, 0.6)),
+    ]
+}
+
+/// Chrome `t` of the way across a part, as [`paint_chrome`] shades it.
+pub(super) fn chrome_at(t: f32) -> Color32 {
+    let bands = chrome_bands();
+    let t = t.clamp(0.0, 1.0);
+    bands
+        .windows(2)
+        .find(|pair| t <= pair[1].0)
+        .map_or(bands[4].1, |pair| {
+            let [(from, upper), (to, lower)] = [pair[0], pair[1]];
+            upper.lerp_to_gamma(lower, (t - from) / (to - from))
+        })
 }
 
 /// `colour` lit `by` times as bright, alpha kept.
