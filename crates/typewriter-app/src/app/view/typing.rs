@@ -1,54 +1,132 @@
-//! The typing view: the sheet in the machine and its feed, the scale, knobs
-//! and plates, the desk icons; and the copy holder beside it.
+//! The typing view, in the steps every edition goes through: behind the
+//! sheets, the sheets and their feed, over them, the platen's marks, the
+//! desk icons; then what fades in calm: the scale, the knobs, the plates,
+//! and what they answer. The [`Stage`](crate::Stage) draws its own at each
+//! step. And the copy holder beside it.
 
 use eframe::egui::{self, Painter, Pos2, Rect, pos2, vec2};
 use typewriter_core::Side;
 use typewriter_core::page::Page;
 
-use crate::Edition;
 use crate::app::TypewriterApp;
 use crate::app::intent::Intent;
 use crate::filing::{Keeping, WriteStatus};
 use crate::render::calm::{self, Dimming};
-use crate::render::{self, feed, folder, holder, knob, machine, notebook, paper, platen, ruler};
+use crate::render::folder::{Answer, Flight};
+use crate::render::platen::Layout;
+use crate::render::{self, feed, folder, holder, knob, notebook, paper, platen, ruler};
+use crate::stage::{Controls, Scene};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
-/// The desk edition's sheet in the machine: just off the wall behind.
-const STANDING_LIFT: f32 = 0.25;
+
+/// The sheets as drawn, for the steps after.
+struct Sheets {
+    /// Paper rolled through the platen: what turns the knobs.
+    knob_rolled: f32,
+    pointer_opacity: f32,
+    /// A filed sheet on its way into the folder, or just in.
+    flight: Option<Flight>,
+    answer: Answer,
+}
+
+/// What fades in calm, as drawn: for its clicks and drags.
+struct Chrome {
+    scale: ruler::Scale,
+    knobs: [knob::Knob; 2],
+    /// The plates, and what the save plate reads. `None`: the stage has its
+    /// own controls.
+    plates: Option<([Rect; 5], Keeping)>,
+}
 
 impl TypewriterApp {
     pub(super) fn show_typing(&mut self, ui: &mut egui::Ui, now: f64, intents: &mut Vec<Intent>) {
         self.knobs.clear();
         let view = ui.max_rect();
-        let machine = &self.desk.project.machine;
-        let carriage = machine.carriage();
-        let cell = self
-            .metrics
-            .cell_offset(carriage.half_line, carriage.column);
-        let seated = self.edition == Edition::Desk;
-        if seated {
-            let zoom = self.desk.zoom_percent;
-            self.platen.typing_line_height = machine::typing_line_height(view, &self.metrics, zoom);
-        }
-        let layout = self.platen.layout(view, &self.metrics, cell, now);
-        let painter = ui.painter_at(view);
+        let layout = self.lay_out(view, now);
         let calm = ui.ctx().animate_bool_with_time(
             egui::Id::new("calm-mode"),
             self.desk.calm,
             calm::FADE_SECONDS,
         );
         let chrome = 1.0 - calm;
-        let carriage_x = layout.paper_origin.x + self.metrics.paper_size.x / 2.0;
-        // The desk edition's sheets go out of sight into the machine.
-        let sheet_painter = if seated {
-            let typing_y = layout.strike_point.y;
-            machine::paint_behind(&painter, view, &self.metrics, typing_y, carriage_x);
-            let bottom = machine::sheet_bottom(view, &self.metrics, typing_y);
-            painter.with_clip_rect(Rect::from_min_max(view.min, pos2(view.max.x, bottom)))
-        } else {
-            painter.clone()
+        let scene = Scene {
+            view,
+            metrics: &self.metrics,
+            typing_y: layout.strike_point.y,
+            carriage_x: layout.paper_origin.x + self.metrics.paper_size.x / 2.0,
+            last_return: self.desk.last_return,
+            now,
         };
+        let painter = ui.painter_at(view);
+        let sheet_painter = self.paint_behind_sheets(&painter, &scene);
+        let sheets = self.paint_sheets(ui, &sheet_painter, &scene, &layout, calm);
+        let own_controls = self.show_over_sheets(ui, &painter, &scene, intents);
+        self.paint_platen_marks(&painter, &layout, sheets.pointer_opacity, now);
+        self.show_desk_icons(ui, view, &sheets, chrome, now, intents);
+        if chrome <= 0.0 {
+            return;
+        }
+        let mut painter = painter;
+        painter.multiply_opacity(chrome);
+        let drawn = self.paint_chrome(ui, &painter, &scene, &layout, chrome, &sheets, own_controls);
+        // React only when fully shown, not mid-fade.
+        if chrome < 1.0 {
+            return;
+        }
+        if let Some((rects, keeping)) = &drawn.plates {
+            self.control_buttons(ui, *rects, keeping, intents);
+        }
+        if !self.desk.is_busy(now) {
+            self.margin_stops(ui, &drawn.scale, intents);
+            for (name, knob) in ["left", "right"].into_iter().zip(&drawn.knobs) {
+                self.platen_knob(ui, name, knob.grip(), intents);
+            }
+        }
+    }
+
+    /// The platen's layout this frame, its typing line where the stage has
+    /// it.
+    fn lay_out(&mut self, view: Rect, now: f64) -> Layout {
+        let zoom = self.desk.zoom_percent;
+        if let Some(height) = self.stage.typing_line_height(view, &self.metrics, zoom) {
+            self.platen.typing_line_height = height;
+        }
+        let carriage = self.desk.project.machine.carriage();
+        let cell = self
+            .metrics
+            .cell_offset(carriage.half_line, carriage.column);
+        self.platen.layout(view, &self.metrics, cell, now)
+    }
+
+    /// Behind the sheets: the stage's. Returns the sheets' painter, cut off
+    /// where they go out of sight.
+    fn paint_behind_sheets(&self, painter: &Painter, scene: &Scene) -> Painter {
+        match self.stage.paint_behind_sheets(painter, scene) {
+            Some(bottom) => {
+                let view = scene.view;
+                painter.with_clip_rect(Rect::from_min_max(view.min, pos2(view.max.x, bottom)))
+            }
+            None => painter.clone(),
+        }
+    }
+
+    /// The sheets: a finished one rolling out, or flying into the folder,
+    /// and the next winding in; else the one in the machine.
+    fn paint_sheets(
+        &self,
+        ui: &egui::Ui,
+        painter: &Painter,
+        scene: &Scene,
+        layout: &Layout,
+        calm: f32,
+    ) -> Sheets {
+        let (view, now) = (scene.view, scene.now);
+        let machine = &self.desk.project.machine;
+        let carriage = machine.carriage();
+        let cell = self
+            .metrics
+            .cell_offset(carriage.half_line, carriage.column);
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
         let mut knob_rolled = layout.strike_point.y - layout.paper_origin.y;
@@ -78,8 +156,8 @@ impl TypewriterApp {
                         // Still rolling out, full size: drawn as in the machine.
                         Some(pose) if pose.mouth.is_none() => {
                             let origin = old_origin + (pose.centre - route.from);
-                            self.paint_lifted(&sheet_painter, view, origin, 0.0, pose.lift);
-                            self.paint_page(&sheet_painter, old_page, origin, dimming, &paper::dry);
+                            self.paint_lifted(painter, view, origin, 0.0, pose.lift);
+                            self.paint_page(painter, old_page, origin, dimming, &paper::dry);
                         }
                         Some(pose) => {
                             self.paint_flying(ui.ctx(), view, (old_page, dimming), pose);
@@ -92,8 +170,8 @@ impl TypewriterApp {
                     wound_out = (rolled.unwrap_or(1.0) * exit, exit);
                     if let Some(rolled) = rolled {
                         let old_origin = old_origin - vec2(0.0, rolled * exit);
-                        self.paint_lifted(&sheet_painter, view, old_origin, 0.0, 1.0);
-                        self.paint_page(&sheet_painter, old_page, old_origin, dimming, &paper::dry);
+                        self.paint_lifted(painter, view, old_origin, 0.0, 1.0);
+                        self.paint_page(painter, old_page, old_origin, dimming, &paper::dry);
                     }
                 }
             }
@@ -119,55 +197,99 @@ impl TypewriterApp {
                 wound_out.1 + (1.0 - by_hand) * rise,
             );
             let (curl, lift) = (motion.curl(t), motion.lift(t));
-            self.paint_lifted(&sheet_painter, view, paper_origin, curl, lift);
+            self.paint_lifted(painter, view, paper_origin, curl, lift);
             pointer_opacity = motion.pointer_opacity(t);
-        } else if seated {
-            self.paint_lifted(&sheet_painter, view, paper_origin, 0.0, STANDING_LIFT);
+        } else if let Some(lift) = self.stage.sheet_lift() {
+            self.paint_lifted(painter, view, paper_origin, 0.0, lift);
         }
         let dimming = self.dimming(carriage.half_line, calm);
         let wetness = |half_line, column| self.desk.project.wetness(now, half_line, column);
-        self.paint_page(
-            &sheet_painter,
-            machine.page(),
-            paper_origin,
-            dimming,
-            &wetness,
-        );
-        if seated {
-            let typing_y = layout.strike_point.y;
-            machine::paint_front(&painter, view, &self.metrics, typing_y);
-            machine::paint_bail(&painter, &self.metrics, carriage_x, typing_y);
-            let panel = machine::Panel::new(view, &self.metrics, layout.strike_point.y);
-            self.show_panel(ui, &painter, &panel, now, intents);
+        self.paint_page(painter, machine.page(), paper_origin, dimming, &wetness);
+        Sheets {
+            knob_rolled,
+            pointer_opacity,
+            flight,
+            answer,
         }
-        if machine.slip_in() {
-            platen::paint_slip(&painter, &self.metrics, layout.strike_point);
+    }
+
+    /// Over the sheets, calm or not: the stage's, and its own controls,
+    /// which answer at once. False: it has none, the plates stand in.
+    fn show_over_sheets(
+        &self,
+        ui: &egui::Ui,
+        painter: &Painter,
+        scene: &Scene,
+        intents: &mut Vec<Intent>,
+    ) -> bool {
+        self.stage.paint_over_sheets(painter, scene);
+        let (desk, project) = (&self.desk, &self.desk.project);
+        let keeping = project
+            .filing
+            .keeping(desk.settings.saving.autosave, scene.now);
+        let goals = desk.settings.goals.cycle();
+        let controls = Controls {
+            spacing: project.machine.carriage().line_spacing,
+            zoom_percent: desk.zoom_percent,
+            erase: project.machine.constraints.erase,
+            slip_in: project.machine.slip_in(),
+            delete_in_cycle: desk.settings.machine.rules.delete_in_cycle,
+            goal: project.session.goal(),
+            goals: &goals,
+            progress: project.session.progress(),
+            keeping: &keeping,
+        };
+        let Some(rects) = self.stage.controls(ui, painter, scene, &controls) else {
+            return false;
+        };
+        self.control_buttons(ui, rects, &keeping, intents);
+        true
+    }
+
+    /// The platen's marks over the sheet: the correction slip, the guides
+    /// while the knob turns, the typing point.
+    fn paint_platen_marks(
+        &self,
+        painter: &Painter,
+        layout: &Layout,
+        pointer_opacity: f32,
+        now: f64,
+    ) {
+        if self.desk.project.machine.slip_in() {
+            platen::paint_slip(painter, &self.metrics, layout.strike_point);
         }
         platen::paint_guides(
-            &painter,
+            painter,
             &self.metrics,
             layout.strike_point,
             layout.paper_origin.x,
             self.desk.guides_opacity(now),
         );
-        platen::paint_strike_marker(
-            &painter,
-            &self.metrics,
-            layout.strike_point,
-            pointer_opacity,
-        );
+        platen::paint_strike_marker(painter, &self.metrics, layout.strike_point, pointer_opacity);
+    }
 
+    /// The folder, notebook, calm and settings icons, faded to `chrome`.
+    fn show_desk_icons(
+        &self,
+        ui: &mut egui::Ui,
+        view: Rect,
+        sheets: &Sheets,
+        chrome: f32,
+        now: f64,
+        intents: &mut Vec<Intent>,
+    ) {
         // One short until the flying sheet is in.
-        let finished = machine.document().finished().len();
-        let shown = if flight.is_some_and(|f| !f.has_landed(now)) {
+        let finished = self.desk.project.machine.document().finished().len();
+        let shown = if sheets.flight.is_some_and(|f| !f.has_landed(now)) {
             finished.saturating_sub(1)
         } else {
             finished
         };
-        let reveal = flight
+        let reveal = sheets
+            .flight
             .filter(|_| self.desk.calm)
             .map_or(0.0, |f| f.reveal(now));
-        if folder::desk_icon(ui, view, shown, answer, chrome.max(reveal)) {
+        if folder::desk_icon(ui, view, shown, sheets.answer, chrome.max(reveal)) {
             intents.push(Intent::OpenFolder);
         }
         if notebook::desk_icon(ui, view, chrome) {
@@ -179,85 +301,77 @@ impl TypewriterApp {
         if render::settings::gear_icon(ui, view, chrome) {
             intents.push(Intent::OpenSettings);
         }
-        if chrome <= 0.0 {
-            return;
-        }
-        let mut painter = painter;
-        painter.multiply_opacity(chrome);
+    }
+
+    /// What fades in calm: the scale, on its plate or printed on the stage's
+    /// machine; the knobs, with what the stage has behind and in front of
+    /// them; the plates, unless the stage has `own_controls`.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_chrome(
+        &self,
+        ui: &egui::Ui,
+        painter: &Painter,
+        scene: &Scene,
+        layout: &Layout,
+        chrome: f32,
+        sheets: &Sheets,
+        own_controls: bool,
+    ) -> Chrome {
         let project = &self.desk.project;
         let machine = &project.machine;
         let carriage = machine.carriage();
-        // The plates hang below the typing line; the desk edition's scale
-        // is on the paper bail above it, as on the SM9.
+        // The plates hang below the typing line, the scale's plate above them.
         let plates_top = ruler::top(&self.metrics, layout.strike_point) + ruler::HEIGHT;
-        let ruler_top = if seated {
-            machine::bail_scale_top(&self.metrics, layout.strike_point.y)
+        let printed = self.stage.scale_top(scene);
+        let scale_top = printed.unwrap_or(plates_top - ruler::HEIGHT);
+        let columns = machine.page().columns();
+        let scale = ruler::Scale::new(&self.metrics, columns, layout.paper_origin.x, scale_top);
+        if printed.is_some() {
+            ruler::paint_scale_marks(painter, &scale, carriage);
         } else {
-            plates_top - ruler::HEIGHT
-        };
-        let scale = ruler::Scale::new(
-            &self.metrics,
-            machine.page().columns(),
-            layout.paper_origin.x,
-            ruler_top,
-        );
-        if seated {
-            // Printed on the bail, which the machine drew.
-            ruler::paint_scale_marks(&painter, &scale, carriage);
-        } else {
-            ruler::paint_scale(&painter, &scale, carriage);
+            ruler::paint_scale(painter, &scale, carriage);
         }
-        let busy = self.desk.is_busy(now);
-        let paper_left = layout.paper_origin.x;
-        let knobs = if seated {
-            // At the carriage's ends, travelling with it.
-            let [left, right] = machine::platen_ends(carriage_x, &self.metrics);
-            let axis = layout.strike_point.y;
-            [(Side::Left, left), (Side::Right, right)]
-                .map(|(side, edge)| knob::Knob::on_axis(&self.metrics, side, edge, axis))
-        } else {
-            [
-                (Side::Left, paper_left),
-                (Side::Right, paper_left + self.metrics.paper_size.x),
-            ]
-            .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, ruler_top))
+        let knobs = match self.stage.platen_ends(scene) {
+            Some([left, right]) => [(Side::Left, left), (Side::Right, right)]
+                .map(|(side, edge)| knob::Knob::on_axis(&self.metrics, side, edge, scene.typing_y)),
+            None => {
+                let paper_left = layout.paper_origin.x;
+                [
+                    (Side::Left, paper_left),
+                    (Side::Right, paper_left + self.metrics.paper_size.x),
+                ]
+                .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, scale_top))
+            }
         };
-        // The return lever's base behind the left knob, the lever over it.
-        let lever = seated.then(|| machine::platen_ends(carriage_x, &self.metrics)[0]);
-        let (typing_y, throw) = (layout.strike_point.y, self.desk.lever.amount(now));
-        if let Some(left) = lever {
-            machine::paint_lever_base(&painter, view, &self.metrics, typing_y, left, throw);
-        }
+        self.stage.paint_behind_knobs(painter, scene);
+        let busy = self.desk.is_busy(scene.now);
         for knob in &knobs {
             let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
-            knob.paint(&painter, knob_rolled, hovered);
+            knob.paint(painter, sheets.knob_rolled, hovered);
         }
-        if let Some(left) = lever {
-            machine::paint_lever(&painter, view, &self.metrics, typing_y, left, throw);
-        }
-        // The desk edition's controls are on its front panel instead.
-        let plates = (!seated).then(|| {
+        self.stage.paint_over_knobs(painter, scene);
+        let plates = (!own_controls).then(|| {
             let spacing_plate = ruler::paint_spacing_indicator(
-                &painter,
+                painter,
                 carriage.line_spacing,
                 layout.paper_origin.x,
                 plates_top,
             );
             let zoom_plate =
-                ruler::paint_zoom_plate(&painter, self.desk.zoom_percent, spacing_plate);
+                ruler::paint_zoom_plate(painter, self.desk.zoom_percent, spacing_plate);
             let correction_plate = ruler::paint_correction_plate(
-                &painter,
+                painter,
                 machine.constraints.erase,
                 machine.slip_in(),
                 zoom_plate,
             );
             let goal_plate =
-                ruler::paint_goal_plate(&painter, project.session.progress(), correction_plate);
+                ruler::paint_goal_plate(painter, project.session.progress(), correction_plate);
             let keeping = project
                 .filing
-                .keeping(self.desk.settings.saving.autosave, now);
+                .keeping(self.desk.settings.saving.autosave, scene.now);
             let autosave_plate = ruler::paint_autosave_plate(
-                &painter,
+                painter,
                 &keeping,
                 layout.paper_origin.x + self.metrics.paper_size.x,
                 spacing_plate,
@@ -274,53 +388,11 @@ impl TypewriterApp {
                 keeping,
             )
         });
-        // React only when fully shown, not mid-fade.
-        if chrome < 1.0 {
-            return;
+        Chrome {
+            scale,
+            knobs,
+            plates,
         }
-        if let Some((rects, keeping)) = &plates {
-            self.control_buttons(ui, *rects, keeping, intents);
-        }
-        if !busy {
-            self.margin_stops(ui, &scale, intents);
-            for (name, knob) in ["left", "right"].into_iter().zip(&knobs) {
-                self.platen_knob(ui, name, knob.grip(), intents);
-            }
-        }
-    }
-
-    /// The desk edition's controls on the front panel. Always shown, calm or
-    /// not: they are the machine's.
-    fn show_panel(
-        &self,
-        ui: &egui::Ui,
-        painter: &Painter,
-        panel: &machine::Panel,
-        now: f64,
-        intents: &mut Vec<Intent>,
-    ) {
-        let (desk, project) = (&self.desk, &self.desk.project);
-        let keeping = project.filing.keeping(desk.settings.saving.autosave, now);
-        let goals = desk.settings.goals.cycle();
-        let state = machine::PanelState {
-            spacing: project.machine.carriage().line_spacing,
-            zoom_percent: desk.zoom_percent,
-            erase: project.machine.constraints.erase,
-            slip_in: project.machine.slip_in(),
-            delete_in_cycle: desk.settings.machine.rules.delete_in_cycle,
-            goal: project.session.goal(),
-            goals: &goals,
-            progress: project.session.progress(),
-            keeping: &keeping,
-        };
-        let rects = machine::Control::ALL.map(|control| panel.rect(control));
-        let hovered = machine::Control::ALL
-            .into_iter()
-            .zip(rects)
-            .find(|(_, rect)| ui.rect_contains_pointer(*rect))
-            .map(|(control, _)| control);
-        panel.paint(painter, &state, hovered);
-        self.control_buttons(ui, rects, &keeping, intents);
     }
 
     /// Clicks on the spacing, zoom, correction, goal and save controls,

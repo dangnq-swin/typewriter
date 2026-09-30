@@ -49,7 +49,8 @@ file: the git history and the release notes keep it.
 
 The immersive, game-like side of the project lives apart from the typewriter app so that the
 plain app stays a focused writing tool. It is a separate crate in this workspace (a second
-binary), sharing `typewriter-core` and the app's drawing, so that every fix reaches both.
+binary) on the app's library: its room and machine live there and draw through the app's
+hooks, sharing `typewriter-core` and the app's drawing, so that every fix reaches both.
 The design principles in `AGENTS.md` hold here as well: only what a real office has.
 
 ## A second binary

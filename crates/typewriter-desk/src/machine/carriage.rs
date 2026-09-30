@@ -8,7 +8,7 @@ use eframe::egui::{Color32, CornerRadius, Mesh, Painter, Rect, Shape, Stroke, St
 
 use super::geometry::add_quad;
 use super::{CHROME, EDGE, METAL, METAL_SHINE};
-use crate::render::{Metrics, ruler};
+use typewriter_app::draw::{Metrics, ruler};
 
 /// Centre to the carriage's ends, where the knobs are.
 const PLATEN_HALF_INCHES: f32 = 5.9;

@@ -9,8 +9,7 @@ use super::geometry::{add, add_quad, dot, hull, lerp3, normalized, rounded_rect,
 use super::light::{brighten, matte, streak, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
-use crate::render::feed::convex_mesh;
-use crate::render::perspective::warp;
+use typewriter_app::draw::{convex_mesh, warp};
 
 /// Keys: the far row's centre `(y, z)` of its tops, one row to the next.
 pub(super) const KEY_ROW: (f32, f32) = (5.45, -2.65);

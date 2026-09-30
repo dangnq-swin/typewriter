@@ -71,12 +71,14 @@ than keep a listing here.
 
 - `crates/typewriter-core`: the machine as a library (pages, carriage, profiles, sessions, the
   folder format), unit-tested without a window.
-- `crates/typewriter-app`: the app as a library, opened by `run()` in `lib.rs`: the eframe window,
-  drawing (`render/`), input, audio, settings, filing and `typewriter --import`. `main.rs` only
-  calls `run()`. Modules stay private unless `typewriter-import` needs them. `simulate.rs` is
-  test-only: a writer's months of work, seeded.
-- `crates/typewriter-desk`: the desk edition, `run(Edition::Desk)` on the app's library. What
-  only the desk draws switches on the `Edition` inside the app. Not packaged or released yet.
+- `crates/typewriter-app`: the app as a library, opened by `run()` in `lib.rs` on a `Stage`
+  (`stage.rs`): the eframe window, drawing (`render/`), input, audio, settings, filing and
+  `typewriter --import`. `main.rs` only calls `run(Plain)`. Modules stay private unless
+  `typewriter-import` needs them; the desk edition reaches the app's drawing only through
+  `draw.rs`. `simulate.rs` is test-only: a writer's months of work, seeded.
+- `crates/typewriter-desk`: the desk edition, `run(stage::Desk)` on the app's library. Its room
+  and machine (`room.rs`, `machine/`) live here and draw through the app's `Stage` hooks. Not
+  packaged or released yet.
 - The command line (flags, `--import` among them) is Linux only, in `terminal.rs`. On Windows,
   `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
   console program there. Commands are flags (`--import`), never bare words: a bare word is a
@@ -104,6 +106,13 @@ Rules:
 - The app decides in the **desk** (`app/desk/`), which knows no egui, sound or window: it takes
   `Intent`s and asks for `Effect`s. Views (`app/view/`) draw it and push intents; `app/mod.rs`
   does the effects. Test app behaviour on the desk (`desk/testing.rs`).
+- What only the desk edition draws lives in `typewriter-desk`, never in the app. Where it needs
+  to draw, the app offers a hook on `Stage` whose default is the plain app's, and the typing
+  view calls the hooks in its steps (behind the sheets, over them, around the knobs). The desk
+  edition keeps no state: the app's desk keeps what it draws from (e.g. the last return), and
+  clicks on its controls come back to the app as rects.
+- Share drawing with the desk edition by re-exporting it in `draw.rs`, not by making a module
+  public.
 
 ## Folder format
 

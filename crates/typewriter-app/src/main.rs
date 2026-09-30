@@ -3,5 +3,5 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 fn main() -> anyhow::Result<()> {
-    typewriter_app::run(typewriter_app::Edition::Typewriter)
+    typewriter_app::run(typewriter_app::Plain)
 }

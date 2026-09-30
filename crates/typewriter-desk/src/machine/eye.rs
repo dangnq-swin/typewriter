@@ -5,9 +5,7 @@ use eframe::egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, 
 
 use super::EDGE;
 use super::geometry::{dot, sub};
-use crate::render::Metrics;
-use crate::render::feed::convex_mesh;
-use crate::render::perspective::warp;
+use typewriter_app::draw::{Metrics, convex_mesh, warp};
 
 /// The eye from the printing point, and how far it looks down.
 const EYE_INCHES: f32 = 24.0;

@@ -6,8 +6,7 @@ use std::f32::consts::TAU;
 
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
 
-use super::perspective::Camera;
-use super::{splitmix64, unit};
+use typewriter_app::draw::{Camera, splitmix64, unit};
 
 /// Seated: looking a little down at the machine.
 const TILT_DEGREES: f32 = 25.0;

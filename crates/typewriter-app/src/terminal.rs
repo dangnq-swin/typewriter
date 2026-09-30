@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 
-use crate::{Edition, OPTIONS, VERSION, import, is_help, is_option, is_version, storage};
+use crate::{OPTIONS, Stage, VERSION, import, is_help, is_option, is_version, storage};
 
 fn usage(command: &str) -> String {
     format!(
@@ -17,15 +17,15 @@ usage: {command} [project.typr]
 }
 
 /// Handles a command or flag. False if the app should open.
-pub fn run(edition: Edition, args: &[OsString]) -> anyhow::Result<bool> {
+pub fn run(stage: &dyn Stage, args: &[OsString]) -> anyhow::Result<bool> {
     let [first, rest @ ..] = args else {
         return Ok(false);
     };
-    let command = edition.command();
+    let command = stage.command();
     if first == import::FLAG {
         import::run(&format!("{command} --import"), rest)?;
     } else if is_help(first) {
-        println!("{}", help(edition));
+        println!("{}", help(stage));
     } else if is_version(first) {
         println!("{command} {VERSION}");
     } else if is_option(first) {
@@ -36,7 +36,7 @@ pub fn run(edition: Edition, args: &[OsString]) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-fn help(edition: Edition) -> String {
+fn help(stage: &dyn Stage) -> String {
     let shown = |path: Option<PathBuf>| {
         path.map_or_else(|| "(unknown)".to_owned(), |p| storage::home_relative(&p))
     };
@@ -55,24 +55,39 @@ settings  {}
 data      {} (drafts, machine profiles)",
         shown(storage::config_path()),
         shown(storage::data_dir()),
-        command = edition.command(),
-        usage = usage(edition.command()),
-        about = match edition {
-            Edition::Typewriter => "a typewriter simulator for focused writing",
-            Edition::Desk => "the typewriter on a desk",
-        },
+        command = stage.command(),
+        usage = usage(stage.command()),
+        about = stage.about(),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Plain;
+
+    /// Another edition, by its own name.
+    struct Other;
+
+    impl Stage for Other {
+        fn command(&self) -> &'static str {
+            "typewriter-other"
+        }
+
+        fn title(&self) -> &'static str {
+            "Other"
+        }
+
+        fn about(&self) -> &'static str {
+            "another edition"
+        }
+    }
 
     #[test]
     fn a_project_file_opens_the_app() {
         let args = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
-        for edition in [Edition::Typewriter, Edition::Desk] {
-            let run = |a: &[&str]| run(edition, &args(a));
+        for stage in [&Plain as &dyn Stage, &Other] {
+            let run = |a: &[&str]| run(stage, &args(a));
             assert!(!run(&[]).unwrap());
             assert!(!run(&["novel.typr"]).unwrap());
             assert!(run(&["--version"]).unwrap());
@@ -80,6 +95,6 @@ mod tests {
             assert!(run(&["--import", "--help"]).unwrap());
             assert!(!run(&["import"]).unwrap(), "a project named so");
         }
-        assert!(help(Edition::Desk).starts_with("typewriter-desk "));
+        assert!(help(&Other).starts_with("typewriter-other "));
     }
 }

@@ -7,7 +7,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+typewriter-core.workspace = true
 typewriter-app.workspace = true
+eframe.workspace = true
 anyhow.workspace = true
 
 [lints]

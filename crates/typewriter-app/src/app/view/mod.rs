@@ -13,7 +13,6 @@ use eframe::egui::{self, Rect};
 use super::TypewriterApp;
 use super::desk::View;
 use super::intent::Intent;
-use crate::Edition;
 use crate::render::{self, scrunch};
 
 impl TypewriterApp {
@@ -53,7 +52,12 @@ impl TypewriterApp {
     fn show_settings(&mut self, ui: &mut egui::Ui, view: Rect, intents: &mut Vec<Intent>) {
         let desk = &mut self.desk;
         let before = desk.settings.clone();
-        let problem = (self.edition == Edition::Typewriter).then(|| self.background.problem());
+        // No background row over a backdrop: the look's isn't used.
+        let problem = self
+            .stage
+            .backdrop()
+            .is_none()
+            .then(|| self.background.problem());
         let card =
             render::settings::show_settings(ui, view, &mut desk.settings, &desk.machines, problem);
         if card.choose_texture {
@@ -85,14 +89,20 @@ impl TypewriterApp {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use eframe::egui::Painter;
     use typewriter_core::Command;
 
     use super::*;
     use crate::app::desk::testing::{press, type_text};
     use crate::app::desk::{Answer, Leaving};
     use crate::app::fonts;
+    use crate::draw::{Controls, Metrics, Scene};
     use crate::input::Action;
     use crate::render::folder::FolderAction;
+    use crate::stage::Stage;
 
     /// One frame at `now`: what the user asked.
     fn frame(app: &mut TypewriterApp, ctx: &egui::Context, now: f64) -> Vec<Intent> {
@@ -141,5 +151,101 @@ mod tests {
         frame(&mut app, &ctx, 32.0);
         app.desk.update(Intent::Leave(Answer::Cancel), 33.0);
         assert_eq!(app.desk.view, View::Settings);
+    }
+
+    /// A stage noting which hooks the typing view calls, in order, each
+    /// answering as the plain app.
+    struct Noting(Rc<RefCell<Vec<&'static str>>>);
+
+    impl Noting {
+        fn note(&self, hook: &'static str) {
+            self.0.borrow_mut().push(hook);
+        }
+    }
+
+    impl Stage for Noting {
+        fn command(&self) -> &'static str {
+            "typewriter-noting"
+        }
+
+        fn title(&self) -> &'static str {
+            "Noting"
+        }
+
+        fn about(&self) -> &'static str {
+            "notes the hooks"
+        }
+
+        fn typing_line_height(&self, _: Rect, _: &Metrics, _: u16) -> Option<f32> {
+            self.note("typing line");
+            None
+        }
+
+        fn paint_behind_sheets(&self, _: &Painter, _: &Scene) -> Option<f32> {
+            self.note("behind the sheets");
+            None
+        }
+
+        fn sheet_lift(&self) -> Option<f32> {
+            self.note("sheet lift");
+            None
+        }
+
+        fn paint_over_sheets(&self, _: &Painter, _: &Scene) {
+            self.note("over the sheets");
+        }
+
+        fn controls(
+            &self,
+            _: &egui::Ui,
+            _: &Painter,
+            _: &Scene,
+            _: &Controls,
+        ) -> Option<[Rect; 5]> {
+            self.note("controls");
+            None
+        }
+
+        fn scale_top(&self, _: &Scene) -> Option<f32> {
+            self.note("scale");
+            None
+        }
+
+        fn platen_ends(&self, _: &Scene) -> Option<[f32; 2]> {
+            self.note("knobs");
+            None
+        }
+
+        fn paint_behind_knobs(&self, _: &Painter, _: &Scene) {
+            self.note("behind the knobs");
+        }
+
+        fn paint_over_knobs(&self, _: &Painter, _: &Scene) {
+            self.note("over the knobs");
+        }
+    }
+
+    #[test]
+    fn the_typing_view_calls_the_stage_back_to_front() {
+        let ctx = egui::Context::default();
+        fonts::install(&ctx);
+        let mut app = TypewriterApp::for_tests(&ctx);
+        let noted = Rc::new(RefCell::new(Vec::new()));
+        app.stage = Box::new(Noting(Rc::clone(&noted)));
+        frame(&mut app, &ctx, 10.0);
+        assert_eq!(
+            *noted.borrow(),
+            [
+                "typing line",
+                "behind the sheets",
+                "sheet lift",
+                "over the sheets",
+                "controls",
+                "scale",
+                "knobs",
+                "behind the knobs",
+                "over the knobs",
+            ]
+        );
     }
 }

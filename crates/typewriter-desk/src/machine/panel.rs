@@ -2,15 +2,13 @@
 //! maker's badge would be: spacing, zoom, correction, goal and save.
 
 use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke};
-use typewriter_core::session::Progress;
-use typewriter_core::{EraseMode, Goal, LineSpacing};
+use typewriter_core::{EraseMode, LineSpacing};
 
 use super::cover::{COVER_FRONT, COVER_HALF};
 use super::eye::{Eye, paint_flat_text};
 use super::geometry::add;
 use super::{CHROME, ENGRAVED, IVORY, IVORY_LIT, SHIFT_CAP, SHIFT_FRONT};
-use crate::filing::Keeping;
-use crate::render::{HIGHLIGHT, Metrics, ruler};
+use typewriter_app::draw::{Controls, HIGHLIGHT, Metrics, ruler};
 
 /// The front panel, falling from the cover's fold to the keyboard's opening.
 pub(super) const PANEL_BOTTOM: (f32, f32) = (4.7, -2.35);
@@ -153,19 +151,6 @@ impl Control {
     }
 }
 
-/// What the panel's controls show.
-pub struct PanelState<'a> {
-    pub spacing: LineSpacing,
-    pub zoom_percent: u16,
-    pub erase: EraseMode,
-    pub slip_in: bool,
-    pub delete_in_cycle: bool,
-    pub goal: Option<Goal>,
-    pub goals: &'a [Goal],
-    pub progress: Option<Progress>,
-    pub keeping: &'a Keeping,
-}
-
 /// The front panel's controls for the typing line at `typing_y`.
 pub struct Panel {
     eye: Eye,
@@ -196,7 +181,7 @@ impl Panel {
     }
 
     /// Draws each control, `hovered` ringed.
-    pub fn paint(&self, painter: &Painter, state: &PanelState, hovered: Option<Control>) {
+    pub fn paint(&self, painter: &Painter, state: &Controls, hovered: Option<Control>) {
         for control in Control::ALL {
             let lit = hovered == Some(control);
             let (turn, marks, reading, colour) = match control {

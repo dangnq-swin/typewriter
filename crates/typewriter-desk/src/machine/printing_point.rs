@@ -13,7 +13,7 @@ use super::eye::Eye;
 use super::geometry::rounded;
 use super::light::{matte, paint_chrome};
 use super::{EDGE, METAL_SHINE};
-use crate::render::Metrics;
+use typewriter_app::draw::Metrics;
 
 /// The alignment guide's plates, pressed on the paper either side of the
 /// printing point, `(y, z)`: their foot down behind the ribbon, their top

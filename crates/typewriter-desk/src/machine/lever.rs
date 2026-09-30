@@ -15,8 +15,7 @@ use super::eye::Eye;
 use super::geometry::{add, cross, normalized, scaled, sub};
 use super::light::{brighten, chrome_at, paint_chrome, streak, toward_light};
 use super::{EDGE, METAL, METAL_SHINE};
-use crate::render::platen::glide_seconds;
-use crate::render::{Metrics, smoothstep};
+use typewriter_app::draw::{Metrics, glide_seconds, smoothstep};
 
 /// The bracket, `x` out from the carriage's left end (negative), `y` behind
 /// the knob's axis, `z` round it: longer than wide, low enough that the knob
@@ -77,11 +76,6 @@ pub struct Throw {
 }
 
 impl Throw {
-    pub const RESTING: Self = Self {
-        at: f64::NEG_INFINITY,
-        held_seconds: 0.0,
-    };
-
     /// At `at`, the carriage gliding `inches` home.
     pub fn new(at: f64, inches: f64) -> Self {
         Self {
@@ -361,7 +355,7 @@ mod tests {
 
     use super::super::geometry::dot;
     use super::*;
-    use crate::render::knob::Knob;
+    use typewriter_app::draw::Knob;
 
     /// The knob's disc: out to 0.52 in past the carriage's end, 0.575 in
     /// round its axis (knob.rs).
@@ -382,8 +376,10 @@ mod tests {
         let over = 10.0 + held + RELEASE_SECONDS + 0.01;
         assert_eq!(throw.amount(over), 0.0);
         assert!(!throw.is_moving(over));
-        assert!(!Throw::RESTING.is_moving(0.0));
-        assert_eq!(Throw::RESTING.amount(0.0), 0.0);
+        // Before any return: at rest.
+        let never = Throw::new(f64::NEG_INFINITY, 0.0);
+        assert!(!never.is_moving(0.0));
+        assert_eq!(never.amount(0.0), 0.0);
     }
 
     #[test]
@@ -397,7 +393,7 @@ mod tests {
     #[test]
     fn the_bracket_is_longer_than_wide_and_the_knob_hides_its_front() {
         assert!(BRACKET_Y.1 - BRACKET_Y.0 > BRACKET_X.1 - BRACKET_X.0);
-        let sm9 = include_str!("../../../../../profiles/olympia-sm9.toml");
+        let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
         let metrics = Metrics::new(&Profile::from_toml_str(sm9).unwrap(), 96.0);
         let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
         let typing_y = 600.0;

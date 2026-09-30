@@ -24,14 +24,14 @@ mod side_controls;
 
 pub use carriage::{bail_scale_top, paint_bail, platen_ends};
 pub use lever::{Throw, paint_lever, paint_lever_base};
-pub use panel::{Control, Panel, PanelState};
+pub use panel::{Control, Panel};
 
 use eframe::egui::{Color32, Painter, Rect};
 
-use crate::render::Metrics;
 use body::THROAT_TOP;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
+use typewriter_app::draw::Metrics;
 
 /// The typing line's height in the view: leaning over the page at 100 %
 /// zoom and above, sitting back to see the whole machine at 50 %. Never
@@ -130,9 +130,12 @@ mod tests {
     use eframe::egui::{Pos2, vec2};
 
     fn metrics(zoom_percent: u16) -> Metrics {
-        let sm9 = include_str!("../../../../../profiles/olympia-sm9.toml");
+        let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
         let profile = typewriter_core::Profile::from_toml_str(sm9).unwrap();
-        Metrics::new(&profile, super::super::points_per_inch(zoom_percent))
+        Metrics::new(
+            &profile,
+            typewriter_app::draw::points_per_inch(zoom_percent),
+        )
     }
 
     #[test]
