@@ -15,7 +15,14 @@ so that the plain app stays a focused writing tool (see `AGENTS.md`). Items for 
 
 On the `desk-viewpoint` branch.
 
-- [ ] Desk: the margin rack at the back of the paper table, its two stops set there rather than
+- [ ] Desk: the machine and its sheets in real 3D, drawn with a depth buffer through an
+      OpenGL paint callback on eframe's own renderer, in place of flat parts in a fixed order.
+      What stands in front then hides what is behind by itself: no clipping one part by another,
+      no repainting the cover over the knobs, no joining the flat carriage to parts drawn in
+      perspective. egui still draws the plain app, the desk's plates and what fades in calm. The
+      text on the sheet stays as sharp as now, and the snapshot tool learns to draw it. First
+      tried on a branch with the SM9's body and a sheet: how sharp the text stays, and the work
+- [ ] Desk: the margin rack behind the paper support, its two stops set there rather than
       on the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
       then set the stops. Dragging it up again, or the next key typed, unfolds it
 - [ ] ❓ Desk: its own levers and keys in place of plates and chords: the line-space lever, tab
@@ -86,15 +93,14 @@ each group tried on its own before the next.
 
 - [ ] ❓ A Flatpak
 - [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
-      (a static binary can't load the system's graphics and window libraries)
+      (a static binary can't load the system's graphics and window libraries). The desk's 3D
+      needs OpenGL: drawn on the CPU there, or left out of that build
 
 ## The desk as a scene
 
 - [ ] ❓ Desk: a scene rather than fixed screen positions: the copy holder stands left of the
       document at a fixed angle, and the view (position, field of view) can be moved and zoomed,
-      more like a game camera than a page on screen. Drawn in real 3D by then (a depth buffer,
-      not parts in a fixed order), first tried on a branch with the SM9's body: how sharp the
-      text stays, and the work
+      more like a game camera than a page on screen, on the desk's 3D drawing
 - [ ] ❓ Desk: drawers holding the projects: open one by pulling its folder out
 - [ ] ❓ Desk: a wastepaper basket for scrunched sheets
 - [ ] ❓ Desk: a shelf of machines: change profile by lifting another typewriter onto the desk
