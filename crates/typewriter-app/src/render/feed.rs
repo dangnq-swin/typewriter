@@ -94,6 +94,11 @@ impl FeedMotion {
         }
     }
 
+    /// Seconds the finished sheet winds out for.
+    pub fn wind_out(&self) -> f64 {
+        self.wind_out
+    }
+
     /// First click to pointer back. The sound's quiet tail may still play.
     pub fn duration(&self) -> f64 {
         self.settled_at() + SETTLE_SECONDS

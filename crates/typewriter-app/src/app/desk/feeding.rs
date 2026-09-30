@@ -1,6 +1,6 @@
-//! Sheets on the move: a feed rolling one out and the next in, a project's
-//! first sheet winding in, a reopened one winding back to where typing
-//! stopped. Keys wait for them.
+//! Sheets on the move: a feed rolling one out and the next in, a typed one
+//! flying into the folder, a project's first sheet winding in, a reopened
+//! one winding back to where typing stopped. Keys wait for them.
 
 use typewriter_core::page::{Page, Shift};
 use typewriter_core::{Command, Event};
@@ -8,6 +8,7 @@ use typewriter_core::{Command, Event};
 use super::Desk;
 use crate::app::intent::{Effect, Sound};
 use crate::render::feed::FeedMotion;
+use crate::render::folder::Flight;
 use crate::render::smoothstep;
 
 /// Wind-back pace for a short way; a long one speeds up to fit
@@ -36,6 +37,8 @@ pub struct Feed {
     /// Timed from the feed sound.
     motion: FeedMotion,
     pub feeding: Option<Feeding>,
+    /// The last filed sheet, flying into the folder or just landed.
+    pub flight: Option<Flight>,
     /// Every project, new or reopened, starts by winding its sheet in...
     first_sheet_pending: bool,
     /// ...and a reopened one then winds down to where typing stopped.
@@ -48,6 +51,7 @@ impl Feed {
         let mut feed = Self {
             motion,
             feeding: None,
+            flight: None,
             first_sheet_pending: true,
             wind_back: None,
         };
@@ -58,6 +62,7 @@ impl Feed {
     /// Another project is in.
     pub(super) fn restart(&mut self, wind_back_to: Option<u16>) {
         self.feeding = None;
+        self.flight = None;
         self.first_sheet_pending = true;
         self.wind_back = wind_back_to.map(|to_half_line| WindBack {
             to_half_line,
@@ -74,6 +79,11 @@ impl Feed {
     /// A sheet moves, or is about to.
     pub fn is_moving(&self) -> bool {
         self.feeding.is_some() || self.wind_back.is_some()
+    }
+
+    /// A filed sheet flies, or the folder icon still answers its landing.
+    pub fn is_filing(&self, now: f64) -> bool {
+        self.flight.is_some_and(|flight| !flight.is_over(now))
     }
 }
 
@@ -97,8 +107,11 @@ impl Desk {
         self.effects.push(Effect::Sound(Sound::WindIn));
     }
 
-    /// A sheet was fed: `outgoing` rolls out as the next rolls in.
+    /// A sheet was fed: `outgoing` rolls out as the next rolls in. Typed, it
+    /// was filed, and flies into the folder.
     pub(super) fn start_feed(&mut self, outgoing: Option<(Page, u16)>, now: f64) {
+        let filed = outgoing.as_ref().is_some_and(|(page, _)| !page.is_blank());
+        self.feed.flight = filed.then(|| Flight::new(now, self.feed.motion.wind_out()));
         self.feed.feeding = Some(Feeding {
             started: now,
             outgoing,
@@ -175,6 +188,8 @@ fn wound_to(from: u16, to: u16, elapsed: f64) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::desk::testing::{press, type_text};
+    use crate::input::Action;
     use crate::render::splitmix64;
 
     #[test]
@@ -216,5 +231,19 @@ mod tests {
         assert!(!desk.is_busy(30.0));
         desk.start_frame(30.0);
         assert!(desk.take_effects().is_empty(), "only once");
+    }
+
+    #[test]
+    fn a_typed_sheet_flies_into_the_folder_and_a_blank_one_does_not() {
+        let mut desk = super::super::testing::desk();
+        press(&mut desk, &[Action::Machine(Command::FeedSheet)], 10.0);
+        assert!(desk.feed.flight.is_none(), "blank: nothing filed");
+
+        type_text(&mut desk, "done", 20.0);
+        press(&mut desk, &[Action::Machine(Command::FeedSheet)], 30.0);
+        assert!(desk.feed.flight.is_some());
+        assert!(desk.is_animating(31.0));
+        desk.tick(40.0);
+        assert!(!desk.is_animating(40.0), "landed and still");
     }
 }

@@ -217,6 +217,7 @@ impl Desk {
     pub fn is_animating(&self, now: f64) -> bool {
         self.guides_opacity(now) > 0.0
             || self.feed.is_moving()
+            || self.feed.is_filing(now)
             || self.project.is_drying()
             || self.project.filing.is_animating(now)
             || self.notice.is_animating(now)

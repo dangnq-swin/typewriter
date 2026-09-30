@@ -163,6 +163,21 @@ impl Metrics {
     pub fn cell_size(&self) -> Vec2 {
         vec2(self.column_width, self.half_line_height * 2.0)
     }
+
+    /// At `scale`, the type rounded to half a point: each size drawn is
+    /// glyphs for egui to keep.
+    pub fn scaled(&self, scale: f32) -> Self {
+        let mut font = self.font.clone();
+        font.size = ((font.size * scale * 2.0).round() / 2.0).max(0.5);
+        Self {
+            points_per_inch: self.points_per_inch * scale,
+            column_width: self.column_width * scale,
+            half_line_height: self.half_line_height * scale,
+            paper_size: self.paper_size * scale,
+            grid_origin: self.grid_origin * scale,
+            font,
+        }
+    }
 }
 
 /// Screen points per inch at `zoom_percent`.
@@ -275,6 +290,19 @@ pub fn splitmix64(mut x: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scaled_sheet_keeps_its_proportions_and_rounds_its_type() {
+        let profile =
+            Profile::from_toml_str(include_str!("../../../../profiles/olympia-sm9.toml")).unwrap();
+        let m = Metrics::new(&profile, 96.0);
+        let half = m.scaled(0.53);
+        let exact = Metrics::new(&profile, 96.0 * 0.53);
+        assert!((half.paper_size - exact.paper_size).length() < 1e-3);
+        assert!((half.cell_offset(40, 30) - exact.cell_offset(40, 30)).length() < 1e-3);
+        assert_eq!(half.font.size, 8.5);
+        assert_eq!(m.scaled(0.001).font.size, 0.5, "never nothing");
+    }
 
     #[test]
     fn pica_at_96_points_per_inch() {

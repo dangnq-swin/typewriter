@@ -1,7 +1,7 @@
 //! The typing view: the sheet in the machine and its feed, the scale, knobs
 //! and plates, the desk icons; and the copy holder beside it.
 
-use eframe::egui::{self, Painter, Pos2, Rect, pos2};
+use eframe::egui::{self, Painter, Pos2, Rect, pos2, vec2};
 use typewriter_core::Side;
 use typewriter_core::page::Page;
 
@@ -33,18 +33,43 @@ impl TypewriterApp {
         let chrome = 1.0 - calm;
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
+        let flight = self.desk.feed.flight.filter(|f| !f.is_over(now));
+        let answer = flight.map_or(folder::Answer::STILL, |f| f.answer(now));
         if let Some(feeding) = &self.desk.feed.feeding {
             let t = now - feeding.started;
             let motion = &feeding.motion;
-            if let (Some(rolled), Some((old_page, old_half_line))) =
-                (motion.roll_out(t), &feeding.outgoing)
-            {
+            if let Some((old_page, old_half_line)) = &feeding.outgoing {
                 let old_y = layout.strike_point.y - self.metrics.cell_offset(*old_half_line, 0).y;
-                let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
-                let old_origin = pos2(paper_origin.x, old_y - rolled * exit);
-                self.paint_lifted(&painter, view, old_origin, 0.0, 1.0);
+                let old_origin = pos2(paper_origin.x, old_y);
                 let dimming = self.dimming(*old_half_line, calm);
-                self.paint_page(&painter, old_page, old_origin, dimming, &paper::dry);
+                // Calm mode hides the folder: the sheet just winds out.
+                if let Some(flight) = flight.filter(|_| !self.desk.calm) {
+                    let size = self.metrics.paper_size;
+                    let route = folder::Route {
+                        from: Rect::from_min_size(old_origin, size).center(),
+                        size,
+                        platen_y: layout.strike_point.y,
+                        window_top: view.top(),
+                        mouth: folder::icon_body(view).center_top() + vec2(0.0, answer.dip),
+                    };
+                    match flight.sheet(now, &route) {
+                        // Still rolling out, full size: drawn as in the machine.
+                        Some(pose) if pose.mouth.is_none() => {
+                            let origin = old_origin + (pose.centre - route.from);
+                            self.paint_lifted(&painter, view, origin, 0.0, pose.lift);
+                            self.paint_page(&painter, old_page, origin, dimming, &paper::dry);
+                        }
+                        Some(pose) => {
+                            self.paint_flying(ui.ctx(), view, (old_page, dimming), pose);
+                        }
+                        None => {}
+                    }
+                } else if let Some(rolled) = motion.roll_out(t) {
+                    let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
+                    let old_origin = old_origin - vec2(0.0, rolled * exit);
+                    self.paint_lifted(&painter, view, old_origin, 0.0, 1.0);
+                    self.paint_page(&painter, old_page, old_origin, dimming, &paper::dry);
+                }
             }
             // Rise from below the window until the top margin meets the
             // typing line.
@@ -74,8 +99,17 @@ impl TypewriterApp {
             pointer_opacity,
         );
 
+        // One short until the flying sheet is in.
         let finished = machine.document().finished().len();
-        if folder::desk_icon(ui, view, finished, chrome) {
+        let shown = if flight.is_some_and(|f| !f.has_landed(now)) {
+            finished.saturating_sub(1)
+        } else {
+            finished
+        };
+        let reveal = flight
+            .filter(|_| self.desk.calm)
+            .map_or(0.0, |f| f.reveal(now));
+        if folder::desk_icon(ui, view, shown, answer, chrome.max(reveal)) {
             intents.push(Intent::OpenFolder);
         }
         if scratchpad::desk_icon(ui, view, chrome) {
@@ -319,6 +353,51 @@ impl TypewriterApp {
             self.desk.settings.look.ink_realism,
             dimming,
             wetness,
+        );
+    }
+
+    /// A filed sheet in `pose` on its way into the folder icon, drawn at its
+    /// shrinking size over the desk. Not on a scaled layer: egui garbles
+    /// scaled text.
+    fn paint_flying(
+        &self,
+        ctx: &egui::Context,
+        view: Rect,
+        (page, dimming): (&Page, Dimming),
+        pose: folder::Pose,
+    ) {
+        let metrics = self.metrics.scaled(pose.scale);
+        let origin = pose.centre - 0.5 * metrics.paper_size;
+        let layer = egui::LayerId::new(egui::Order::Middle, egui::Id::new("flying-sheet"));
+        let mut painter = ctx.layer_painter(layer);
+        if let Some(mouth) = pose.mouth {
+            painter = painter.with_clip_rect(Rect::from_min_max(view.min, pos2(view.max.x, mouth)));
+        }
+        feed::paint_lifted_sheet(
+            &painter,
+            &self.background,
+            view,
+            Rect::from_min_size(origin, metrics.paper_size),
+            metrics.points_per_inch,
+            0.0,
+            pose.lift,
+        );
+        // The margin frame is the machine's, not the paper's: it fades as the
+        // sheet leaves.
+        let machine = &self.desk.project.machine;
+        let mut frame = painter.clone();
+        frame.multiply_opacity(render::smoothstep((pose.scale - 0.6) / 0.4));
+        let top_lines = machine.profile().margins.top_lines;
+        paper::paint_margin_frame(&frame, &metrics, machine.carriage(), top_lines, origin);
+        let ink_realism = self.desk.settings.look.ink_realism;
+        paper::paint_sheet(
+            &painter,
+            &metrics,
+            page,
+            origin,
+            ink_realism,
+            dimming,
+            &paper::dry,
         );
     }
 

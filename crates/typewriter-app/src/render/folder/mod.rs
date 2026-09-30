@@ -1,10 +1,13 @@
 //! The folder view: a neat stack in a manila folder on a tilted desk, the
 //! scratchpad and the writing log beside it, menus below. Words show as faint
-//! ink bars until a sheet is opened ([`sheet`]).
+//! ink bars until a sheet is opened ([`sheet`]). And the folder icon on the
+//! desk, which a filed sheet flies into ([`flight`]).
 
+mod flight;
 mod menus;
 mod sheet;
 
+pub use flight::{Answer, Flight, Pose, Route};
 pub use menus::FolderAction;
 pub use sheet::{OpenSheet, show_sheet};
 
@@ -48,11 +51,15 @@ const LABEL_DARK: Color32 = Color32::from_rgb(0x5A, 0x48, 0x2A);
 
 /// Manila fill and edge, `lit` when hovered.
 fn manila(lit: bool) -> (Color32, Color32) {
-    if lit {
-        (MANILA_HOVER, HIGHLIGHT)
-    } else {
-        (MANILA, MANILA_EDGE)
-    }
+    glowing_manila(if lit { 1.0 } else { 0.0 })
+}
+
+/// Manila fill and edge, `glow` (0..=1) of the way to hovered.
+fn glowing_manila(glow: f32) -> (Color32, Color32) {
+    (
+        MANILA.lerp_to_gamma(MANILA_HOVER, glow),
+        MANILA_EDGE.lerp_to_gamma(HIGHLIGHT, glow),
+    )
 }
 
 /// What the folder view shows.
@@ -549,16 +556,23 @@ fn word_runs(page: &Page) -> Vec<(u16, u16, u16)> {
     runs
 }
 
-/// A small folder, bottom left, that opens the folder view.
-pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize, opacity: f32) -> bool {
-    let body = Rect::from_min_size(view.left_bottom() + vec2(16.0, -46.0), vec2(48.0, 30.0));
+/// The folder icon's body, bottom left; its tab stands on top.
+pub fn icon_body(view: Rect) -> Rect {
+    Rect::from_min_size(view.left_bottom() + vec2(16.0, -46.0), vec2(48.0, 30.0))
+}
+
+/// A small folder, bottom left, that opens the folder view. `answer`: to a
+/// sheet just filed.
+pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize, answer: Answer, opacity: f32) -> bool {
+    let body = icon_body(view);
     let icon = DeskIcon {
         hit: body.expand2(vec2(0.0, 6.0)).translate(vec2(0.0, -3.0)),
         id: "folder-icon",
         tip: "Finished sheets (Page Up)",
     };
     icon.show(ui, view, opacity, |painter, hovered| {
-        let (fill, edge) = manila(hovered);
+        let (fill, edge) = glowing_manila(if hovered { 1.0 } else { answer.glow });
+        let body = body.translate(vec2(0.0, answer.dip));
         let tab = Rect::from_min_size(body.left_top() + vec2(3.0, -6.0), vec2(18.0, 8.0));
         for (rect, radius) in [(tab, 2), (body, 3)] {
             painter.rect(
@@ -569,14 +583,28 @@ pub fn desk_icon(ui: &mut Ui, view: Rect, count: usize, opacity: f32) -> bool {
                 eframe::egui::StrokeKind::Inside,
             );
         }
-        painter.text(
-            body.center(),
-            Align2::CENTER_CENTER,
-            count,
-            FontId::proportional(13.0),
-            LABEL_DARK,
-        );
+        paint_icon_count(painter, body, count, answer.turn);
     })
+}
+
+/// `count` on the icon's `body`, `turn` (0..=1) of the way up from one less.
+fn paint_icon_count(painter: &Painter, body: Rect, count: usize, turn: f32) {
+    let painter = painter.with_clip_rect(body.shrink(1.0));
+    let font = FontId::proportional(13.0);
+    let roll = 0.5 * body.height();
+    let paint = |number: usize, offset: f32, opacity: f32| {
+        painter.text(
+            body.center() + vec2(0.0, offset),
+            Align2::CENTER_CENTER,
+            number,
+            font.clone(),
+            LABEL_DARK.gamma_multiply(opacity),
+        );
+    };
+    if turn < 1.0 {
+        paint(count.saturating_sub(1), -roll * turn, 1.0 - turn);
+    }
+    paint(count, roll * (1.0 - turn), turn);
 }
 
 #[cfg(test)]
