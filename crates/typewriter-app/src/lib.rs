@@ -97,7 +97,7 @@ pub fn run(edition: Edition) -> anyhow::Result<()> {
         edition.command(),
         options,
         Box::new(|cc| {
-            let app = app::TypewriterApp::new(cc, settings)?;
+            let app = app::TypewriterApp::new(cc, settings, edition)?;
             Ok(Box::new(app))
         }),
     )

@@ -28,7 +28,12 @@ pub struct Camera {
 impl Camera {
     /// Looking down at the desk's `centre` from `distance`, desk units.
     pub fn new(centre: Pos2, distance: f32) -> Self {
-        let (sin, cos) = TILT_DEGREES.to_radians().sin_cos();
+        Self::tilted(centre, distance, TILT_DEGREES)
+    }
+
+    /// As [`Camera::new`], looking `tilt_degrees` down from level.
+    pub fn tilted(centre: Pos2, distance: f32, tilt_degrees: f32) -> Self {
+        let (sin, cos) = tilt_degrees.to_radians().sin_cos();
         Self {
             centre,
             distance,

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, Pos2, Rect};
 use typewriter_core::{Constraints, Typewriter};
 
+use crate::Edition;
 use crate::audio::{self, Audio};
 use crate::filing::{self, Filing};
 use crate::input::{Action, Input};
@@ -36,6 +37,7 @@ struct Scrunching {
 }
 
 pub struct TypewriterApp {
+    edition: Edition,
     desk: Desk,
     input: Input,
     picker: Picker,
@@ -67,6 +69,7 @@ impl TypewriterApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         settings: (settings::Settings, SettingsFile, Option<String>),
+        edition: Edition,
     ) -> anyhow::Result<Self> {
         fonts::install(&cc.egui_ctx);
         // No Ctrl shortcuts, egui's zoom keys included.
@@ -85,7 +88,7 @@ impl TypewriterApp {
         let platen = PlatenView::new(settings.look.carriage_travel);
         let feed_motion = audio::sheet_feed_motion();
         let mut desk = Desk::new(machine, filing, settings, machines, feed_motion);
-        let background = Background::load(&cc.egui_ctx, &mut desk.settings.look);
+        let background = Background::load(&cc.egui_ctx, &mut desk.settings.look, edition);
         let background_trouble = background.problem().map(str::to_owned);
         if let Some(trouble) = trouble
             .or(settings_trouble)
@@ -96,6 +99,7 @@ impl TypewriterApp {
         }
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Ok(Self {
+            edition,
             desk,
             input: Input::default(),
             picker: Picker::default(),
@@ -276,9 +280,10 @@ impl TypewriterApp {
     /// The window's parts around a test desk: no sound, nothing on disk.
     fn for_tests(ctx: &egui::Context) -> Self {
         let mut desk = desk::testing::desk();
-        let background = Background::load(ctx, &mut desk.settings.look);
+        let background = Background::load(ctx, &mut desk.settings.look, Edition::Typewriter);
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Self {
+            edition: Edition::Typewriter,
             desk,
             input: Input::default(),
             picker: Picker::default(),

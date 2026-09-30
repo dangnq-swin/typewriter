@@ -176,9 +176,10 @@ pub fn paint_lifted_sheet(
         pos2(sheet.left(), sheet.top() + depth),
         pos2(sheet.right(), sheet.top() + depth),
     ];
-    background.paint_polygon(
+    background.paint_sheet(
         painter,
         view,
+        sheet,
         &[
             lip[0],
             lip[1],

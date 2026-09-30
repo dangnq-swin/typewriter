@@ -1,5 +1,6 @@
 //! The paper behind everything, fixed to the window: the bundled photo, a
-//! flat paper tone or the user's own texture.
+//! flat paper tone or the user's own texture. The desk edition draws its
+//! room there instead, and the photo on each sheet.
 
 use std::path::{Path, PathBuf};
 
@@ -10,6 +11,8 @@ use eframe::egui::{
 };
 
 use super::feed::convex_mesh;
+use super::room;
+use crate::Edition;
 use crate::settings::{self, Look, PaperTone};
 
 /// Evened out and re-encoded by `build.rs`.
@@ -33,6 +36,11 @@ pub const fn tone(tone: PaperTone) -> Color32 {
 struct Chosen(settings::Background, PaperTone, Option<PathBuf>);
 
 impl Chosen {
+    /// The bundled photo: the desk edition's sheets.
+    fn paper() -> Self {
+        Self(settings::Background::Paper, PaperTone::default(), None)
+    }
+
     fn of(look: &Look) -> Self {
         Self(
             look.background,
@@ -54,19 +62,30 @@ pub struct Background {
     paper: Option<Option<TextureHandle>>,
     /// Why the chosen texture isn't showing.
     problem: Option<String>,
+    /// The desk edition: `fill` is the sheets', the room is behind them.
+    room: bool,
 }
 
 impl Background {
-    /// Forgets `look`'s texture if its file is gone.
-    pub fn load(ctx: &egui::Context, look: &mut Look) -> Self {
+    /// Forgets `look`'s texture if its file is gone. The desk edition
+    /// ignores `look`: the room is always there.
+    pub fn load(ctx: &egui::Context, look: &mut Look, edition: Edition) -> Self {
+        let room = edition == Edition::Desk;
         let mut background = Self {
             fill: Fill::Flat(FALLBACK),
-            chosen: Chosen::of(look),
+            chosen: if room {
+                Chosen::paper()
+            } else {
+                Chosen::of(look)
+            },
             paper: None,
             problem: None,
+            room,
         };
         background.fill = background.choose(ctx);
-        look.background_texture.clone_from(&background.chosen.2);
+        if !room {
+            look.background_texture.clone_from(&background.chosen.2);
+        }
         background
     }
 
@@ -74,7 +93,7 @@ impl Background {
     /// texture if its file is gone.
     pub fn follow(&mut self, ctx: &egui::Context, look: &mut Look) {
         let chosen = Chosen::of(look);
-        if chosen != self.chosen {
+        if !self.room && chosen != self.chosen {
             self.chosen = chosen;
             self.fill = self.choose(ctx);
             look.background_texture.clone_from(&self.chosen.2);
@@ -113,6 +132,10 @@ impl Background {
     }
 
     pub fn paint(&self, painter: &Painter, view: Rect) {
+        if self.room {
+            room::paint(painter, view);
+            return;
+        }
         match &self.fill {
             Fill::Texture(texture) => {
                 let uv = cover_uv(texture.size_vec2(), view.size());
@@ -124,14 +147,17 @@ impl Background {
         }
     }
 
-    /// Fills a convex polygon with exactly the background behind it: hides
-    /// what's under a lifted sheet without a seam.
-    pub fn paint_polygon(&self, painter: &Painter, view: Rect, points: &[Pos2]) {
+    /// The body of `sheet`, cut to the convex polygon `points`. The plain
+    /// app fills it with exactly the background behind it: a lifted sheet
+    /// hides what's under it without a seam. The desk edition's sheets carry
+    /// the paper with them.
+    pub fn paint_sheet(&self, painter: &Painter, view: Rect, sheet: Rect, points: &[Pos2]) {
+        let area = if self.room { sheet } else { view };
         let mesh = match &self.fill {
             Fill::Texture(texture) => {
-                let uv = cover_uv(texture.size_vec2(), view.size());
+                let uv = cover_uv(texture.size_vec2(), area.size());
                 let mut mesh = convex_mesh(points, |pos| {
-                    let at = (pos - view.min) / view.size();
+                    let at = (pos - area.min) / area.size();
                     Vertex {
                         pos,
                         uv: uv.min + at * uv.size(),
@@ -237,7 +263,7 @@ mod tests {
             background_texture: Some(dir.join("gone.png")),
             ..Look::default()
         };
-        let background = Background::load(&ctx, &mut look);
+        let background = Background::load(&ctx, &mut look, Edition::Typewriter);
         assert_eq!(look.background_texture, None);
         assert_eq!(look.background, settings::Background::Texture);
         assert_eq!(background.problem(), None);

@@ -5,14 +5,17 @@ use eframe::egui::{self, Painter, Pos2, Rect, pos2, vec2};
 use typewriter_core::Side;
 use typewriter_core::page::Page;
 
+use crate::Edition;
 use crate::app::TypewriterApp;
 use crate::app::intent::Intent;
 use crate::filing::{Keeping, WriteStatus};
 use crate::render::calm::{self, Dimming};
-use crate::render::{self, feed, folder, holder, knob, notebook, paper, platen, ruler};
+use crate::render::{self, feed, folder, holder, knob, machine, notebook, paper, platen, ruler};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
+/// The desk edition's sheet in the machine: just off the wall behind.
+const STANDING_LIFT: f32 = 0.25;
 
 impl TypewriterApp {
     pub(super) fn show_typing(&mut self, ui: &mut egui::Ui, now: f64, intents: &mut Vec<Intent>) {
@@ -31,6 +34,15 @@ impl TypewriterApp {
             calm::FADE_SECONDS,
         );
         let chrome = 1.0 - calm;
+        let seated = self.edition == Edition::Desk;
+        if seated {
+            machine::paint_platen(
+                &painter,
+                &self.metrics,
+                layout.paper_origin.x,
+                layout.strike_point.y,
+            );
+        }
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
         let flight = self.desk.feed.flight.filter(|f| !f.is_over(now));
@@ -78,10 +90,16 @@ impl TypewriterApp {
             paper_origin.y = below + (placed - below) * motion.progress(t);
             self.paint_lifted(&painter, view, paper_origin, motion.curl(t), motion.lift(t));
             pointer_opacity = motion.pointer_opacity(t);
+        } else if seated {
+            self.paint_lifted(&painter, view, paper_origin, 0.0, STANDING_LIFT);
         }
         let dimming = self.dimming(carriage.half_line, calm);
         let wetness = |half_line, column| self.desk.project.wetness(now, half_line, column);
         self.paint_page(&painter, machine.page(), paper_origin, dimming, &wetness);
+        if seated {
+            let top = ruler::top(&self.metrics, layout.strike_point) + ruler::HEIGHT;
+            machine::paint_body(&painter, view, &self.metrics, top);
+        }
         if machine.slip_in() {
             platen::paint_slip(&painter, &self.metrics, layout.strike_point);
         }

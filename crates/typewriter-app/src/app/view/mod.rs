@@ -13,6 +13,7 @@ use eframe::egui::{self, Rect};
 use super::TypewriterApp;
 use super::desk::View;
 use super::intent::Intent;
+use crate::Edition;
 use crate::render::{self, scrunch};
 
 impl TypewriterApp {
@@ -52,7 +53,7 @@ impl TypewriterApp {
     fn show_settings(&mut self, ui: &mut egui::Ui, view: Rect, intents: &mut Vec<Intent>) {
         let desk = &mut self.desk;
         let before = desk.settings.clone();
-        let problem = self.background.problem();
+        let problem = (self.edition == Edition::Typewriter).then(|| self.background.problem());
         let card =
             render::settings::show_settings(ui, view, &mut desk.settings, &desk.machines, problem);
         if card.choose_texture {

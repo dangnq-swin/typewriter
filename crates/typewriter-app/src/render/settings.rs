@@ -26,13 +26,14 @@ pub struct SettingsResponse {
 }
 
 /// Draws the card. Edits `settings` in place: changes apply at once.
-/// `background_problem`: why the own texture isn't showing.
+/// `background`: `Some` with why the own texture isn't showing, if it
+/// isn't; `None` in the desk edition, which has no Background row.
 pub fn show_settings(
     ui: &mut Ui,
     view: Rect,
     settings: &mut Settings,
     machines: &Machines,
-    background_problem: Option<&str>,
+    background: Option<Option<&str>>,
 ) -> SettingsResponse {
     ui.painter_at(view)
         .rect_filled(view, CornerRadius::ZERO, DIM);
@@ -66,8 +67,10 @@ pub fn show_settings(
                     .show(ui, |ui| {
                         sound(ui, &mut settings.sound);
                         look(ui, &mut settings.look);
-                        response.choose_texture =
-                            background(ui, &mut settings.look, background_problem);
+                        if let Some(problem) = background {
+                            response.choose_texture =
+                                background_row(ui, &mut settings.look, problem);
+                        }
                         goals(ui, &mut settings.goals);
                         machine(ui, &mut settings.machine, machines);
                         section(ui, "Projects");
@@ -157,7 +160,7 @@ fn look(ui: &mut Ui, look: &mut settings::Look) {
 }
 
 /// The background choice. True if the texture's file dialog was asked for.
-fn background(ui: &mut Ui, look: &mut settings::Look, problem: Option<&str>) -> bool {
+fn background_row(ui: &mut Ui, look: &mut settings::Look, problem: Option<&str>) -> bool {
     let mut choose = false;
     ui.horizontal(|ui| {
         ui.label("Background");
