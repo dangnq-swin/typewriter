@@ -117,6 +117,11 @@ than keep a listing here.
   return), and clicks on its controls come back to the app as rects.
 - It reaches the app's drawing only through `draw.rs`: share a helper by re-exporting it there,
   not by making a module public.
+- The desk draws its body and sheets in depth (`draw::depth`, `render/depth.rs`): a wgpu paint
+  callback with a depth buffer, positions still projected on the CPU by the desk's eye. Its
+  parts draw on a `Canvas` (`machine/canvas.rs`), flat or in depth: a face hides what is
+  behind; what lies on one (edges, marks, print, glass) is set a hair nearer and hides nothing.
+  A part moved into depth needs its real shape, not the order it was drawn in.
 
 ## Folder format
 
@@ -176,7 +181,8 @@ cargo test -p typewriter-app --release -- --ignored --nocapture novel
 ```
 
 Snapshots, to look at a drawing change where no display is: the typing view drawn to PNGs
-without a window (typewriter-app's `snapshot` feature, `app/snapshot.rs`). The shots are in the
+without a window, the depth pass on the CPU (typewriter-app's `snapshot` feature,
+`app/snapshot.rs`). The shots are in the
 desk edition's `stage.rs` test; add one there to look at something new. Check a change to the
 drawing this way before calling it done.
 
@@ -206,8 +212,9 @@ nothing released.
 - No `unwrap()`/`expect()` outside tests unless the invariant is stated at the call site.
 - Reuse before adding. Shared drawing helpers and the palette live in `render/mod.rs`, pencil
   text fields in `render/note.rs` (`PencilField`), path and file helpers in `storage.rs`; the
-  desk's machine shares `machine/geometry.rs` and `machine/light.rs`. Read them before writing a
-  helper. Extract one once the same logic appears twice.
+  desk's machine shares `machine/geometry.rs`, `machine/light.rs` and its eye's drawing
+  (`machine/eye.rs`). Read them before writing a helper. Extract one once the same logic
+  appears twice.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
 - Config and data paths follow XDG (`$XDG_CONFIG_HOME/typewriter`, `$XDG_DATA_HOME/typewriter`);
   on Windows both live in `%APPDATA%\typewriter`. Windows shows paths in full, never as `~`.

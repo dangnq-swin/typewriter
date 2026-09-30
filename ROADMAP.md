@@ -15,13 +15,12 @@ so that the plain app stays a focused writing tool (see `AGENTS.md`). Items for 
 
 On the `desk-viewpoint` branch.
 
-- [ ] Desk: the machine and its sheets in real 3D, drawn with a depth buffer through an
-      OpenGL paint callback on eframe's own renderer, in place of flat parts in a fixed order.
-      What stands in front then hides what is behind by itself: no clipping one part by another,
-      no repainting the cover over the knobs, no joining the flat carriage to parts drawn in
-      perspective. egui still draws the plain app, the desk's plates and what fades in calm. The
-      text on the sheet stays as sharp as now, and the snapshot tool learns to draw it. First
-      tried on a branch with the SM9's body and a sheet: how sharp the text stays, and the work
+- [ ] Desk: the rest of the machine in real 3D, on the depth pass the body, platen and sheets
+      now draw on (a wgpu paint callback): the keyboard and its case, the side controls, the
+      paper bail, the return lever and the knobs (the desk drawing its own), all still flat over
+      it. Then the cover is no longer repainted over the knobs, and the flat sheet's ways leave
+      the desk (its paper table's placing, the curl and lift). Text where the sheet comes nearer
+      the eye than the typing line, toward its top, is laid out larger to stay as sharp
 - [ ] Desk: the margin rack behind the paper support, its two stops set there rather than
       on the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
       then set the stops. Dragging it up again, or the next key typed, unfolds it
@@ -94,7 +93,7 @@ each group tried on its own before the next.
 - [ ] ❓ A Flatpak
 - [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
       (a static binary can't load the system's graphics and window libraries). The desk's 3D
-      needs OpenGL: drawn on the CPU there, or left out of that build
+      needs a GPU through wgpu: drawn on the CPU there, or left out of that build
 
 ## The desk as a scene
 
