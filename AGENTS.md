@@ -116,7 +116,7 @@ needs the maintainer's yes (see above), and then:
 
 ```sh
 cargo build --workspace
-cargo run -p typewriter-app
+cargo run
 cargo test --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings

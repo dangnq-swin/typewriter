@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/typewriter-core", "crates/typewriter-app"]
+# Plain `cargo run` opens the app. Build, test and lint with --workspace.
+default-members = ["crates/typewriter-app"]
 
 [workspace.package]
 version = "0.1.0"
