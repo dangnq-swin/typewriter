@@ -52,8 +52,8 @@ The design principles in `AGENTS.md` hold here as well: only what a real office 
 
 ## A second binary
 
-- [ ] `crates/typewriter-desk`: a binary on the app's library that opens the same projects and
-      settings, and can be installed beside `typewriter`
+- [ ] `typewriter-desk` installed and packaged beside `typewriter` (`install.sh`, the release
+      builds, its own desktop entry)
 
 ## A desk in perspective
 

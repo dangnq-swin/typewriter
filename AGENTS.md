@@ -73,6 +73,8 @@ than keep a listing here.
   drawing (`render/`), input, audio, settings, filing and `typewriter --import`. `main.rs` only
   calls `run()`. Modules stay private unless `typewriter-import` needs them. `simulate.rs` is
   test-only: a writer's months of work, seeded.
+- `crates/typewriter-desk`: the desk edition, `run(Edition::Desk)` on the app's library. What
+  only the desk draws switches on the `Edition` inside the app. Not packaged or released yet.
 - The command line (flags, `--import` among them) is Linux only, in `terminal.rs`. On Windows,
   `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
   console program there. Commands are flags (`--import`), never bare words: a bare word is a
