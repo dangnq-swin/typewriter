@@ -1,7 +1,8 @@
 #!/bin/sh
 # Converts projects saved before folder format 1.0 (format 8, `*.folder.ron`)
 # to format 1.0 (`*.typr`), each beside its old file, which stays as it was.
-# Format 8 holds the same as 1.0: only the version is written differently.
+# Format 8 holds the same as 1.0: only the version is written differently,
+# and the notebook was called the scratchpad.
 #
 #   scripts/convert-format-8.sh novel.folder.ron [more.folder.ron ...]
 #
@@ -34,8 +35,13 @@ for old in "$@"; do
         status=1
         continue
     fi
-    awk '!done && /version: *8,/ { sub(/version: *8,/, "version: \"1.0\","); done = 1 } { print }' \
-        "$old" >"$new"
+    # Keys only, never typed text: the version opens the file, and the
+    # notebook's key sits alone on its line inside the document.
+    awk '
+        !version && /version: *8,/ { sub(/version: *8,/, "version: \"1.0\","); version = 1 }
+        !notebook && /^ *scratchpad: \($/ { sub(/scratchpad:/, "notebook:"); notebook = 1 }
+        { print }
+    ' "$old" >"$new"
     echo "$old -> $new"
 done
 exit $status

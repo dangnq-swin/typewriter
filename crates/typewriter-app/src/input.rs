@@ -6,7 +6,7 @@
 //! - printable keys: type, except 1 and ! (no such keys) and characters the
 //!   typeface lacks (`app/desk/typing.rs` checks). Accented letters need the
 //!   machine's dead key (`Profile::dead_keys`); the SM9 has none
-//! - 1 / !: the scratchpad; Esc or a click away puts it back. While it is
+//! - 1 / !: the notebook; Esc or a click away puts it back. While it is
 //!   open, Page Up / Page Down turn its leaves (`render/pad.rs`)
 //! - Enter: return; held, rolls the paper a line per key repeat
 //! - Insert: feed a new sheet
@@ -36,8 +36,8 @@ use eframe::egui::{Event, Key, Modifiers};
 use typewriter_core::{Command, Direction, LineSpacing};
 
 /// No such keys: type 1 as l, and ! as ' Backspace . (overstruck). The key
-/// opens the scratchpad instead.
-const SCRATCHPAD_KEYS: [char; 2] = ['1', '!'];
+/// opens the notebook instead.
+const NOTEBOOK_KEYS: [char; 2] = ['1', '!'];
 
 /// A machine command, or something for the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +49,7 @@ pub enum Action {
     Fullscreen,
     NextCorrection,
     Save,
-    Scratchpad,
+    Notebook,
     /// Erase; in the folder, scrunch up the chosen sheet.
     Delete,
     /// In the folder, moves the chosen sheet; elsewhere a plain arrow.
@@ -128,8 +128,8 @@ fn action_for(event: &Event) -> Vec<Action> {
             .chars()
             .filter(|c| !c.is_control())
             .map(|c| {
-                if SCRATCHPAD_KEYS.contains(&c) {
-                    Action::Scratchpad
+                if NOTEBOOK_KEYS.contains(&c) {
+                    Action::Notebook
                 } else {
                     Action::Machine(Command::Type(c))
                 }
@@ -266,12 +266,12 @@ mod tests {
     }
 
     #[test]
-    fn one_and_exclamation_open_the_scratchpad() {
+    fn one_and_exclamation_open_the_notebook() {
         assert_eq!(
             Input::default().actions(&[Event::Text("1!l".into())], false),
             [
-                Action::Scratchpad,
-                Action::Scratchpad,
+                Action::Notebook,
+                Action::Notebook,
                 Action::Machine(Command::Type('l'))
             ]
         );

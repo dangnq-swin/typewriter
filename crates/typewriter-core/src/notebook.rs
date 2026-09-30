@@ -1,4 +1,4 @@
-//! The scratchpad: a 48-page stapled memo book beside the machine.
+//! The notebook: a 48-page stapled memo book beside the machine.
 
 use serde::{Deserialize, Serialize};
 
@@ -9,14 +9,14 @@ pub const SPREADS: usize = PAGES / 2 + 1;
 pub const START: &str = "Field notes:\nThere's no 1 or ! on a typewriter";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Scratchpad {
+pub struct Notebook {
     /// From page 1. Trailing blank pages are left out.
     pages: Vec<String>,
     /// Where the book lies open.
     spread: usize,
 }
 
-impl Default for Scratchpad {
+impl Default for Notebook {
     fn default() -> Self {
         Self {
             pages: vec![START.to_owned()],
@@ -25,7 +25,7 @@ impl Default for Scratchpad {
     }
 }
 
-impl Scratchpad {
+impl Notebook {
     /// Page `index` (0 is page 1). Blank past the last written.
     pub fn page(&self, index: usize) -> &str {
         self.pages.get(index).map_or("", String::as_str)
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn blank_pages_at_the_end_are_not_kept() {
-        let mut pad = Scratchpad::default();
+        let mut pad = Notebook::default();
         assert!(pad.write(5, "later"));
         assert_eq!(pad.pages.len(), 6);
         assert!(pad.write(5, ""));
@@ -105,7 +105,7 @@ mod tests {
 
     #[test]
     fn a_new_book_is_fresh_wherever_it_lies_open() {
-        let mut pad = Scratchpad::default();
+        let mut pad = Notebook::default();
         assert!(pad.open_at(7));
         assert!(pad.is_fresh());
         assert!(pad.write(0, "mine now"));

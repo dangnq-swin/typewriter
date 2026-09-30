@@ -37,8 +37,8 @@ impl TypewriterApp {
             overlays.renumbering.as_mut(),
         );
         self.pulled = response.pulled;
-        if response.open_scratchpad {
-            intents.push(Intent::OpenScratchpad);
+        if response.open_notebook {
+            intents.push(Intent::OpenNotebook);
         }
         if response.open_log {
             intents.push(Intent::OpenLog);

@@ -1,4 +1,4 @@
-//! Everything drawn: sheets, platen view, folder, plates, scratchpad,
+//! Everything drawn: sheets, platen view, folder, plates, notebook,
 //! settings, PDF.
 
 pub mod background;
@@ -9,6 +9,7 @@ pub mod folder;
 pub mod holder;
 pub mod knob;
 pub mod note;
+pub mod notebook;
 pub mod notice;
 pub mod pad;
 pub mod paper;
@@ -16,7 +17,6 @@ pub mod pdf;
 pub mod perspective;
 pub mod platen;
 pub mod ruler;
-pub mod scratchpad;
 pub mod scrunch;
 pub mod settings;
 

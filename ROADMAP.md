@@ -6,7 +6,7 @@ M0–M9 are done; the git history has the details.
 
 ---
 
-## M10: Scratchpad
+## M10: Notebook
 
 - [x] A 48-page pocket memo book (dot grid, kraft cover), written in pencil, opened with the
       1 / ! key (typewriters have no such key), the notebook icon beside the folder icon, or
@@ -48,7 +48,7 @@ M0–M9 are done; the git history has the details.
 ## M14: Writing log
 
 - [x] Words per day as a small calendar in the folder view: a month tent calendar standing
-      beyond the scratchpad, brought up close with a click, each day's net words pencilled in
+      beyond the notebook, brought up close with a click, each day's net words pencilled in
       (days in local time, weeks from Monday), turned back month by month to the first day
       written on. The folder file keeps words per day in place of sessions (format version 7;
       older files' sessions are folded into their days)

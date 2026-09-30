@@ -57,7 +57,7 @@ impl Desk {
                 // Not the machine's: allowed while feeding.
                 Action::Fullscreen => self.toggle_fullscreen(),
                 Action::Save => self.save_now(now),
-                Action::Scratchpad => self.open_scratchpad(),
+                Action::Notebook => self.open_notebook(),
                 _ if busy => {}
                 // No such key on the machine: the typeface can't print it.
                 Action::Machine(Command::Type(c))

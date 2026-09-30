@@ -1,6 +1,6 @@
 //! The folder and what is done there: choosing, opening, moving and
 //! scrunching up finished sheets, their notes, the copy holder, and the
-//! scratchpad and writing log beside it.
+//! notebook and writing log beside it.
 
 use typewriter_core::{Command, Direction};
 
@@ -185,14 +185,14 @@ impl Desk {
         }
     }
 
-    pub(super) fn open_scratchpad(&mut self) {
-        let book = self.project.machine.document().scratchpad();
-        self.overlays.scratchpad = Some(pad::Writing::open(book));
+    pub(super) fn open_notebook(&mut self) {
+        let book = self.project.machine.document().notebook();
+        self.overlays.notebook = Some(pad::Writing::open(book));
     }
 
     pub(super) fn open_log(&mut self) {
         self.overlays.log_open = true;
-        self.overlays.scratchpad = None;
+        self.overlays.notebook = None;
     }
 
     /// The writing log's month as shown.

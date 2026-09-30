@@ -9,7 +9,7 @@ use crate::app::TypewriterApp;
 use crate::app::intent::Intent;
 use crate::filing::{Keeping, WriteStatus};
 use crate::render::calm::{self, Dimming};
-use crate::render::{self, feed, folder, holder, knob, paper, platen, ruler, scratchpad};
+use crate::render::{self, feed, folder, holder, knob, notebook, paper, platen, ruler};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
@@ -112,8 +112,8 @@ impl TypewriterApp {
         if folder::desk_icon(ui, view, shown, answer, chrome.max(reveal)) {
             intents.push(Intent::OpenFolder);
         }
-        if scratchpad::desk_icon(ui, view, chrome) {
-            intents.push(Intent::OpenScratchpad);
+        if notebook::desk_icon(ui, view, chrome) {
+            intents.push(Intent::OpenNotebook);
         }
         if calm::calm_icon(ui, view) {
             intents.push(Intent::ToggleCalm);

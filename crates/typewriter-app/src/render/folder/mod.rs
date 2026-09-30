@@ -1,5 +1,5 @@
 //! The folder view: a neat stack in a manila folder on a tilted desk, the
-//! scratchpad and the writing log beside it, menus below. Words show as faint
+//! notebook and the writing log beside it, menus below. Words show as faint
 //! ink bars until a sheet is opened ([`sheet`]). And the folder icon on the
 //! desk, which a filed sheet flies into ([`flight`]).
 
@@ -22,7 +22,7 @@ use super::calendar::{self, Month};
 use super::note::{self, NoteArea};
 use super::paper::INK;
 use super::perspective::{Camera, OnDesk, Placement, add_quad, contains, corners};
-use super::{CLICK, DIM, DeskIcon, HIGHLIGHT, LABEL, Metrics, SHADOW, SHEET, scratchpad};
+use super::{CLICK, DIM, DeskIcon, HIGHLIGHT, LABEL, Metrics, SHADOW, SHEET, notebook};
 
 /// Camera distance, sheet heights. Smaller = stronger perspective.
 const CAMERA_DISTANCE: f32 = 2.6;
@@ -35,7 +35,7 @@ const MAX_STACK: f32 = 0.03;
 const PULL: f32 = 1.0;
 const PULL_DEGREES: f32 = 45.0;
 const PULL_SECONDS: f32 = 0.25;
-/// The scratchpad, lying a little askew.
+/// The notebook, lying a little askew.
 const BOOK_TILT_DEGREES: f32 = 8.0;
 /// The calendar, turned a little towards the folder and leaning back as a
 /// tent calendar does.
@@ -96,8 +96,8 @@ pub struct FolderResponse {
     pub action: Option<FolderAction>,
     /// The chosen sheet's outline: where a scrunch starts.
     pub pulled: Option<[Pos2; 4]>,
-    /// The scratchpad beside the folder was clicked.
-    pub open_scratchpad: bool,
+    /// The notebook beside the folder was clicked.
+    pub open_notebook: bool,
     /// The calendar beside the folder was clicked.
     pub open_log: bool,
 }
@@ -181,10 +181,10 @@ pub fn show_folder(
     let book = ui
         .interact(
             Rect::from_points(&beside.book),
-            Id::new("scratchpad-book"),
+            Id::new("notebook-book"),
             CLICK,
         )
-        .on_hover_text("Scratchpad (1)");
+        .on_hover_text("Notebook (1)");
     let calendar = ui
         .interact(
             Rect::from_points(&beside.calendar),
@@ -199,7 +199,7 @@ pub fn show_folder(
         opened,
         action,
         pulled: stack.pulled,
-        open_scratchpad: beside.book_hovered && book.clicked(),
+        open_notebook: beside.book_hovered && book.clicked(),
         open_log: beside.calendar_hovered && calendar.clicked(),
     }
 }
@@ -290,7 +290,7 @@ fn paint_cover(painter: &Painter, layout: &Layout) {
     }
 }
 
-/// The scratchpad and the calendar as drawn beside the folder.
+/// The notebook and the calendar as drawn beside the folder.
 struct Beside {
     book: [Pos2; 4],
     calendar: [Pos2; 4],
@@ -308,7 +308,7 @@ fn paint_beside(
 ) -> Beside {
     let (size, metrics) = (layout.size, folder.metrics);
     let left = layout.half_width + 0.12 * size.x;
-    let book_size = layout.desk(metrics, scratchpad::BOOK_INCHES);
+    let book_size = layout.desk(metrics, notebook::BOOK_INCHES);
     let book_centre = vec2(left, layout.bottom + 0.08 * size.y) + book_size / 2.0;
     let calendar_size = layout.desk(metrics, calendar::CALENDAR_INCHES);
     let calendar_foot = vec2(
@@ -333,8 +333,8 @@ fn paint_beside(
     let book_hovered = pointer.is_some_and(|p| contains(&book.quad, p));
     book.paint(
         painter,
-        scratchpad::outline(book_size),
-        scratchpad::cover(painter, book_size, book_hovered),
+        notebook::outline(book_size),
+        notebook::cover(painter, book_size, book_hovered),
     );
     Beside {
         book: book.quad,

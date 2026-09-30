@@ -1,4 +1,4 @@
-//! The scratchpad closed: a kraft-covered pocket memo book, an icon on the
+//! The notebook closed: a kraft-covered pocket memo book, an icon on the
 //! desk and lying beside the folder. Open, it is [`super::pad`].
 
 use eframe::egui::text::{LayoutJob, TextFormat};
@@ -55,8 +55,8 @@ pub fn desk_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
     let rect = ICON.translate(view.left_bottom().to_vec2());
     let icon = DeskIcon {
         hit: rect,
-        id: "scratchpad-icon",
-        tip: "Scratchpad (1)",
+        id: "notebook-icon",
+        tip: "Notebook (1)",
     };
     icon.show(ui, view, opacity, |painter, hovered| {
         for mut shape in cover(painter, rect.size(), hovered) {

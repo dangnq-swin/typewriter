@@ -45,8 +45,8 @@ pub struct Overlays {
     pub renaming: Option<String>,
     pub annotating: Option<String>,
     pub renumbering: Option<String>,
-    /// The scratchpad, open: where the pencil is.
-    pub scratchpad: Option<pad::Writing>,
+    /// The notebook, open: where the pencil is.
+    pub notebook: Option<pad::Writing>,
     /// A finished sheet on the copy holder. Not saved.
     pub holder: Option<holder::Holder>,
     /// The sheet awaiting a yes to scrunch.
@@ -61,7 +61,7 @@ impl Overlays {
         self.renaming.is_some()
             || self.annotating.is_some()
             || self.renumbering.is_some()
-            || self.scratchpad.is_some()
+            || self.notebook.is_some()
             || self.confirm_scrunch.is_some()
     }
 }
@@ -149,9 +149,9 @@ impl Desk {
             | Intent::NextCorrection
                 if self.is_busy(now) => {}
             Intent::OpenFolder => self.open_folder(),
-            Intent::OpenScratchpad => self.open_scratchpad(),
-            Intent::CloseScratchpad => self.overlays.scratchpad = None,
-            Intent::ScratchpadWritten => self.project.filing.changed(now),
+            Intent::OpenNotebook => self.open_notebook(),
+            Intent::CloseNotebook => self.overlays.notebook = None,
+            Intent::NotebookWritten => self.project.filing.changed(now),
             Intent::ToggleCalm => self.calm = !self.calm,
             Intent::OpenSettings => self.open_settings(),
             Intent::CloseSettings => self.view = View::Typing,

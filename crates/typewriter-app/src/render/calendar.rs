@@ -13,7 +13,7 @@ use jiff::civil::Date;
 use typewriter_core::WritingLog;
 
 use super::note::{GRAPHITE, PENCIL_FAMILY};
-use super::scratchpad::{COVER_FAMILY, STAPLE};
+use super::notebook::{COVER_FAMILY, STAPLE};
 use super::{CLICK, HIGHLIGHT, SHEET, SHEET_EDGE, chevron, smoothstep};
 
 /// A desk tent calendar's face, 6 × 4.5 in.

@@ -42,7 +42,7 @@ impl Desk {
     pub(super) fn open_settings(&mut self) {
         // Reload: list profiles added since start.
         self.effects.push(Effect::ReloadMachines);
-        self.overlays.scratchpad = None;
+        self.overlays.notebook = None;
         self.view = View::Settings;
     }
 

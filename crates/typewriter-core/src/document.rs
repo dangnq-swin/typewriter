@@ -9,8 +9,8 @@ use thiserror::Error;
 
 use crate::carriage::Carriage;
 use crate::constraints::Constraints;
+use crate::notebook::Notebook;
 use crate::page::{Page, Shift};
-use crate::scratchpad::Scratchpad;
 use crate::session::WritingLog;
 
 /// The folder format this build writes. 1.0: format 8 of the numbering
@@ -75,7 +75,7 @@ impl<'de> Deserialize<'de> for FormatVersion {
 pub struct Document {
     finished: Vec<Page>,
     current: Page,
-    scratchpad: Scratchpad,
+    notebook: Notebook,
     /// A finished sheet rolled back in goes back here among the finished
     /// ones when fed out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,7 +87,7 @@ impl Document {
         Self {
             finished: Vec::new(),
             current: first,
-            scratchpad: Scratchpad::default(),
+            notebook: Notebook::default(),
             returns_to: None,
         }
     }
@@ -153,12 +153,12 @@ impl Document {
         self.returns_to
     }
 
-    pub fn scratchpad(&self) -> &Scratchpad {
-        &self.scratchpad
+    pub fn notebook(&self) -> &Notebook {
+        &self.notebook
     }
 
-    pub fn scratchpad_mut(&mut self) -> &mut Scratchpad {
-        &mut self.scratchpad
+    pub fn notebook_mut(&mut self) -> &mut Notebook {
+        &mut self.notebook
     }
 
     /// Files the sheet and puts `fresh` in. A blank sheet just stays in.

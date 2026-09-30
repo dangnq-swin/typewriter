@@ -73,7 +73,7 @@ impl Placement {
     }
 }
 
-/// Something on the desk, a little askew: the scratchpad lying flat, the
+/// Something on the desk, a little askew: the notebook lying flat, the
 /// calendar standing.
 pub struct OnDesk<'a> {
     camera: &'a Camera,

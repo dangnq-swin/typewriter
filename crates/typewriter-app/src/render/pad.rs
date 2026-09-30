@@ -1,4 +1,4 @@
-//! The scratchpad open: page 1 alone on its folded-back cover, then two
+//! The notebook open: page 1 alone on its folded-back cover, then two
 //! pages to a spread, stapled at the fold. Written in pencil; a full page
 //! runs on to the next.
 
@@ -7,11 +7,11 @@ use eframe::egui::{
     Color32, CornerRadius, FontFamily, FontId, Id, Key, Modifiers, Painter, Pos2, Rect, Stroke,
     StrokeKind, Ui, Vec2, pos2, vec2,
 };
-use typewriter_core::Scratchpad;
-use typewriter_core::scratchpad::{self as book, SPREADS};
+use typewriter_core::Notebook;
+use typewriter_core::notebook::{self as book, SPREADS};
 
 use super::note::{ASCENT_EM, GRAPHITE, LINE_EM, PENCIL_FAMILY, PencilField, SIZE_INCHES};
-use super::scratchpad::{BOOK_INCHES, CORNER_WIDTHS, KRAFT, KRAFT_EDGE, STAPLE};
+use super::notebook::{BOOK_INCHES, CORNER_WIDTHS, KRAFT, KRAFT_EDGE, STAPLE};
 use super::{HIGHLIGHT, button, chevron, smoothstep};
 
 pub const SLIDE_SECONDS: f32 = 0.25;
@@ -109,7 +109,7 @@ impl Pad {
     fn field(&self, side: usize, page: usize) -> PencilField {
         PencilField {
             rect: self.text_rect(side),
-            id: Id::new(("scratchpad-page", page)),
+            id: Id::new(("notebook-page", page)),
             font: self.font.clone(),
             rows: self.lines,
         }
@@ -178,7 +178,7 @@ impl Pad {
             } else {
                 "Next page (Page Down)"
             };
-            let response = button(ui, rect, ("scratchpad-turn", direction), tip);
+            let response = button(ui, rect, ("notebook-turn", direction), tip);
             if response.clicked() {
                 step = Some(direction);
             }
@@ -260,7 +260,7 @@ impl Pad {
     }
 
     /// The spread's writing, not being edited.
-    pub fn paint_text(&self, painter: &Painter, book: &Scratchpad) {
+    pub fn paint_text(&self, painter: &Painter, book: &Notebook) {
         for (side, page) in book::pages_of(self.spread).into_iter().enumerate() {
             if let Some(page) = page {
                 let rect = self.text_rect(side);
@@ -288,7 +288,7 @@ pub struct Writing {
 
 impl Writing {
     /// At the end of the last written page where the book lies open.
-    pub fn open(book: &Scratchpad) -> Self {
+    pub fn open(book: &Notebook) -> Self {
         let [left, right] = book::pages_of(book.spread());
         let page = match (left, right) {
             (_, Some(right)) if !book.page(right).is_empty() => right,
@@ -298,7 +298,7 @@ impl Writing {
         Self::at_end(book, page)
     }
 
-    fn at_end(book: &Scratchpad, page: usize) -> Self {
+    fn at_end(book: &Notebook, page: usize) -> Self {
         Self {
             page,
             focus: true,
@@ -307,7 +307,7 @@ impl Writing {
     }
 
     /// Turns a leaf back (-1) or on (1). False if there is none.
-    pub fn turn(&mut self, book: &mut Scratchpad, step: isize) -> bool {
+    pub fn turn(&mut self, book: &mut Notebook, step: isize) -> bool {
         let Some(spread) = book.spread().checked_add_signed(step) else {
             return false;
         };
@@ -335,7 +335,7 @@ pub struct Outcome {
 }
 
 /// One frame of writing on the open spread.
-pub fn write(ui: &mut Ui, pad: &Pad, book: &mut Scratchpad, writing: &mut Writing) -> Outcome {
+pub fn write(ui: &mut Ui, pad: &Pad, book: &mut Notebook, writing: &mut Writing) -> Outcome {
     let mut outcome = Outcome::default();
     let (mut focused, mut lost, mut arrived) = (false, false, false);
     let mut ran_on = None;
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn turning_goes_on_to_the_left_page_and_back_to_the_right() {
-        let mut book = Scratchpad::default();
+        let mut book = Notebook::default();
         let mut writing = Writing::open(&book);
         assert_eq!(writing.page, 0);
         assert!(!writing.turn(&mut book, -1));
@@ -472,7 +472,7 @@ mod tests {
 
     #[test]
     fn the_book_opens_at_the_last_written_page_of_its_spread() {
-        let mut book = Scratchpad::default();
+        let mut book = Notebook::default();
         book.write(3, "left");
         book.open_at(2);
         assert_eq!(Writing::open(&book).page, 3);
@@ -484,7 +484,7 @@ mod tests {
     /// A window-less egui with the pencil font, typing into an open book.
     struct Desk {
         ctx: eframe::egui::Context,
-        book: Scratchpad,
+        book: Notebook,
         writing: Writing,
     }
 
@@ -502,7 +502,7 @@ mod tests {
                 vec![PENCIL_FAMILY.into()],
             );
             ctx.set_fonts(fonts);
-            let mut book = Scratchpad::default();
+            let mut book = Notebook::default();
             book.open_at(spread);
             let writing = Writing::open(&book);
             let mut desk = Self { ctx, book, writing };

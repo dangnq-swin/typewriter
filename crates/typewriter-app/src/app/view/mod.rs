@@ -1,11 +1,11 @@
 //! Drawing the desk: the view that fills the window, what lies over it, and
 //! the dialogs. What the user asks comes back as [`Intent`]s. Only egui's
-//! own editors change the desk directly: text fields, the scratchpad, the
+//! own editors change the desk directly: text fields, the notebook, the
 //! copy holder's guide and the settings card.
 
 mod dialogs;
 mod folder;
-mod scratchpad;
+mod notebook;
 mod typing;
 
 use eframe::egui::{self, Rect};
@@ -35,7 +35,7 @@ impl TypewriterApp {
                     View::Sheet(index) => self.show_sheet(ui, view, index, &mut intents),
                     View::Settings => self.show_settings(ui, view, &mut intents),
                 }
-                self.show_scratchpad(ui, view, &mut intents);
+                self.show_notebook(ui, view, &mut intents);
                 if self.desk.view == View::Folder {
                     self.show_log(ui, view, &mut intents);
                 }
@@ -108,14 +108,14 @@ mod tests {
         press(desk, &[Action::Machine(Command::FeedSheet)], 20.0);
         type_text(desk, "on the next", 20.5);
 
-        // Feeding, a sheet on the holder, the scratchpad open.
+        // Feeding, a sheet on the holder, the notebook open.
         desk.update(Intent::Folder(FolderAction::PutOnHolder), 21.0);
-        desk.update(Intent::OpenScratchpad, 21.0);
+        desk.update(Intent::OpenNotebook, 21.0);
         assert!(app.desk.feed.feeding.is_some());
         frame(&mut app, &ctx, 21.0);
 
         let desk = &mut app.desk;
-        desk.update(Intent::CloseScratchpad, 30.0);
+        desk.update(Intent::CloseNotebook, 30.0);
         desk.update(Intent::OpenFolder, 30.0);
         desk.update(Intent::Folder(FolderAction::Rename), 30.0);
         desk.update(Intent::OpenLog, 30.0);

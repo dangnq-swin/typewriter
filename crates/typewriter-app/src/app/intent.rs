@@ -28,10 +28,10 @@ pub enum Intent {
     },
     ReleaseKnob,
     OpenFolder,
-    OpenScratchpad,
-    CloseScratchpad,
-    /// Writing in the scratchpad, or turning its leaves, changed the project.
-    ScratchpadWritten,
+    OpenNotebook,
+    CloseNotebook,
+    /// Writing in the notebook, or turning its leaves, changed the project.
+    NotebookWritten,
     ToggleCalm,
     OpenSettings,
     CloseSettings,

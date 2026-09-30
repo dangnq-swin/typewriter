@@ -12,9 +12,9 @@ mod typing;
 use crate::carriage::{Carriage, LineSpacing};
 use crate::constraints::{Constraints, EraseMode};
 use crate::document::Document;
+use crate::notebook::Notebook;
 use crate::page::{Page, Shift};
 use crate::profile::{Profile, ProfileError};
-use crate::scratchpad::Scratchpad;
 use crate::session::WritingLog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,8 +183,8 @@ impl Typewriter {
         self.document.annotate(index, note)
     }
 
-    pub fn scratchpad_mut(&mut self) -> &mut Scratchpad {
-        self.document.scratchpad_mut()
+    pub fn notebook_mut(&mut self) -> &mut Notebook {
+        self.document.notebook_mut()
     }
 
     /// Words per day on this project.

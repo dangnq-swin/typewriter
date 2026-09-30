@@ -278,7 +278,7 @@ fn slip_of_the_finger(c: char, dice: &mut Dice) -> char {
 /// Types `paragraphs` on a fresh SM9 as a person would over months: a
 /// mistake every few lines, fixed by overstriking, eraser, fluid, the slip or
 /// x-ing a word out; a day's quota of words at a time, logged; then notes on
-/// some sheets, scratchpad pages and a few sheets rolled back in for an
+/// some sheets, notebook pages and a few sheets rolled back in for an
 /// insertion.
 pub fn write(paragraphs: &[impl AsRef<str>], seed: u64) -> Typewriter {
     let profile =
@@ -334,7 +334,7 @@ pub fn write(paragraphs: &[impl AsRef<str>], seed: u64) -> Typewriter {
         }
     }
     for page in 0..3 + dice.below(4) {
-        machine.scratchpad_mut().write(page, dice.pick(PAD));
+        machine.notebook_mut().write(page, dice.pick(PAD));
     }
     for _ in 0..(sheets / 40).max(1) {
         insert(&mut machine, &mut dice);
@@ -500,7 +500,7 @@ mod tests {
         assert!(crossed > 20, "{crossed} letters x-ed out");
         assert!(back.log().days().len() > 20);
         assert!(sheets.iter().any(|page| !page.note().is_empty()));
-        assert!(!document.scratchpad().is_fresh());
+        assert!(!document.notebook().is_fresh());
         assert!(text.contains("refeeds"), "a sheet was rolled back in");
     }
 

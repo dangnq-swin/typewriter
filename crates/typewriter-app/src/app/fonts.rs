@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
 
-use crate::render::{COURIER_PRIME, FONT_FAMILY, note, scratchpad};
+use crate::render::{COURIER_PRIME, FONT_FAMILY, note, notebook};
 
 pub fn install(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
@@ -22,8 +22,8 @@ pub fn install(ctx: &egui::Context) {
     );
     add_family(
         &mut fonts,
-        scratchpad::COVER_FAMILY,
-        scratchpad::JOST,
+        notebook::COVER_FAMILY,
+        notebook::JOST,
         FontFamily::Proportional,
     );
     ctx.set_fonts(fonts);

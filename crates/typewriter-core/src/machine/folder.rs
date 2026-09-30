@@ -87,15 +87,15 @@ mod tests {
         tw.log_words(day, 7);
         assert!(tw.annotate(0, "tighten\nthe opening"));
         assert!(!tw.annotate(1, "the sheet in the machine"));
-        assert!(tw.scratchpad_mut().write(3, "call the printer"));
-        assert!(tw.scratchpad_mut().open_at(2));
+        assert!(tw.notebook_mut().write(3, "call the printer"));
+        assert!(tw.notebook_mut().open_at(2));
         let text = tw.to_folder_ron().unwrap();
         let back = Typewriter::from_folder_ron(&text, by_name(tw.profile())).unwrap();
         assert_eq!(back.log(), tw.log());
         assert!(!text.contains("sessions"), "{text}");
         assert_eq!(back.document(), tw.document());
-        assert_eq!(back.document().scratchpad().page(3), "call the printer");
-        assert_eq!(back.document().scratchpad().spread(), 2);
+        assert_eq!(back.document().notebook().page(3), "call the printer");
+        assert_eq!(back.document().notebook().spread(), 2);
         assert_eq!(back.carriage(), tw.carriage());
         assert_eq!(back.constraints, tw.constraints);
     }
