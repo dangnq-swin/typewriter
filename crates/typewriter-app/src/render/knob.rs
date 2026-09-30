@@ -45,6 +45,25 @@ pub struct Knob {
 impl Knob {
     /// Beside the paper's `side` edge at `paper_edge`, hanging from `scale_top`.
     pub fn new(metrics: &Metrics, side: Side, paper_edge: f32, scale_top: f32) -> Self {
+        Self::laid_out(metrics, side, paper_edge, scale_top, SHAFT_INCHES)
+    }
+
+    /// Beside a platen end at `edge`, turning about `axis`: the desk
+    /// edition's knobs, on the machine rather than the scale, their collar
+    /// against the carriage's end with no shaft showing.
+    pub fn on_axis(metrics: &Metrics, side: Side, edge: f32, axis: f32) -> Self {
+        let top = axis - DISC_DIAMETER_INCHES * metrics.points_per_inch / 2.0;
+        Self::laid_out(metrics, side, edge, top, 0.0)
+    }
+
+    /// Out from `paper_edge`: `shaft_inches` of shaft, the collar, the disc.
+    fn laid_out(
+        metrics: &Metrics,
+        side: Side,
+        paper_edge: f32,
+        scale_top: f32,
+        shaft_inches: f32,
+    ) -> Self {
         let inches = |v: f32| v * metrics.points_per_inch;
         let axis = scale_top + inches(DISC_DIAMETER_INCHES) / 2.0;
         let part = |left: f32, length: f32, diameter: f32| {
@@ -54,7 +73,7 @@ impl Knob {
             )
         };
         // Laid out rightward, then mirrored about the paper's edge for the left.
-        let shaft = part(paper_edge, SHAFT_INCHES, SHAFT_DIAMETER_INCHES);
+        let shaft = part(paper_edge, shaft_inches, SHAFT_DIAMETER_INCHES);
         let collar = part(shaft.right(), COLLAR_INCHES, COLLAR_DIAMETER_INCHES);
         let disc = part(collar.right(), DISC_INCHES, DISC_DIAMETER_INCHES);
         let place = |rect: Rect| match side {
@@ -72,13 +91,6 @@ impl Knob {
         }
     }
 
-    /// Beside a platen end at `edge`, turning about `axis`: the desk
-    /// edition's knobs, on the machine rather than the scale.
-    pub fn on_axis(metrics: &Metrics, side: Side, edge: f32, axis: f32) -> Self {
-        let top = axis - DISC_DIAMETER_INCHES * metrics.points_per_inch / 2.0;
-        Self::new(metrics, side, edge, top)
-    }
-
     /// What a hand can take hold of: collar and disc.
     pub fn grip(&self) -> Rect {
         self.collar.union(self.disc)
@@ -88,7 +100,9 @@ impl Knob {
     /// keep pace with the sheet.
     pub fn paint(&self, painter: &Painter, rolled: f32, hovered: bool) {
         let mut mesh = Mesh::default();
-        cylinder(&mut mesh, self.shaft, SHAFT, SHAFT_SHADE);
+        if self.shaft.width() > 0.0 {
+            cylinder(&mut mesh, self.shaft, SHAFT, SHAFT_SHADE);
+        }
         cylinder(&mut mesh, self.collar, CREAM, CREAM_SHADE);
         let face_width = FACE_INCHES / DISC_INCHES * self.disc.width();
         // The face is at the outer end.
