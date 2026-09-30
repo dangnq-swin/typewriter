@@ -59,7 +59,7 @@ M0–M9 are done; the git history has the details.
       instead of the XDG paths, which Windows lacks; paths shown in full, not as `~`
 - [x] No console window beside the app on Windows; `typewriter-import`, a console program of its
       own, imports there
-- [ ] Typing on Windows keyboard layouts, dead keys included, checked by a tester
+- [x] Typing on Windows keyboard layouts, dead keys included, checked by a tester
 - [x] CI (GitHub Actions): fmt, clippy and tests on Linux for every push; a Windows build,
       started by hand, that runs the tests and leaves the app as a download on the run
 
