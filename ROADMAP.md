@@ -133,6 +133,42 @@ The design principles in `AGENTS.md` hold here as well: only what a real office 
 - [ ] ❓ A wastepaper basket for scrunched sheets
 - [ ] ❓ A shelf of machines: change profile by lifting another typewriter onto the desk
 
+## D4: Nothing but the desk
+
+The app's icons, plates and menus become the things they stand for. Built in stages, easiest
+first, each one tried on its own before the next.
+
+### Stage 1: What is already drawn, lying out
+
+- [ ] ❓ The open folder and the memo book on the desk in place of their icons, a finished
+      sheet landing on the folder's stack
+- [ ] ❓ Sounds for the desk: a sheet sliding onto the stack, the book set down, the calendar
+      turned (new CC0 assets)
+- [ ] ❓ The tent calendar standing on the desk, not only in the folder view
+
+### Stage 2: Simple things beside the machine
+
+- [ ] ❓ The copy holder's stand always there; lift the sheet off it instead of the ×
+- [ ] ❓ A stack of blank paper: take a sheet from it to feed one in (Insert still works)
+
+### Stage 3: Tools on the desk
+
+- [ ] ❓ Correction tools in place of the Correct plate: correction paper tabs, a typewriter
+      eraser with its brush, a bottle of fluid. Pick one up to use it
+- [ ] ❓ Goals in place of the Goal plate: an egg timer for minutes, a tally slip for words
+
+### Stage 4: Sheets by hand
+
+- [ ] ❓ Drag a finished sheet onto the machine to roll it back in, or onto the stand
+- [ ] ❓ Renumber a sheet by pencilling on its corner
+
+### Stage 5: The machine itself
+
+- [ ] ❓ The typewriter drawn around the paper: the paper bail's scale, the margin rack, the
+      platen knobs, the card holder's pointer
+- [ ] ❓ Its own levers and keys in place of plates and chords: the line-space lever, tab set
+      and clear keys
+
 ## Someday: A walkable office
 
 - [ ] ❓ An immersive desk you can get up from: walk over to a photocopier for copies of
