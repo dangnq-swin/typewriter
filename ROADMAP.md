@@ -104,6 +104,8 @@ tried on its own before the next.
       platen knobs, the card holder's pointer
 - [ ] ❓ Its own levers and keys in place of plates and chords: the line-space lever, tab set
       and clear keys
+- [ ] ❓ The levers beside the keyboard work: the carriage lock, the touch control, and the
+      ribbon selector (blue for black, white for stencil, red), with the two-colour ribbon
 
 ## Someday: A walkable office
 
