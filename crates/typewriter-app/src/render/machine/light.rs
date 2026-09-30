@@ -1,10 +1,11 @@
 //! One light, to the writer's left, above and a little in front, and how
 //! plastic and metal take it.
 
-use eframe::egui::Color32;
+use eframe::egui::{Color32, Mesh, Painter, Shape};
 
-use super::eye::toward_eye;
-use super::geometry::{dot, normalized};
+use super::eye::{Eye, toward_eye};
+use super::geometry::{add_quad, dot, normalized};
+use super::{METAL, METAL_SHINE};
 
 /// Toward the light from the machine: to the writer's left, above, a little
 /// in front.
@@ -26,6 +27,49 @@ pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
     let (lt, vt) = (dot(toward_light(), tangent), dot(toward_eye(), tangent));
     let across = (1.0 - lt * lt).max(0.0).sqrt() * (1.0 - vt * vt).max(0.0).sqrt();
     (across - lt * vt).max(0.0).powi(sharpness)
+}
+
+/// An upright chrome plate facing the writer over `x` at depth `y`, from
+/// `top` down `height` inches, outlined. Chrome mirrors the room: bright sky
+/// above, dark room below, a bright band where it turns to the light.
+pub(super) fn paint_chrome(
+    painter: &Painter,
+    eye: &Eye,
+    [left, right]: [f32; 2],
+    y: f32,
+    top: f32,
+    height: f32,
+) {
+    let bands = [
+        (0.0, METAL_SHINE),
+        (0.3, brighten(METAL, 0.8)),
+        (0.55, Color32::WHITE),
+        (0.75, METAL),
+        (1.0, brighten(METAL, 0.6)),
+    ];
+    let mut mesh = Mesh::default();
+    for pair in bands.windows(2) {
+        let [(from, upper), (to, lower)] = [pair[0], pair[1]];
+        let at = |x: f32, t: f32| eye.at([x, y, top - height * t]);
+        add_quad(
+            &mut mesh,
+            [
+                (at(left, from), upper),
+                (at(right, from), upper),
+                (at(right, to), lower),
+                (at(left, to), lower),
+            ],
+        );
+    }
+    painter.add(Shape::mesh(mesh));
+    let bottom = top - height;
+    let outline = [
+        [left, y, top],
+        [right, y, top],
+        [right, y, bottom],
+        [left, y, bottom],
+    ];
+    eye.outline(painter, &outline);
 }
 
 /// `colour` lit `by` times as bright, alpha kept.

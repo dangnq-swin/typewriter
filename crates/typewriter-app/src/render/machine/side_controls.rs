@@ -1,15 +1,15 @@
 //! Beside the keys: the carriage lock, the touch control and the ribbon
 //! selector, and their marks on the walls.
 
-use eframe::egui::{Color32, Mesh, Painter, Shape, Stroke};
+use eframe::egui::{Color32, Painter, Shape, Stroke};
 
 use super::case::{OPENING_HALF, wall_top};
 use super::eye::Eye;
-use super::geometry::{add_quad, rounded_rect};
+use super::geometry::rounded_rect;
 use super::keyboard::{KEY_FRONT, key_row, paint_cap, paint_steel};
-use super::light::{brighten, matte, streak};
+use super::light::{brighten, matte, paint_chrome, streak};
 use super::panel::{PANEL_BOTTOM, PANEL_HALF_BOTTOM};
-use super::{ENGRAVED, METAL, METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM};
+use super::{ENGRAVED, METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM};
 
 /// In the gaps between the keys and the walls, `x` from the middle: the
 /// carriage lock by the far row, its green cap's half width and half depth.
@@ -146,30 +146,7 @@ fn paint_selector(painter: &Painter, eye: &Eye, post: [f32; 3]) {
     );
     let paddle_y = y + SELECTOR_REACH;
     eye.line(painter, &[bend, [x, paddle_y, top - height]], 0.05, STEM);
-    // Chrome mirrors its surroundings: bright sky above, dark room below,
-    // a bright band where it turns to the light.
-    let bands = [
-        (0.0, METAL_SHINE),
-        (0.3, brighten(METAL, 0.8)),
-        (0.55, Color32::WHITE),
-        (0.75, METAL),
-        (1.0, brighten(METAL, 0.6)),
-    ];
-    let mut mesh = Mesh::default();
-    for pair in bands.windows(2) {
-        let [(from, upper), (to, lower)] = [pair[0], pair[1]];
-        let at = |u: f32, t: f32| eye.at([x + u, paddle_y, top - height * t]);
-        add_quad(
-            &mut mesh,
-            [
-                (at(-half, from), upper),
-                (at(half, from), upper),
-                (at(half, to), lower),
-                (at(-half, to), lower),
-            ],
-        );
-    }
-    painter.add(Shape::mesh(mesh));
+    // Its top edge behind its face.
     let rim = [
         [x - half, paddle_y - 0.03, top],
         [x + half, paddle_y - 0.03, top],
@@ -177,13 +154,7 @@ fn paint_selector(painter: &Painter, eye: &Eye, post: [f32; 3]) {
         [x - half, paddle_y, top],
     ];
     eye.fill(painter, &rim, |_| METAL_SHINE);
-    let outline = [
-        [x - half, paddle_y, top],
-        [x + half, paddle_y, top],
-        [x + half, paddle_y, top - height],
-        [x - half, paddle_y, top - height],
-    ];
-    eye.outline(painter, &outline);
+    paint_chrome(painter, eye, [x - half, x + half], paddle_y, top, height);
 }
 
 /// How bright the upright posts' streak is.

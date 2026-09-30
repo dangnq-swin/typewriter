@@ -10,33 +10,34 @@ use super::light::{brighten, matte, streak};
 use super::{IVORY_LIT, IVORY_SHADE, METAL, METAL_SHINE};
 use crate::render::{splitmix64, unit};
 
-/// The ribbon cover, sloping toward the writer: back and front `(y, z)`,
-/// its half widths there, and the opening onto the type bars `(y, half)`.
-/// The opening runs out at the back between the two plates' tips.
-const COVER_BACK: (f32, f32) = (0.95, -0.5);
-pub(super) const COVER_FRONT: (f32, f32) = (4.0, -1.25);
+/// The ribbon cover, sloping toward the writer from just in front of the
+/// ribbon, its back edge up at the alignment guide's foot, to its fold into
+/// the front panel just past the opening: back and front `(y, z)`, and its
+/// half widths there. From the chair the ribbon shows only through its
+/// opening, `(y, half)`: a small one at the back, just holding the ribbon,
+/// its vibrator and the segment under them, running out at the back between
+/// the plates' tips.
+pub(super) const COVER_BACK: (f32, f32) = (0.3, -0.14);
+pub(super) const COVER_FRONT: (f32, f32) = (2.8, -0.89);
 pub(super) const COVER_HALF: (f32, f32) = (5.95, 6.35);
-const OPENING_BACK: (f32, f32) = (0.95, 1.9);
-const OPENING_FRONT: (f32, f32) = (3.6, 4.1);
+const OPENING_BACK: (f32, f32) = (0.3, 1.5);
+const OPENING_FRONT: (f32, f32) = (2.3, 3.1);
 /// The plates' tips, rounded thick; the opening's front corners; the
 /// plates' thickness, showing where they drop into the opening.
 const PLATE_TIP: f32 = 0.35;
 const OPENING_CORNER: f32 = 0.4;
 const PLATE_THICKNESS: f32 = 0.3;
-/// The type segment's radii: its teal core, bronze band and silver rim;
-/// its height; how far its type bars reach from its centre, past the
-/// opening's edges.
-const SEGMENT_CORE: f32 = 1.0;
-const SEGMENT_BAND: f32 = 1.5;
-const SEGMENT_RIM: f32 = 1.6;
-const SEGMENT_Z: f32 = -0.85;
-const TYPE_BAR_REACH: f32 = 4.6;
+/// The type segment, a half disc straight edge back along the ribbon's foot:
+/// its teal plate's and silver rim's radii, its height; how far its type
+/// bars reach from its centre, past the opening's edges, and how low.
+const SEGMENT_CORE: f32 = 0.95;
+const SEGMENT_RIM: f32 = 1.1;
+const SEGMENT_Z: f32 = -0.76;
+const TYPE_BAR_REACH: (f32, f32) = (4.6, -1.9);
 /// How far the cover's shadow reaches inside the opening.
 const OPENING_SHADE_INCHES: f32 = 0.3;
 const INSIDE: Color32 = Color32::from_rgb(0x16, 0x12, 0x0E);
 const TYPE_BAR: Color32 = Color32::from_rgb(0x2E, 0x2B, 0x26);
-const BRONZE: Color32 = Color32::from_rgb(0x7C, 0x66, 0x42);
-const BRONZE_DARK: Color32 = Color32::from_rgb(0x4C, 0x3D, 0x28);
 const TEAL: Color32 = Color32::from_rgb(0x3A, 0x68, 0x64);
 const TEAL_LIGHT: Color32 = Color32::from_rgb(0x5A, 0x8A, 0x84);
 const PALE_RING: Color32 = Color32::from_rgb(0xCC, 0xC6, 0xB2);
@@ -47,22 +48,38 @@ pub(super) fn on_cover(x: f32, y: f32) -> [f32; 3] {
     [x, y, COVER_BACK.1 + t * (COVER_FRONT.1 - COVER_BACK.1)]
 }
 
-/// The cover: two plates, their tips rounded thick where the opening runs
-/// out at the back, and the strip in front; the type bars in the opening;
-/// the plates' thickness where they drop into it.
-pub(super) fn paint(painter: &Painter, eye: &Eye) {
+/// The opening's corners: the plates' tips at the back, left and right,
+/// then its front corners, right and left.
+fn opening() -> [[f32; 3]; 4] {
     let (ob, of) = (OPENING_BACK, OPENING_FRONT);
+    [
+        on_cover(-ob.1, ob.0),
+        on_cover(ob.1, ob.0),
+        on_cover(of.1, of.0),
+        on_cover(-of.1, of.0),
+    ]
+}
+
+/// Down through the opening: the dark insides, the type bars and segment in
+/// them, the cover's shadow round its edges. Before what hangs down into it
+/// at the back, the ribbon and its vibrator.
+pub(super) fn paint_opening(painter: &Painter, eye: &Eye) {
+    eye.fill(painter, &opening(), |_| INSIDE);
+    paint_type_basket(painter, eye);
+    paint_opening_shade(painter, eye, opening());
+}
+
+/// The cover: two plates, their tips rounded thick where the opening runs
+/// out at the back, and the strip in front; the plates' thickness where they
+/// drop into the opening.
+pub(super) fn paint(painter: &Painter, eye: &Eye) {
     let (back, front) = COVER_HALF;
     let (bl, br) = (on_cover(-back, COVER_BACK.0), on_cover(back, COVER_BACK.0));
     let (fl, fr) = (
         on_cover(-front, COVER_FRONT.0),
         on_cover(front, COVER_FRONT.0),
     );
-    let (tip_l, tip_r) = (on_cover(-ob.1, ob.0), on_cover(ob.1, ob.0));
-    let (ofl, ofr) = (on_cover(-of.1, of.0), on_cover(of.1, of.0));
-    eye.fill(painter, &[tip_l, tip_r, ofr, ofl], |_| INSIDE);
-    paint_type_basket(painter, eye);
-    paint_opening_shade(painter, eye, [tip_l, tip_r, ofr, ofl]);
+    let [tip_l, tip_r, ofr, ofl] = opening();
 
     // The plates' inner edges: round each tip, then down to the front.
     let left_edge: Vec<[f32; 3]> = fillet(bl, tip_l, ofl, PLATE_TIP)
@@ -168,20 +185,16 @@ fn paint_opening_shade(painter: &Painter, eye: &Eye, opening: [[f32; 3]; 4]) {
 
 /// The type basket under the cover's opening: the type bars fanned out
 /// wider than the opening, the cover cropping them, and the segment they
-/// hang in: a teal core, a bronze band slotted for the bars, a silver rim.
+/// hang in: a teal plate in a brushed silver rim.
 fn paint_type_basket(painter: &Painter, eye: &Eye) {
     let centre = OPENING_BACK.0 - 0.15;
     let at =
         |angle: f32, radius: f32, z: f32| [radius * angle.sin(), centre + radius * angle.cos(), z];
     let bars = 52u16;
-    let angles: Vec<f32> = (0..=bars)
-        .map(|i| (-86.0 + 172.0 * f32::from(i) / f32::from(bars)).to_radians())
-        .collect();
-    for &angle in &angles {
-        let (from, to) = (
-            at(angle, SEGMENT_RIM, -0.85),
-            at(angle, TYPE_BAR_REACH, -1.9),
-        );
+    let (reach, low) = TYPE_BAR_REACH;
+    for i in 0..=bars {
+        let angle = (-86.0 + 172.0 * f32::from(i) / f32::from(bars)).to_radians();
+        let (from, to) = (at(angle, SEGMENT_RIM, SEGMENT_Z), at(angle, reach, low));
         eye.line(painter, &[from, to], 0.075, TYPE_BAR);
         // A streak down its lit edge, bright where it points to catch the light.
         let shine = streak(sub(to, from), 12);
@@ -196,37 +209,12 @@ fn paint_type_basket(painter: &Painter, eye: &Eye) {
         painter,
         eye,
         centre,
-        [SEGMENT_BAND, SEGMENT_RIM],
+        [SEGMENT_CORE, SEGMENT_RIM],
         |angle, _| {
             let along = [angle.cos(), -angle.sin(), 0.0];
             METAL.lerp_to_gamma(METAL_SHINE, streak(along, 6))
         },
     );
-    ring(
-        painter,
-        eye,
-        centre,
-        [SEGMENT_CORE, SEGMENT_BAND],
-        |_, radius| {
-            let t = (radius - SEGMENT_CORE) / (SEGMENT_BAND - SEGMENT_CORE);
-            BRONZE.lerp_to_gamma(BRONZE_DARK, t)
-        },
-    );
-    for &angle in &angles {
-        let slot = [
-            at(angle, SEGMENT_CORE + 0.12, SEGMENT_Z),
-            at(angle, SEGMENT_BAND - 0.06, SEGMENT_Z),
-        ];
-        eye.line(painter, &slot, 0.018, BRONZE_DARK);
-    }
-    speckle(painter, eye, 140, 0xB2_0A5E, |u, v| {
-        let angle = (u - 0.5) * PI;
-        at(
-            angle,
-            SEGMENT_CORE + v * (SEGMENT_BAND - SEGMENT_CORE),
-            SEGMENT_Z,
-        )
-    });
     ring(painter, eye, centre, [0.0, SEGMENT_CORE], |_, radius| {
         TEAL_LIGHT.lerp_to_gamma(TEAL, radius / SEGMENT_CORE)
     });
@@ -309,7 +297,8 @@ mod tests {
     #[test]
     fn the_type_bars_reach_past_the_opening() {
         let back = OPENING_BACK.0 - 0.15;
-        assert!(back + TYPE_BAR_REACH > OPENING_FRONT.0);
-        assert!(TYPE_BAR_REACH * 84.0_f32.to_radians().sin() > OPENING_FRONT.1);
+        let reach = TYPE_BAR_REACH.0;
+        assert!(back + reach > OPENING_FRONT.0);
+        assert!(reach * 84.0_f32.to_radians().sin() > OPENING_FRONT.1);
     }
 }

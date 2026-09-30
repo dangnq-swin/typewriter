@@ -1,28 +1,29 @@
-//! The still body behind the sheet: its shadow on the desk, the deck the
-//! carriage rides on, the throat under the platen.
+//! The still body behind the sheet: its shadow on the desk, its top under
+//! the carriage, the shaded gap under the platen.
 
 use eframe::egui::{Color32, Painter, Pos2, Shape};
 
+use super::IVORY_SHADE;
 use super::case::{CASE_FRONT, FRAME_ROUNDING};
+use super::cover::COVER_HALF;
 use super::eye::Eye;
 use super::geometry::{rounded, soft};
+use super::light::{brighten, matte};
 use super::panel::PANEL_HALF_BOTTOM;
-use super::{CHROME, DARK};
 
 /// The light is also to the writer's left: the machine's shadow falls right
 /// and a little back on the desk, `(x, y)` inches.
 const CAST_SHADOW: (f32, f32) = (0.9, -0.5);
-/// The deck under the carriage, and the rail in it: `y` ranges, and `z`.
-const DECK: (f32, f32) = (-1.8, 0.1);
-const RAIL: (f32, f32) = (-1.25, -0.75);
+/// The body's top under the carriage, as wide as the ribbon cover's back and
+/// reaching forward under it: its `y` range and `z`.
+const DECK: (f32, f32) = (-1.8, 0.35);
 const DECK_Z: f32 = -0.55;
-const DECK_HALF: f32 = 6.2;
-/// The dark throat between platen and cover, behind the card holder.
-const THROAT_TOP: (f32, f32) = (0.05, -0.3);
+/// The gap under the platen, from where the platen's front turns out of
+/// sight, `(y, z)`, forward to the deck's front.
+pub(super) const THROAT_TOP: (f32, f32) = (0.05, -0.3);
 /// The body's back on the desk, under the carriage, and the desk's top.
 const BODY_BACK: f32 = -2.6;
 pub(super) const DESK_Z: f32 = -4.35;
-const INSIDE_FRONT: Color32 = Color32::from_rgb(0x2A, 0x2A, 0x28);
 
 /// Its shadows on the desk: cast away from the light, and the contact
 /// shadow round its base.
@@ -53,33 +54,39 @@ fn footprint(eye: &Eye, (dx, dy): (f32, f32)) -> Vec<Pos2> {
     ]))
 }
 
-/// The deck under the carriage, and the rail in it.
+/// The body's top under the carriage, showing where the carriage has
+/// travelled off it: in the carriage's shade toward the back.
 pub(super) fn paint_deck(painter: &Painter, eye: &Eye) {
-    let across = |y: (f32, f32)| {
-        [
-            [-DECK_HALF, y.0, DECK_Z],
-            [DECK_HALF, y.0, DECK_Z],
-            [DECK_HALF, y.1, DECK_Z],
-            [-DECK_HALF, y.1, DECK_Z],
-        ]
-    };
-    eye.fill(painter, &across(DECK), |_| INSIDE_FRONT);
-    eye.fill(painter, &across(RAIL), |_| DARK);
-    let rail_lip = [[-DECK_HALF, RAIL.1, DECK_Z], [DECK_HALF, RAIL.1, DECK_Z]];
-    eye.line(painter, &rail_lip, 0.03, CHROME);
+    let ((back, front), half) = (DECK, COVER_HALF.0);
+    let deck = [
+        [-half, back, DECK_Z],
+        [half, back, DECK_Z],
+        [half, front, DECK_Z],
+        [-half, front, DECK_Z],
+    ];
+    let lit = matte(IVORY_SHADE, [0.0, 0.0, 1.0]);
+    eye.fill(painter, &deck, |[_, y, _]| {
+        brighten(lit, 0.7).lerp_to_gamma(lit, (y - back) / (front - back))
+    });
 }
 
-/// The dark throat between platen and cover, still, behind the sheet: what
-/// shows of it is where no sheet is, and below the card holder.
-pub(super) fn paint_throat(painter: &Painter, eye: &Eye) {
-    let (y, z) = THROAT_TOP;
+/// The gap under the platen, between the carriage's ends `x` but no wider
+/// than the body, travelling with it: dark under the platen, the body's top
+/// in its shade forward.
+pub(super) fn paint_throat(painter: &Painter, eye: &Eye, ends: [f32; 2]) {
+    let half = COVER_HALF.0;
+    let [left, right] = ends.map(|x| x.clamp(-half, half));
+    let ((y, z), front) = (THROAT_TOP, DECK.1);
     let throat = [
-        [-6.0, y, z],
-        [6.0, y, z],
-        [6.0, 1.0, DECK_Z],
-        [-6.0, 1.0, DECK_Z],
+        [left, y, z],
+        [right, y, z],
+        [right, front, DECK_Z],
+        [left, front, DECK_Z],
     ];
-    eye.fill(painter, &throat, |_| DARK);
+    let (under, shade) = (brighten(IVORY_SHADE, 0.15), brighten(IVORY_SHADE, 0.45));
+    eye.fill(painter, &throat, |[_, py, _]| {
+        under.lerp_to_gamma(shade, (py - y) / (front - y))
+    });
 }
 
 #[cfg(test)]

@@ -10,7 +10,6 @@
 //! order [`paint_behind`] and [`paint_front`] call them.
 
 mod body;
-mod card_holder;
 mod carriage;
 mod case;
 mod cover;
@@ -19,6 +18,7 @@ mod geometry;
 mod keyboard;
 mod light;
 mod panel;
+mod printing_point;
 mod side_controls;
 
 pub use carriage::{bail_scale_top, paint_bail, platen_ends};
@@ -27,7 +27,7 @@ pub use panel::{Control, Panel, PanelState};
 use eframe::egui::{Color32, Painter, Rect};
 
 use crate::render::Metrics;
-use card_holder::TABLE_FRONT;
+use body::THROAT_TOP;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
 
@@ -48,7 +48,6 @@ const IVORY_LIT: Color32 = Color32::from_rgb(0xEE, 0xEC, 0xE2);
 const IVORY: Color32 = Color32::from_rgb(0xE2, 0xDF, 0xD2);
 const IVORY_SHADE: Color32 = Color32::from_rgb(0xC6, 0xC2, 0xB3);
 const EDGE: Color32 = Color32::from_rgb(0x9C, 0x97, 0x88);
-const DARK: Color32 = Color32::from_rgb(0x1A, 0x1A, 0x19);
 const STEM: Color32 = Color32::from_rgb(0x4C, 0x4C, 0x48);
 const STEM_SHINE: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xE2);
 const SHIFT_CAP: Color32 = Color32::from_rgb(0x5E, 0xB2, 0x9C);
@@ -70,16 +69,16 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     wanted.min(in_view).max(TYPING_LINE_LEAST)
 }
 
-/// Where the sheet goes out of sight into the machine, for the typing line
+/// Where the sheet goes out of sight round the platen, for the typing line
 /// at `typing_y`: nothing of it shows below.
 pub fn sheet_bottom(view: Rect, metrics: &Metrics, typing_y: f32) -> f32 {
     let eye = Eye::new(view, metrics, typing_y);
-    eye.at([0.0, TABLE_FRONT.0, TABLE_FRONT.1]).y
+    eye.at([0.0, THROAT_TOP.0, THROAT_TOP.1]).y
 }
 
-/// Behind the sheet, before it: the machine's shadow, the deck the carriage
-/// rides on, the carriage for the sheet centred at `carriage_x`, and the
-/// throat under the platen.
+/// Behind the sheet, before it: the machine's shadow, the body's top under
+/// the carriage, the carriage for the sheet centred at `carriage_x`, and the
+/// gap under its platen.
 pub fn paint_behind(
     painter: &Painter,
     view: Rect,
@@ -91,14 +90,18 @@ pub fn paint_behind(
     body::paint_shadow(painter, &eye);
     body::paint_deck(painter, &eye);
     carriage::paint(painter, metrics, typing_y, carriage_x);
-    body::paint_throat(painter, &eye);
+    let ends = platen_ends(carriage_x, metrics).map(|x| (x - eye.origin.x) / eye.ppi);
+    body::paint_throat(painter, &eye, ends);
 }
 
-/// In front of the sheet, after it: the card holder at the printing point,
-/// the ribbon cover over the type bars, the front panel and the keyboard.
+/// In front of the sheet, after it: the alignment guide, ribbon and card
+/// holder at the printing point, the ribbon cover over the type bars, the
+/// front panel and the keyboard.
 pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f32) {
     let eye = Eye::new(view, metrics, typing_y);
-    card_holder::paint(painter, &eye, metrics);
+    // The ribbon hangs down into the cover's opening, and behind its plates.
+    cover::paint_opening(painter, &eye);
+    printing_point::paint(painter, &eye, metrics);
     cover::paint(painter, &eye);
     panel::paint_face(painter, &eye);
     // The keyboard, deepest first: the levers run back under the rows behind
@@ -156,6 +159,14 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_sheet_shows_below_the_line_being_typed() {
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
+        let metrics = metrics(100);
+        let bottom = sheet_bottom(view, &metrics, 300.0);
+        assert!(bottom > 300.0 + metrics.cell_size().y + 4.0, "{bottom}");
     }
 
     #[test]

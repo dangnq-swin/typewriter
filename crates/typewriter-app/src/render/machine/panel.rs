@@ -12,12 +12,12 @@ use super::{CHROME, ENGRAVED, IVORY, IVORY_LIT, SHIFT_CAP, SHIFT_FRONT};
 use crate::filing::Keeping;
 use crate::render::{HIGHLIGHT, Metrics, ruler};
 
-/// The front panel, falling steeply to the keyboard's opening.
+/// The front panel, falling from the cover's fold to the keyboard's opening.
 pub(super) const PANEL_BOTTOM: (f32, f32) = (4.7, -2.35);
 pub(super) const PANEL_HALF_BOTTOM: f32 = 6.45;
 /// The controls where the maker's badge would be: across the panel at `y`,
 /// their names and readings below.
-pub(super) const CONTROLS_Y: f32 = 4.35;
+pub(super) const CONTROLS_Y: f32 = 3.6;
 /// Knob to its name and reading beside it; their lines, above and below
 /// the knob's centre.
 const LABEL_GAP: f32 = 0.5;
