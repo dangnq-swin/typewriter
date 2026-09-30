@@ -33,6 +33,9 @@ const KEYS: [&[u8]; 6] = [
 /// The bundled feed clips' lengths, if they fail to decode.
 const FALLBACK_WIND_OUT_SECONDS: f64 = 1.61;
 const FALLBACK_WIND_IN_SECONDS: f64 = 6.85;
+/// feed-in.wav's paper going in by hand, before the knob: keep equal to its
+/// first part and pause in `scripts/prepare-sounds.sh`.
+const WIND_IN_BY_HAND_SECONDS: f64 = 1.65;
 const BELLS: [&[u8]; 2] = [clip!("bell-1"), clip!("bell-2")];
 const ROLLS: [&[u8]; 4] = [
     clip!("roll-1"),
@@ -307,7 +310,9 @@ pub fn sheet_feed_motion() -> FeedMotion {
             FeedMotion::even(FALLBACK_WIND_IN_SECONDS)
         }
     };
-    wind_in.after_wind_out(wind_out)
+    wind_in
+        .in_by_hand(WIND_IN_BY_HAND_SECONDS)
+        .after_wind_out(wind_out)
 }
 
 /// Decode up front: a key press then only copies samples.
@@ -478,6 +483,10 @@ mod tests {
         assert!(m.progress(5.16) > 0.3 && m.progress(5.16) < 0.9);
         assert_eq!(m.progress(7.9), 1.0);
         assert_eq!(m.pointer_opacity(m.duration() - SETTLE_SECONDS), 0.0);
+        // The paper noise before the knob creeps the sheet a little, by hand.
+        let by_hand = m.by_hand();
+        assert!(by_hand > 0.0 && by_hand < 0.3, "{by_hand}");
+        assert!((m.progress(1.61 + WIND_IN_BY_HAND_SECONDS) - by_hand).abs() < 1e-6);
     }
 
     #[test]

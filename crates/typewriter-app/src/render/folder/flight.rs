@@ -120,20 +120,10 @@ impl Flight {
     /// `None` once inside.
     pub fn sheet(&self, now: f64, route: &Route) -> Option<Pose> {
         let Route {
-            from,
-            size,
-            platen_y,
-            window_top,
-            mouth,
+            from, size, mouth, ..
         } = *route;
         let t = now - self.started;
-        let bottom = from.y + 0.5 * size.y;
-        let roll = (bottom - platen_y).max(0.0) + CLEAR_HEIGHT * size.y;
-        // The old roll-out's steady pace took the whole sheet past the
-        // window's top in the wind-out; the tail's slowing takes longer.
-        let exit = (bottom - window_top).max(roll);
-        let share = (roll / exit / (1.0 - 0.5 * ROLL_TAIL)).min(ROLL_SHARE_MOST);
-        let pull_end = f64::from(share) * self.wind_out;
+        let (roll, pull_end) = self.pull(route);
         let pulled = from - vec2(0.0, roll);
         if t < pull_end {
             let rolled = steady_then_stopping((t / pull_end) as f32);
@@ -181,6 +171,30 @@ impl Flight {
             lift,
             mouth: Some(mouth.y),
         })
+    }
+
+    /// Points the platen has rolled the sheet out by `now`, and in all.
+    pub fn pulled_out(&self, now: f64, route: &Route) -> (f32, f32) {
+        let (roll, pull_end) = self.pull(route);
+        let t = now - self.started;
+        let rolled = if t < pull_end {
+            steady_then_stopping((t / pull_end) as f32)
+        } else {
+            1.0
+        };
+        (rolled * roll, roll)
+    }
+
+    /// How far the platen rolls the sheet out, points, and in how many
+    /// seconds from the feed's start.
+    fn pull(&self, route: &Route) -> (f32, f64) {
+        let bottom = route.from.y + 0.5 * route.size.y;
+        let roll = (bottom - route.platen_y).max(0.0) + CLEAR_HEIGHT * route.size.y;
+        // The old roll-out's steady pace took the whole sheet past the
+        // window's top in the wind-out; the tail's slowing takes longer.
+        let exit = (bottom - route.window_top).max(roll);
+        let share = (roll / exit / (1.0 - 0.5 * ROLL_TAIL)).min(ROLL_SHARE_MOST);
+        (roll, f64::from(share) * self.wind_out)
     }
 
     pub fn answer(&self, now: f64) -> Answer {
@@ -308,6 +322,21 @@ mod tests {
         let flying = poses[last_rolling + 1];
         assert!((flying.centre - out.centre).length() < 10.0, "no jump");
         assert!(last_rolling < 120, "time left to fly");
+    }
+
+    #[test]
+    fn the_pull_is_the_rolling_sheet_s_travel() {
+        let f = flight();
+        for i in 0..=30 {
+            let at = 10.0 + 0.05 * f64::from(i);
+            let (pulled, roll) = f.pulled_out(at, &ROUTE);
+            match f.sheet(at, &ROUTE).unwrap() {
+                pose if pose.mouth.is_none() => {
+                    assert!((FROM.y - pose.centre.y - pulled).abs() < 1e-3);
+                }
+                _ => assert_eq!(pulled, roll, "still once it flies"),
+            }
+        }
     }
 
     #[test]

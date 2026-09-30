@@ -51,11 +51,14 @@ impl TypewriterApp {
         };
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
+        let mut knob_rolled = layout.strike_point.y - layout.paper_origin.y;
         let flight = self.desk.feed.flight.filter(|f| !f.is_over(now));
         let answer = flight.map_or(folder::Answer::STILL, |f| f.answer(now));
         if let Some(feeding) = &self.desk.feed.feeding {
             let t = now - feeding.started;
             let motion = &feeding.motion;
+            // Points the platen has rolled the old sheet out so far, and in all.
+            let mut wound_out = (0.0, 0.0);
             if let Some((old_page, old_half_line)) = &feeding.outgoing {
                 let old_y = layout.strike_point.y - self.metrics.cell_offset(*old_half_line, 0).y;
                 let old_origin = pos2(paper_origin.x, old_y);
@@ -70,6 +73,7 @@ impl TypewriterApp {
                         window_top: view.top(),
                         mouth: folder::icon_body(view).center_top() + vec2(0.0, answer.dip),
                     };
+                    wound_out = flight.pulled_out(now, &route);
                     match flight.sheet(now, &route) {
                         // Still rolling out, full size: drawn as in the machine.
                         Some(pose) if pose.mouth.is_none() => {
@@ -82,11 +86,15 @@ impl TypewriterApp {
                         }
                         None => {}
                     }
-                } else if let Some(rolled) = motion.roll_out(t) {
+                } else {
                     let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
-                    let old_origin = old_origin - vec2(0.0, rolled * exit);
-                    self.paint_lifted(&sheet_painter, view, old_origin, 0.0, 1.0);
-                    self.paint_page(&sheet_painter, old_page, old_origin, dimming, &paper::dry);
+                    let rolled = motion.roll_out(t);
+                    wound_out = (rolled.unwrap_or(1.0) * exit, exit);
+                    if let Some(rolled) = rolled {
+                        let old_origin = old_origin - vec2(0.0, rolled * exit);
+                        self.paint_lifted(&sheet_painter, view, old_origin, 0.0, 1.0);
+                        self.paint_page(&sheet_painter, old_page, old_origin, dimming, &paper::dry);
+                    }
                 }
             }
             // Rise from below the window until the top margin meets the
@@ -94,6 +102,22 @@ impl TypewriterApp {
             let placed = layout.strike_point.y - cell.y;
             let below = view.bottom() + SHADOW_ROOM;
             paper_origin.y = below + (placed - below) * motion.progress(t);
+            // The knob turns with each sheet in turn, but not while a hand
+            // puts the new one in.
+            let resting = |half_line| self.metrics.cell_offset(half_line, 0).y;
+            let rise = below - placed;
+            let by_hand = motion.by_hand();
+            let wound_in = (motion.progress(t) - by_hand).max(0.0) * rise;
+            knob_rolled = knob::feed_roll(
+                &self.metrics,
+                feeding
+                    .outgoing
+                    .as_ref()
+                    .map(|(_, half_line)| resting(*half_line)),
+                layout.strike_point.y - placed,
+                wound_out.0 + wound_in,
+                wound_out.1 + (1.0 - by_hand) * rise,
+            );
             let (curl, lift) = (motion.curl(t), motion.lift(t));
             self.paint_lifted(&sheet_painter, view, paper_origin, curl, lift);
             pointer_opacity = motion.pointer_opacity(t);
@@ -200,11 +224,7 @@ impl TypewriterApp {
         };
         for knob in &knobs {
             let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
-            knob.paint(
-                &painter,
-                layout.strike_point.y - layout.paper_origin.y,
-                hovered,
-            );
+            knob.paint(&painter, knob_rolled, hovered);
         }
         // The desk edition's controls are on its front panel instead.
         let plates = (!seated).then(|| {

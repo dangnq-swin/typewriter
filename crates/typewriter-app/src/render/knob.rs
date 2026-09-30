@@ -154,6 +154,22 @@ impl Knob {
     }
 }
 
+/// Paper rolled `done` of `travel` points into a feed that ends resting at
+/// `to`, from resting at `from` (`None`: nothing in before). The knob keeps
+/// pace with the sheets and makes up the ribs' odd offset on the way, so
+/// neither end jumps.
+pub fn feed_roll(metrics: &Metrics, from: Option<f32>, to: f32, done: f32, travel: f32) -> f32 {
+    let start = to - travel;
+    let Some(from) = from.filter(|_| travel > 0.0) else {
+        return start + done;
+    };
+    // One rib to the next, as paper: the disc's radius over the rib angle.
+    let pitch = DISC_DIAMETER_INCHES * metrics.points_per_inch / 2.0 * std::f32::consts::TAU
+        / f32::from(RIBS);
+    let offset = (from - start + pitch / 2.0).rem_euclid(pitch) - pitch / 2.0;
+    start + done + offset * (1.0 - done / travel)
+}
+
 /// A cylinder lying across the view, lit from the front: `light` facing
 /// the viewer, `shade` at the top and bottom edges.
 fn cylinder(mesh: &mut Mesh, rect: Rect, light: Color32, shade: Color32) {
@@ -205,5 +221,24 @@ mod tests {
         );
         assert!(knob.collar.height() < knob.disc.height());
         assert!(knob.disc.width() < knob.disc.height() / 3.0, "a thin disc");
+    }
+
+    #[test]
+    fn a_feed_turns_the_knob_without_a_jump_at_either_end() {
+        let profile =
+            Profile::from_toml_str(include_str!("../../../../profiles/olympia-sm9.toml")).unwrap();
+        let metrics = Metrics::new(&profile, 96.0);
+        let knob = Knob::new(&metrics, Side::Right, 800.0, 300.0);
+        let pitch = knob.disc.height() / 2.0 * std::f32::consts::TAU / f32::from(RIBS);
+        let (from, to, travel) = (700.0, 96.0, 2400.0);
+        let start = feed_roll(&metrics, Some(from), to, 0.0, travel);
+        let ribs = (start - from) / pitch;
+        assert!((ribs - ribs.round()).abs() < 1e-3, "whole ribs off: {ribs}");
+        assert_eq!(feed_roll(&metrics, Some(from), to, travel, travel), to);
+        let rolls: Vec<f32> = (0..=100)
+            .map(|i| feed_roll(&metrics, Some(from), to, 24.0 * i as f32, travel))
+            .collect();
+        assert!(rolls.windows(2).all(|w| w[1] > w[0]), "turns one way");
+        assert_eq!(feed_roll(&metrics, None, to, 0.0, travel), to - travel);
     }
 }
