@@ -24,6 +24,8 @@ numbers; finished items leave it, as the git history and release notes keep them
 - **Game-like features go to the desk edition.** A scene with a moving camera, walking about an
   office and the like belong in the desk edition, a separate crate sharing the core and the
   app's drawing (see the roadmap), never in `typewriter-app`, which stays a focused writing tool.
+- **The plain app's look is settled.** New parts of the machine drawn around the paper (levers,
+  the margin rack) are the desk edition's only.
 
 ## Working agreement: ask before assuming
 
