@@ -12,7 +12,8 @@ and typewriter sounds. It renders the text onto a textured sheet of paper.
 The first and default machine profile is the **Olympia SM9** (1960s–70s West German
 portable). Other machines are added later as additional profiles.
 
-See [`ROADMAP.md`](ROADMAP.md) for the planned milestones.
+See [`ROADMAP.md`](ROADMAP.md) for what comes next. Its sections run in order and carry no
+numbers; finished items leave it, as the git history and release notes keep them.
 
 ## Design principles
 
@@ -59,7 +60,7 @@ Check every new or changed binding against these:
   `Sense::click()`: egui moves focus with Tab and clicks a focused control on Enter, so the
   typewriter's own keys would press it.
 - **Document it.** The full key map is the module doc of `crates/typewriter-app/src/input.rs`.
-  Keep the README's *Controls* section in step; the rest of the README is the maintainer's.
+  Keep the README's *Controls* section in step.
 
 ## Repository layout
 
@@ -79,12 +80,13 @@ than keep a listing here.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
 - `packaging/linux/`: the desktop entry and the project file type, for `install.sh` and the
   AppImage.
-- `scripts/`: `install.sh` builds and installs for the current user (or, in a release tarball,
-  installs the program beside it); `package-linux.sh` builds the release tarball and AppImage;
-  `smoke-test.sh` checks a build starts on a virtual display;
-  `prepare-sounds.sh` cuts
-  the sounds from their CC0 sources; `convert-format-8.sh` converts projects from before folder
-  format 1.0.
+- `scripts/`:
+  - `install.sh`: builds and installs for the current user; in a release tarball, installs the
+    program beside it.
+  - `package-linux.sh`: the release tarball and AppImage.
+  - `smoke-test.sh`: checks a build starts on a virtual display.
+  - `prepare-sounds.sh`: cuts the sounds from their CC0 sources.
+  - `convert-format-8.sh`: converts projects from before folder format 1.0.
 - `README.md` is the maintainer's: keep only its *Controls* section current.
 
 Rules:
@@ -135,18 +137,22 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-A change is done when fmt, clippy (warnings denied) and tests all pass.
+A change is done when fmt, clippy (warnings denied) and tests all pass. A change to `release.yml`
+or the packaging is done when a by-hand run of the Release workflow passes for the builds it
+touches.
 
 CI (`.github/workflows/`) runs those three on Linux for every push. The Windows build is started
 by hand (Actions → Windows build → Run workflow) and leaves the programs as a download on the
 run. Keep the workflows in step with the commands above.
 
-A release: bump `version` in `Cargo.toml`, commit, then push an annotated tag `vX.Y.Z` whose
-message is the release notes (`git tag -a v0.1.0 -F notes.md`). `release.yml` builds Linux for
-glibc (on the oldest Ubuntu runner, for its older glibc) and for musl (on Alpine, linked to its
-libraries: a static build can't open a window), and Windows. Each Linux build must run on a
-virtual display (`scripts/smoke-test.sh`). It attaches the tarballs, AppImage and zip, and
-publishes the Release once all are there. Run it by hand first for a dry run with no release.
+Releases follow semver on `version` in `Cargo.toml`, which is separate from the folder format's
+version. To release: bump it, commit and push, wait for Checks, then push an annotated tag
+`vX.Y.Z` whose message is the release notes (`git tag -a v0.1.0 -F notes.md`). `release.yml`
+builds Linux for glibc (on the oldest Ubuntu runner, for its older glibc) and for musl (on Alpine,
+linked to its libraries: a static build can't open a window), and Windows. Each Linux build must
+run on a virtual display (`scripts/smoke-test.sh`). It attaches the tarballs, AppImage and zip,
+and publishes the Release once all are there; a failed build leaves it a draft. Run by hand
+(Actions → Release → Run workflow), it is a dry run of one build or all, with nothing released.
 
 After pushing, check that the push's Checks run passed, with whatever GitHub access you have (the
 `gh` CLI, or a GitHub MCP server with its Actions tools), and report a failure with its log. With
