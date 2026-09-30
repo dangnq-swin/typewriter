@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-typewriter-folder">
+    <comment>Typewriter folder</comment>
+    <sub-class-of type="text/plain"/>
+    <icon name="application-x-typewriter-folder"/>
+    <glob pattern="*.typr"/>
+  </mime-type>
+</mime-info>

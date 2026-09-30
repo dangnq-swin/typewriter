@@ -102,7 +102,12 @@ M0–M9 are done; the git history has the details.
 ## M21: Filing away
 
 - [ ] ❓ Export as .odt, the other half of `typewriter import`
-- [ ] ❓ Packaging: Flatpak and an AppImage, beside `scripts/install.sh`
+- [x] Packaging: tarballs for glibc and musl (installed by their own `install.sh`) and an
+      AppImage for Linux, a zip for Windows, built and published by `release.yml` from a
+      version tag
+- [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
+      (a static binary can't load the system's graphics and window libraries)
+- [ ] ❓ A Flatpak
 
 ## M22: Testers
 

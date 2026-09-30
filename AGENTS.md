@@ -77,7 +77,12 @@ than keep a listing here.
   console program there.
 - `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
-- `scripts/`: `install.sh` builds and installs for the current user; `prepare-sounds.sh` cuts
+- `packaging/linux/`: the desktop entry and the project file type, for `install.sh` and the
+  AppImage.
+- `scripts/`: `install.sh` builds and installs for the current user (or, in a release tarball,
+  installs the program beside it); `package-linux.sh` builds the release tarball and AppImage;
+  `smoke-test.sh` checks a build starts on a virtual display;
+  `prepare-sounds.sh` cuts
   the sounds from their CC0 sources; `convert-format-8.sh` converts projects from before folder
   format 1.0.
 - `README.md` is the maintainer's: keep only its *Controls* section current.
@@ -135,6 +140,13 @@ A change is done when fmt, clippy (warnings denied) and tests all pass.
 CI (`.github/workflows/`) runs those three on Linux for every push. The Windows build is started
 by hand (Actions → Windows build → Run workflow) and leaves the programs as a download on the
 run. Keep the workflows in step with the commands above.
+
+A release: bump `version` in `Cargo.toml`, commit, then push an annotated tag `vX.Y.Z` whose
+message is the release notes (`git tag -a v0.1.0 -F notes.md`). `release.yml` builds Linux for
+glibc (on the oldest Ubuntu runner, for its older glibc) and for musl (on Alpine, linked to its
+libraries: a static build can't open a window), and Windows. Each Linux build must run on a
+virtual display (`scripts/smoke-test.sh`). It attaches the tarballs, AppImage and zip, and
+publishes the Release once all are there. Run it by hand first for a dry run with no release.
 
 After pushing, check that the push's Checks run passed, with whatever GitHub access you have (the
 `gh` CLI, or a GitHub MCP server with its Actions tools), and report a failure with its log. With

@@ -1,0 +1,113 @@
+# A release: pushing tag vX.Y.Z (the version in Cargo.toml) builds Linux (glibc
+# and musl) and Windows and publishes a GitHub Release, its notes the tag's
+# message. It stays a draft until every build is attached, each Linux build
+# having run on a virtual display first. Run by hand (Actions → Release → Run
+# workflow) for a dry run: every build and test, no release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  GH_TOKEN: ${{ github.token }}
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        if: github.ref_type == 'tag'
+      # Checkout leaves an annotated tag lightweight: fetch its message.
+      - run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+        if: github.ref_type == 'tag'
+      - name: The tag names the version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          if [ "$TAG" != "v$version" ]; then
+            echo "tag $TAG, but Cargo.toml says $version" >&2
+            exit 1
+          fi
+      - run: git tag -l --format='%(contents)' "$TAG" > notes.md
+        if: github.ref_type == 'tag'
+      - if: github.ref_type == 'tag'
+        run: >-
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag
+          --title "Typewriter ${TAG#v}" --notes-file notes.md
+
+  linux:
+    needs: draft
+    # Built on the oldest runner: the programs need its glibc (2.35) or newer.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      # rodio's ALSA backend links against libasound; the rest runs the app
+      # on a virtual display, drawn by Mesa's software renderer.
+      - run: >-
+          sudo apt-get update && sudo apt-get install -y libasound2-dev xvfb xauth
+          libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2
+      - run: rustup toolchain install
+      - run: cargo test --workspace --release --locked
+      - name: appimagetool 1.9.1, checked
+        run: |
+          curl -sSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool" | sha256sum -c -
+          chmod +x appimagetool
+      # No FUSE on the runner: appimagetool unpacks itself instead.
+      - run: APPIMAGE_EXTRACT_AND_RUN=1 APPIMAGETOOL="$PWD/appimagetool" scripts/package-linux.sh "${TAG#v}"
+      - run: scripts/smoke-test.sh target/release/typewriter
+      - run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/*.AppImage
+        if: github.ref_type == 'tag'
+
+  musl:
+    needs: draft
+    runs-on: ubuntu-latest
+    # Linked to Alpine's musl and libraries, not static: a static build can't
+    # load the graphics and window libraries.
+    container: alpine:3.22
+    env:
+      RUSTFLAGS: -C target-feature=-crt-static
+    steps:
+      - run: >-
+          apk add --no-cache build-base pkgconf alsa-lib-dev rustup git github-cli coreutils
+          xvfb xvfb-run xauth mesa-dri-gallium mesa-egl mesa-gl libxkbcommon libxcursor libxi libxrandr
+      - uses: actions/checkout@v7
+      - run: rustup-init -y --no-modify-path --default-toolchain none
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: rustup toolchain install
+      - run: cargo test --workspace --release --locked
+      - run: LIBC=musl scripts/package-linux.sh "${TAG#v}"
+      - run: scripts/smoke-test.sh target/release/typewriter
+      - run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz
+        if: github.ref_type == 'tag'
+
+  windows:
+    needs: draft
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - run: cargo test --workspace --release --locked
+      - run: cargo build --release --locked -p typewriter-app --bins
+      # Flat: the programs, the license and the readme side by side.
+      - run: |
+          $name = "typewriter-$($env:TAG.Substring(1))-x86_64-windows"
+          New-Item -ItemType Directory $name
+          Copy-Item target/release/typewriter.exe, target/release/typewriter-import.exe, LICENSE, README.md $name
+          Compress-Archive $name "$name.zip"
+      - run: gh release upload $env:TAG --repo $env:GITHUB_REPOSITORY "typewriter-$($env:TAG.Substring(1))-x86_64-windows.zip"
+        if: github.ref_type == 'tag'
+
+  publish:
+    needs: [linux, musl, windows]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
