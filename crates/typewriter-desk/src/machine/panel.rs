@@ -20,6 +20,8 @@ pub(super) const CONTROLS_Y: f32 = 3.6;
 /// Knob to its name and reading beside it; their lines, above and below
 /// the knob's centre.
 const LABEL_GAP: f32 = 0.5;
+/// The save label further out still, past the lamp.
+const SAVE_LABEL_PAST: f32 = 0.3;
 const LABEL_LINES: (f32, f32) = (-0.07, 0.07);
 pub(super) const KNOB_RADIUS: f32 = 0.3;
 const KNOB_HEIGHT: f32 = 0.22;
@@ -30,6 +32,17 @@ const KNOB_SHADOW_TURN: f32 = 55.0;
 /// Past the knob, where its index marks are engraved: inner and outer.
 pub(super) const INDEX_MARKS: (f32, f32) = (1.25, 1.5);
 const LAMP_RADIUS: f32 = 0.08;
+/// The lamp's middle out from the save button's, its chrome rim round it:
+/// clear of the button and its shadow, short of the label.
+const LAMP_OUT: f32 = 0.56;
+const LAMP_RIM: f32 = 1.4 * LAMP_RADIUS;
+/// The shadow a knob or button casts: how far off, how much wider.
+const SHADOW_OFF: f32 = 0.06;
+const SHADOW_SPREAD: f32 = 1.1;
+const _: () = assert!(
+    LAMP_OUT - LAMP_RIM > KNOB_RADIUS * SHADOW_SPREAD + SHADOW_OFF
+        && LAMP_OUT + LAMP_RIM < LABEL_GAP + SAVE_LABEL_PAST
+);
 const KNOB_TOP: Color32 = Color32::from_rgb(0xEC, 0xE7, 0xD6);
 const KNOB_SIDE: Color32 = Color32::from_rgb(0xCC, 0xC5, 0xAF);
 const KNOB_RIB: Color32 = Color32::from_rgb(0xAE, 0xA6, 0x8E);
@@ -137,7 +150,11 @@ impl Control {
     /// Where its name and reading start: past the knob, or the button and
     /// its lamp.
     fn label_x(self) -> f32 {
-        let past = if self == Self::Save { 0.3 } else { 0.0 };
+        let past = if self == Self::Save {
+            SAVE_LABEL_PAST
+        } else {
+            0.0
+        };
         self.x() + LABEL_GAP + past
     }
 
@@ -271,8 +288,8 @@ impl Panel {
             lit,
             [SHIFT_CAP, SHIFT_FRONT],
         );
-        let bulb = on_panel(control.x() + 0.42, CONTROLS_Y);
-        let rim = circle(bulb, LAMP_RADIUS * 1.4);
+        let bulb = on_panel(control.x() + LAMP_OUT, CONTROLS_Y);
+        let rim = circle(bulb, LAMP_RIM);
         eye.fill(painter, &rim, |_| CHROME);
         let glass = circle(bulb, LAMP_RADIUS);
         eye.fill(painter, &glass, |_| lamp.unwrap_or(LAMP_OFF));
@@ -297,8 +314,8 @@ impl Panel {
         let normal = panel_normal();
         let top = [0, 1, 2].map(|k| base[k] + normal[k] * height);
         let shadow = circle(
-            panel_offset(base, 0.06, KNOB_SHADOW_TURN),
-            KNOB_RADIUS * 1.1,
+            panel_offset(base, SHADOW_OFF, KNOB_SHADOW_TURN),
+            KNOB_RADIUS * SHADOW_SPREAD,
         );
         eye.fill(painter, &shadow, |_| Color32::from_black_alpha(60));
         // The side: the base's near half, the top's far half.
