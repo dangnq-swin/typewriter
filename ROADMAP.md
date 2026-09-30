@@ -104,6 +104,8 @@ tried on its own before the next.
 
 ### The machine itself
 
+- [ ] The carriage-return lever at the carriage's left end, thrown on Return. No mouse throw,
+      and no short throw for a line alone: Up / Down roll the platen
 - [ ] The margin rack at the back of the paper table, its two stops set there rather than on
       the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
       then set the stops. Dragging it up again, or the next key typed, unfolds it
