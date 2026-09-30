@@ -31,7 +31,7 @@ file: the git history and the release notes keep it.
 
 ## Filing away
 
-- [ ] ❓ Export as .odt, the other half of `typewriter import`
+- [ ] ❓ Export as .odt, the other half of `typewriter --import`
 - [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
       (a static binary can't load the system's graphics and window libraries)
 - [ ] ❓ A Flatpak

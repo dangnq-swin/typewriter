@@ -1,4 +1,4 @@
-//! `typewriter import manuscript.odt [project]`: an .odt retyped into a new
+//! `typewriter --import manuscript.odt [project]`: an .odt retyped into a new
 //! project on the machine new projects use (`typewriter_core::retype`).
 
 use std::ffi::OsString;
@@ -13,7 +13,7 @@ use typewriter_core::{Constraints, Typewriter};
 use crate::machines::Machines;
 use crate::{odt, settings, storage};
 
-pub const COMMAND: &str = "import";
+pub const FLAG: &str = "--import";
 
 /// Runs the command on its arguments. `command`: as typed, for the help.
 pub fn run(command: &str, args: &[OsString]) -> anyhow::Result<()> {

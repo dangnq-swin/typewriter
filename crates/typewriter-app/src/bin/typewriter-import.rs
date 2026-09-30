@@ -1,4 +1,4 @@
-//! `typewriter-import manuscript.odt [project]`: `typewriter import` as a
+//! `typewriter-import manuscript.odt [project]`: `typewriter --import` as a
 //! console program, for Windows, where `typewriter` has no console.
 
 #[cfg(windows)]
@@ -10,5 +10,5 @@ fn main() -> anyhow::Result<()> {
 // Cargo can't build a binary for one OS only.
 #[cfg(not(windows))]
 fn main() -> anyhow::Result<()> {
-    anyhow::bail!("typewriter-import is for Windows: use `typewriter import`")
+    anyhow::bail!("typewriter-import is for Windows: use `typewriter --import`")
 }

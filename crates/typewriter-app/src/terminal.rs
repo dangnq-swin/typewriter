@@ -1,4 +1,4 @@
-//! The command line, Linux only: flags and `typewriter import`. On Windows
+//! The command line, Linux only: flags, `typewriter --import` among them. On Windows
 //! the app has no console; `typewriter-import` is the console program there.
 
 use std::ffi::OsString;
@@ -10,15 +10,15 @@ use crate::{OPTIONS, VERSION, import, is_help, is_option, is_version, storage};
 
 const USAGE: &str = "\
 usage: typewriter [project.typr]
-       typewriter import manuscript.odt [project]";
+       typewriter --import manuscript.odt [project]";
 
 /// Handles a command or flag. False if the app should open.
 pub fn run(args: &[OsString]) -> anyhow::Result<bool> {
     let [first, rest @ ..] = args else {
         return Ok(false);
     };
-    if first == import::COMMAND {
-        import::run("typewriter import", rest)?;
+    if first == import::FLAG {
+        import::run("typewriter --import", rest)?;
     } else if is_help(first) {
         println!("{}", help());
     } else if is_version(first) {
@@ -42,7 +42,7 @@ typewriter {VERSION}: a typewriter simulator for focused writing
 {USAGE}
 
 Opens the project given, else the last one, else a new draft.
-`typewriter import` retypes an .odt into a new project: see `typewriter import --help`.
+`--import` retypes an .odt into a new project: see `typewriter --import --help`.
 
 {OPTIONS}
 
@@ -64,5 +64,7 @@ mod tests {
         assert!(!run(&args(&["novel.typr"])).unwrap());
         assert!(run(&args(&["--version"])).unwrap());
         assert!(run(&args(&["--bogus"])).is_err());
+        assert!(run(&args(&["--import", "--help"])).unwrap());
+        assert!(!run(&args(&["import"])).unwrap(), "a project named so");
     }
 }
