@@ -1,16 +1,17 @@
 # typewriter
 
-## Concept
+## TLDR
 
-It's a typewriter simulator, so expect the writing process to be slow and tedious.
+It's a typewriter simulator, so expect the writing process to be slow and tedious. The app is very opinionated:
+it partly forces you to type carefully and to manage your drafts by hand.
 
 Organization-wise, each file is structured virtually like a Manila folder, containing loose pieces of paper,
-just like how drafting processes would have had looked like. You can access already-typed documents within the
-typewriter app using the GUI. You can only view them but not re-edit them.
+just like how drafting processes would have looked like.
 
-When you finished typing the document, inserting a new page will push the finished document into Manila folder
+When you finish a sheet, feeding in a new one files it in the Manila folder. The icons at the bottom left open
+the desk: the folder of finished sheets, a notebook for notes, and a calendar of words per day.
 
-So this app partly forces you to type more carefully as well as manage your document writing process manually.
+There's also other modes + goodies that are nice-to-have without being too bloated.
 
 ## Install
 
@@ -24,20 +25,20 @@ cd typewriter
 scripts/install.sh
 ```
 
-This builds the app and installs, for your user only:
+Install script install these:
 
 - the `typewriter` command, in `~/.local/bin`
 - **Typewriter** in your desktop's app menu, with its icon
+- the `.typr` project file type: project files open in Typewriter from your file manager, in the
+  window already open if there is one
 
 Start it from the menu, or run `typewriter`, optionally with a project file to open
-(`typewriter novel.folder.ron`). To install elsewhere, set `PREFIX`, e.g.
+(`typewriter novel.typr`). To install elsewhere, set `PREFIX`, e.g.
 `sudo PREFIX=/usr/local scripts/install.sh`.
 
-To uninstall, run `scripts/install.sh --uninstall` (with the same `PREFIX`, if you set one).
-Your projects, drafts and settings stay where they are.
+To uninstall the app, run `scripts/install.sh --uninstall`.
 
-Just the command, without the menu entry, also installs with Cargo:
-
+Manual install, without mime types and desktop entry:
 ```sh
 cargo install --locked --git https://github.com/dangnq-swin/typewriter typewriter-app
 ```
@@ -59,8 +60,8 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 | Shift+Home / Shift+End | Set the left / right margin at the carriage (or drag the stops on the scale) |
 | F1/F2/F3 | Line spacing 1/1.5/2 |
 | F4 | Change correction method |
-| 1 or ! | Open the scratchpad (Esc or a click away puts it back) |
-| Page Up / Page Down | In the open scratchpad: turn a leaf (or click the arrows in its bottom corners) |
+| 1 or ! | Open the notebook (Esc or a click away puts it back) |
+| Page Up / Page Down | In the open notebook: turn a leaf (or click the arrows in its bottom corners) |
 | Esc | Calm mode on/off |
 | F11 | Fullscreen |
 | Ctrl+S | Save |
@@ -88,7 +89,7 @@ Shift+Backspace removes the letter before the carriage without a trace, digital 
 | **Goal** plate | Click: next session goal (words or minutes, or off) |
 | **Autosave** plate (right) | How the project is kept; the dot is the status. Click: save|
 | Folder icon (bottom left) | The finished sheets and the project menus |
-| Notebook icon | Scratchpad |
+| Notebook icon | Open the notebook |
 | Sheet icon | Calm mode on/off |
 | Gear icon | Settings |
 
@@ -104,11 +105,14 @@ Opened with **Page Up** or the folder icon.
 | Enter or click | Read the chosen sheet; the same keys flip through sheets |
 | Esc | Back one level |
 | Typing | Back to the typewriter |
-| 1 or ! | Open the scratchpad (or click the notebook beside the folder) |
+| 1 or ! | Open the notebook (or click the notebook beside the folder) |
 
-
-The calendar standing beyond the notebook is the writing log, showing progress as words written per day,
-can be clicked to be zoomed in.
+The calendar logs the writing progress, eg. how many words are written per day. Click to bring up close.
 
 In an open sheet, click its top margin to pencil a note there (Enter for a new line, as many
-lines as the margin has room for). Click elsewhere or press Esc when done. Notes will show up in exports.
+lines as the margin has room for). Click elsewhere or press Esc when done.
+
+### Exports
+
+The folder's **Export…** plate writes the project as `.md`, `.txt` or `.pdf` (the sheets as typed), beside the
+project file. Margin notes are included while the notebook isn't.
