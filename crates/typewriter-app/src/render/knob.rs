@@ -72,6 +72,13 @@ impl Knob {
         }
     }
 
+    /// Beside a platen end at `edge`, turning about `axis`: the desk
+    /// edition's knobs, on the machine rather than the scale.
+    pub fn on_axis(metrics: &Metrics, side: Side, edge: f32, axis: f32) -> Self {
+        let top = axis - DISC_DIAMETER_INCHES * metrics.points_per_inch / 2.0;
+        Self::new(metrics, side, edge, top)
+    }
+
     /// What a hand can take hold of: collar and disc.
     pub fn grip(&self) -> Rect {
         self.collar.union(self.disc)

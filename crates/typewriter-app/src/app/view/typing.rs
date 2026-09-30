@@ -26,6 +26,11 @@ impl TypewriterApp {
         let cell = self
             .metrics
             .cell_offset(carriage.half_line, carriage.column);
+        let seated = self.edition == Edition::Desk;
+        if seated {
+            let zoom = self.desk.zoom_percent;
+            self.platen.typing_line_height = machine::typing_line_height(view, &self.metrics, zoom);
+        }
         let layout = self.platen.layout(view, &self.metrics, cell, now);
         let painter = ui.painter_at(view);
         let calm = ui.ctx().animate_bool_with_time(
@@ -34,15 +39,16 @@ impl TypewriterApp {
             calm::FADE_SECONDS,
         );
         let chrome = 1.0 - calm;
-        let seated = self.edition == Edition::Desk;
-        if seated {
-            machine::paint_platen(
-                &painter,
-                &self.metrics,
-                layout.paper_origin.x,
-                layout.strike_point.y,
-            );
-        }
+        let carriage_x = layout.paper_origin.x + self.metrics.paper_size.x / 2.0;
+        // The desk edition's sheets go out of sight into the machine.
+        let sheet_painter = if seated {
+            let typing_y = layout.strike_point.y;
+            machine::paint_behind(&painter, view, &self.metrics, typing_y, carriage_x);
+            let bottom = machine::sheet_bottom(view, &self.metrics, typing_y);
+            painter.with_clip_rect(Rect::from_min_max(view.min, pos2(view.max.x, bottom)))
+        } else {
+            painter.clone()
+        };
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
         let flight = self.desk.feed.flight.filter(|f| !f.is_over(now));
@@ -68,8 +74,8 @@ impl TypewriterApp {
                         // Still rolling out, full size: drawn as in the machine.
                         Some(pose) if pose.mouth.is_none() => {
                             let origin = old_origin + (pose.centre - route.from);
-                            self.paint_lifted(&painter, view, origin, 0.0, pose.lift);
-                            self.paint_page(&painter, old_page, origin, dimming, &paper::dry);
+                            self.paint_lifted(&sheet_painter, view, origin, 0.0, pose.lift);
+                            self.paint_page(&sheet_painter, old_page, origin, dimming, &paper::dry);
                         }
                         Some(pose) => {
                             self.paint_flying(ui.ctx(), view, (old_page, dimming), pose);
@@ -79,8 +85,8 @@ impl TypewriterApp {
                 } else if let Some(rolled) = motion.roll_out(t) {
                     let exit = old_y + self.metrics.paper_size.y - view.top() + SHADOW_ROOM;
                     let old_origin = old_origin - vec2(0.0, rolled * exit);
-                    self.paint_lifted(&painter, view, old_origin, 0.0, 1.0);
-                    self.paint_page(&painter, old_page, old_origin, dimming, &paper::dry);
+                    self.paint_lifted(&sheet_painter, view, old_origin, 0.0, 1.0);
+                    self.paint_page(&sheet_painter, old_page, old_origin, dimming, &paper::dry);
                 }
             }
             // Rise from below the window until the top margin meets the
@@ -88,17 +94,27 @@ impl TypewriterApp {
             let placed = layout.strike_point.y - cell.y;
             let below = view.bottom() + SHADOW_ROOM;
             paper_origin.y = below + (placed - below) * motion.progress(t);
-            self.paint_lifted(&painter, view, paper_origin, motion.curl(t), motion.lift(t));
+            let (curl, lift) = (motion.curl(t), motion.lift(t));
+            self.paint_lifted(&sheet_painter, view, paper_origin, curl, lift);
             pointer_opacity = motion.pointer_opacity(t);
         } else if seated {
-            self.paint_lifted(&painter, view, paper_origin, 0.0, STANDING_LIFT);
+            self.paint_lifted(&sheet_painter, view, paper_origin, 0.0, STANDING_LIFT);
         }
         let dimming = self.dimming(carriage.half_line, calm);
         let wetness = |half_line, column| self.desk.project.wetness(now, half_line, column);
-        self.paint_page(&painter, machine.page(), paper_origin, dimming, &wetness);
+        self.paint_page(
+            &sheet_painter,
+            machine.page(),
+            paper_origin,
+            dimming,
+            &wetness,
+        );
         if seated {
-            let top = ruler::top(&self.metrics, layout.strike_point) + ruler::HEIGHT;
-            machine::paint_body(&painter, view, &self.metrics, top);
+            let typing_y = layout.strike_point.y;
+            machine::paint_front(&painter, view, &self.metrics, typing_y);
+            machine::paint_bail(&painter, &self.metrics, carriage_x, typing_y);
+            let panel = machine::Panel::new(view, &self.metrics, layout.strike_point.y);
+            self.show_panel(ui, &painter, &panel, now, intents);
         }
         if machine.slip_in() {
             platen::paint_slip(&painter, &self.metrics, layout.strike_point);
@@ -147,21 +163,41 @@ impl TypewriterApp {
         let project = &self.desk.project;
         let machine = &project.machine;
         let carriage = machine.carriage();
-        let ruler_top = ruler::top(&self.metrics, layout.strike_point);
+        // The plates hang below the typing line; the desk edition's scale
+        // is on the paper bail above it, as on the SM9.
+        let plates_top = ruler::top(&self.metrics, layout.strike_point) + ruler::HEIGHT;
+        let ruler_top = if seated {
+            machine::bail_scale_top(&self.metrics, layout.strike_point.y)
+        } else {
+            plates_top - ruler::HEIGHT
+        };
         let scale = ruler::Scale::new(
             &self.metrics,
             machine.page().columns(),
             layout.paper_origin.x,
             ruler_top,
         );
-        ruler::paint_scale(&painter, &scale, carriage);
+        if seated {
+            // Printed on the bail, which the machine drew.
+            ruler::paint_scale_marks(&painter, &scale, carriage);
+        } else {
+            ruler::paint_scale(&painter, &scale, carriage);
+        }
         let busy = self.desk.is_busy(now);
         let paper_left = layout.paper_origin.x;
-        let knobs = [
-            (Side::Left, paper_left),
-            (Side::Right, paper_left + self.metrics.paper_size.x),
-        ]
-        .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, ruler_top));
+        let knobs = if seated {
+            // At the carriage's ends, travelling with it.
+            let [left, right] = machine::platen_ends(carriage_x, &self.metrics);
+            let axis = layout.strike_point.y;
+            [(Side::Left, left), (Side::Right, right)]
+                .map(|(side, edge)| knob::Knob::on_axis(&self.metrics, side, edge, axis))
+        } else {
+            [
+                (Side::Left, paper_left),
+                (Side::Right, paper_left + self.metrics.paper_size.x),
+            ]
+            .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, ruler_top))
+        };
         for knob in &knobs {
             let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
             knob.paint(
@@ -170,56 +206,125 @@ impl TypewriterApp {
                 hovered,
             );
         }
-        let spacing_plate = ruler::paint_spacing_indicator(
-            &painter,
-            carriage.line_spacing,
-            layout.paper_origin.x,
-            ruler_top + ruler::HEIGHT,
-        );
-        let zoom_plate = ruler::paint_zoom_plate(&painter, self.desk.zoom_percent, spacing_plate);
-        let correction_plate = ruler::paint_correction_plate(
-            &painter,
-            machine.constraints.erase,
-            machine.slip_in(),
-            zoom_plate,
-        );
-        let goal_plate =
-            ruler::paint_goal_plate(&painter, project.session.progress(), correction_plate);
-        let keeping = project
-            .filing
-            .keeping(self.desk.settings.saving.autosave, now);
-        let autosave_plate = ruler::paint_autosave_plate(
-            &painter,
-            &keeping,
-            layout.paper_origin.x + self.metrics.paper_size.x,
-            spacing_plate,
-            goal_plate.right(),
-        );
+        // The desk edition's controls are on its front panel instead.
+        let plates = (!seated).then(|| {
+            let spacing_plate = ruler::paint_spacing_indicator(
+                &painter,
+                carriage.line_spacing,
+                layout.paper_origin.x,
+                plates_top,
+            );
+            let zoom_plate =
+                ruler::paint_zoom_plate(&painter, self.desk.zoom_percent, spacing_plate);
+            let correction_plate = ruler::paint_correction_plate(
+                &painter,
+                machine.constraints.erase,
+                machine.slip_in(),
+                zoom_plate,
+            );
+            let goal_plate =
+                ruler::paint_goal_plate(&painter, project.session.progress(), correction_plate);
+            let keeping = project
+                .filing
+                .keeping(self.desk.settings.saving.autosave, now);
+            let autosave_plate = ruler::paint_autosave_plate(
+                &painter,
+                &keeping,
+                layout.paper_origin.x + self.metrics.paper_size.x,
+                spacing_plate,
+                goal_plate.right(),
+            );
+            (
+                [
+                    spacing_plate,
+                    zoom_plate,
+                    correction_plate,
+                    goal_plate,
+                    autosave_plate,
+                ],
+                keeping,
+            )
+        });
         // React only when fully shown, not mid-fade.
         if chrome < 1.0 {
             return;
         }
-        let spacing = render::button(
+        if let Some((rects, keeping)) = &plates {
+            self.control_buttons(ui, *rects, keeping, intents);
+        }
+        if !busy {
+            self.margin_stops(ui, &scale, intents);
+            for (name, knob) in ["left", "right"].into_iter().zip(&knobs) {
+                self.platen_knob(ui, name, knob.grip(), intents);
+            }
+        }
+    }
+
+    /// The desk edition's controls on the front panel. Always shown, calm or
+    /// not: they are the machine's.
+    fn show_panel(
+        &self,
+        ui: &egui::Ui,
+        painter: &Painter,
+        panel: &machine::Panel,
+        now: f64,
+        intents: &mut Vec<Intent>,
+    ) {
+        let (desk, project) = (&self.desk, &self.desk.project);
+        let keeping = project.filing.keeping(desk.settings.saving.autosave, now);
+        let goals = desk.settings.goals.cycle();
+        let state = machine::PanelState {
+            spacing: project.machine.carriage().line_spacing,
+            zoom_percent: desk.zoom_percent,
+            erase: project.machine.constraints.erase,
+            slip_in: project.machine.slip_in(),
+            delete_in_cycle: desk.settings.machine.rules.delete_in_cycle,
+            goal: project.session.goal(),
+            goals: &goals,
+            progress: project.session.progress(),
+            keeping: &keeping,
+        };
+        let rects = machine::Control::ALL.map(|control| panel.rect(control));
+        let hovered = machine::Control::ALL
+            .into_iter()
+            .zip(rects)
+            .find(|(_, rect)| ui.rect_contains_pointer(*rect))
+            .map(|(control, _)| control);
+        panel.paint(painter, &state, hovered);
+        self.control_buttons(ui, rects, &keeping, intents);
+    }
+
+    /// Clicks on the spacing, zoom, correction, goal and save controls,
+    /// plates or knobs.
+    fn control_buttons(
+        &self,
+        ui: &egui::Ui,
+        [spacing, zoom, correction, goal, save]: [Rect; 5],
+        keeping: &Keeping,
+        intents: &mut Vec<Intent>,
+    ) {
+        let filing = &self.desk.project.filing;
+        let spacing_button = render::button(
             ui,
-            spacing_plate,
+            spacing,
             "spacing-plate",
             "Line spacing (F1 / F2 / F3). Click for the next notch.",
         );
-        if spacing.clicked() {
+        if spacing_button.clicked() {
             intents.push(Intent::NextSpacing);
         }
-        let zoom = render::button(
+        let zoom_button = render::button(
             ui,
-            zoom_plate,
+            zoom,
             "zoom-plate",
             "Zoom (mouse wheel). Double-click for 100 %.",
         );
-        if zoom.double_clicked() {
+        if zoom_button.double_clicked() {
             intents.push(Intent::ResetZoom);
         }
-        let correction = render::button(
+        let correction_button = render::button(
             ui,
-            correction_plate,
+            correction,
             "correction-plate",
             if self.desk.settings.machine.rules.delete_in_cycle {
                 "Click (or F4) for the next way: correction paper, eraser, fluid or delete"
@@ -227,38 +332,32 @@ impl TypewriterApp {
                 "Click (or F4) for the next way: correction paper, eraser or fluid"
             },
         );
-        if correction.clicked() {
+        if correction_button.clicked() {
             intents.push(Intent::NextCorrection);
         }
-        let goal = render::button(
+        let goal_button = render::button(
             ui,
-            goal_plate,
+            goal,
             "goal-plate",
             "Click for the next: 250, 500 or 1000 words, 15, 25 or 50 minutes of typing, or off",
         );
-        if goal.clicked() {
+        if goal_button.clicked() {
             intents.push(Intent::NextGoal);
         }
-        let tip = match &keeping {
+        let tip = match keeping {
             Keeping::Autosave(WriteStatus::Failed(err)) => {
                 format!("Could not save: {err}. Click to try again.")
             }
             Keeping::Autosave(_) => {
-                format!("Saved to {}. Click to save now.", project.filing.location())
+                format!("Saved to {}. Click to save now.", filing.location())
             }
             Keeping::Draft => "Kept in the drafts folder. Click to save it as a file.".to_owned(),
             Keeping::Off { unsaved: true } => "Unsaved changes. Click to save.".to_owned(),
             Keeping::Off { unsaved: false } => "Saved. Click to save now.".to_owned(),
         };
-        let autosave = render::button(ui, autosave_plate, "autosave-plate", &tip);
+        let autosave = render::button(ui, save, "autosave-plate", &tip);
         if autosave.clicked() {
             intents.push(Intent::Save);
-        }
-        if !busy {
-            self.margin_stops(ui, &scale, intents);
-            for (name, knob) in ["left", "right"].into_iter().zip(&knobs) {
-                self.platen_knob(ui, name, knob.grip(), intents);
-            }
         }
     }
 

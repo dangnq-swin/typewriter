@@ -27,7 +27,7 @@ const TICKS: Color32 = Color32::from_rgb(0x3A, 0x36, 0x32);
 const MARGIN: Color32 = Color32::from_rgb(0xA0, 0x2C, 0x1C);
 const TAB: Color32 = Color32::from_rgb(0x24, 0x4C, 0x7A);
 const SPACING: Color32 = Color32::from_rgb(0x24, 0x22, 0x20);
-const SAVED: Color32 = Color32::from_rgb(0x3C, 0x8A, 0x3C);
+pub const SAVED: Color32 = Color32::from_rgb(0x3C, 0x8A, 0x3C);
 const WRITING: Color32 = Color32::from_rgb(0xD0, 0x90, 0x20);
 const FAILED: Color32 = Color32::from_rgb(0xB0, 0x30, 0x1C);
 const DOT_RADIUS: f32 = 3.5;
@@ -91,8 +91,14 @@ impl Scale {
 }
 
 pub fn paint_scale(painter: &Painter, scale: &Scale, carriage: &Carriage) {
+    paint_plate(painter, scale.rect);
+    paint_scale_marks(painter, scale, carriage);
+}
+
+/// The scale's ticks, numbers and stops, without its plate: for printing
+/// on something else, such as the desk edition's paper bail.
+pub fn paint_scale_marks(painter: &Painter, scale: &Scale, carriage: &Carriage) {
     let rect = scale.rect;
-    paint_plate(painter, rect);
     let bottom = rect.bottom() - 1.0;
     let label_font = FontId::proportional(8.0);
 
@@ -223,14 +229,18 @@ pub fn paint_correction_plate(
     slip_in: bool,
     after: Rect,
 ) -> Rect {
-    let method = match mode {
+    let method = correction_method(mode, slip_in);
+    paint_text_plate(painter, format!("Correct: {method}"), after)
+}
+
+pub fn correction_method(mode: EraseMode, slip_in: bool) -> &'static str {
+    match mode {
         EraseMode::Delete => "Delete",
         EraseMode::Paper if slip_in => "Paper (slip in)",
         EraseMode::Paper => "Paper",
         EraseMode::Eraser => "Eraser",
         EraseMode::Fluid => "Fluid",
-    };
-    paint_text_plate(painter, format!("Correct: {method}"), after)
+    }
 }
 
 /// The session goal's progress, right of `after`.
@@ -274,6 +284,11 @@ pub fn paint_goal_plate(painter: &Painter, progress: Option<Progress>, after: Re
 }
 
 fn goal_text(progress: Option<Progress>) -> String {
+    format!("Goal: {}", goal_reading(progress))
+}
+
+/// Progress toward the goal, or "Off".
+pub fn goal_reading(progress: Option<Progress>) -> String {
     let Some(Progress {
         goal,
         words,
@@ -281,17 +296,16 @@ fn goal_text(progress: Option<Progress>) -> String {
         ..
     }) = progress
     else {
-        return "Goal: Off".to_owned();
+        return "Off".to_owned();
     };
-    let target = match goal {
+    match goal {
         Goal::Words(n) => format!("{words} / {n} words"),
         Goal::Minutes(n) => format!("{minutes} / {n} min"),
         Goal::WordsOrMinutes {
             words: w,
             minutes: m,
         } => format!("{words} / {w} words or {minutes} / {m} min"),
-    };
-    format!("Goal: {target}")
+    }
 }
 
 /// Flush with the scale's right end (`right`), in `left_row`'s row; drops a
@@ -304,11 +318,7 @@ pub fn paint_autosave_plate(
     row_end: f32,
 ) -> Rect {
     let (text, dot) = autosave_label(keeping);
-    let galley = painter.layout_no_wrap(
-        text.to_owned(),
-        FontId::proportional(PLATE_FONT_SIZE),
-        TICKS,
-    );
+    let galley = painter.layout_no_wrap(text, FontId::proportional(PLATE_FONT_SIZE), TICKS);
     let dot_room = if dot.is_some() {
         DOT_RADIUS * 2.0 + PLATE_PADDING
     } else {
@@ -336,13 +346,19 @@ pub fn paint_autosave_plate(
     rect
 }
 
-fn autosave_label(keeping: &Keeping) -> (&'static str, Option<Color32>) {
+fn autosave_label(keeping: &Keeping) -> (String, Option<Color32>) {
+    let (state, lamp) = autosave_state(keeping);
+    (format!("Autosave: {state}"), lamp)
+}
+
+/// On, Draft or Off, and the lamp's colour if it is lit.
+pub fn autosave_state(keeping: &Keeping) -> (&'static str, Option<Color32>) {
     match keeping {
-        Keeping::Autosave(WriteStatus::Saved) => ("Autosave: On", Some(SAVED)),
-        Keeping::Autosave(WriteStatus::Writing) => ("Autosave: On", Some(WRITING)),
-        Keeping::Autosave(WriteStatus::Failed(_)) => ("Autosave: On", Some(FAILED)),
-        Keeping::Draft => ("Autosave: Draft", None),
-        Keeping::Off { .. } => ("Autosave: Off", None),
+        Keeping::Autosave(WriteStatus::Saved) => ("On", Some(SAVED)),
+        Keeping::Autosave(WriteStatus::Writing) => ("On", Some(WRITING)),
+        Keeping::Autosave(WriteStatus::Failed(_)) => ("On", Some(FAILED)),
+        Keeping::Draft => ("Draft", None),
+        Keeping::Off { .. } => ("Off", None),
     }
 }
 
@@ -419,11 +435,14 @@ mod tests {
     #[test]
     fn the_autosave_plate_names_how_the_project_is_kept() {
         let failed = Keeping::Autosave(WriteStatus::Failed("disk full".into()));
-        assert_eq!(autosave_label(&failed), ("Autosave: On", Some(FAILED)));
+        assert_eq!(
+            autosave_label(&failed),
+            ("Autosave: On".to_owned(), Some(FAILED))
+        );
         assert_eq!(autosave_label(&Keeping::Draft).0, "Autosave: Draft");
         assert_eq!(
             autosave_label(&Keeping::Off { unsaved: true }),
-            ("Autosave: Off", None)
+            ("Autosave: Off".to_owned(), None)
         );
     }
 

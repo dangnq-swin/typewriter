@@ -10,7 +10,7 @@ use super::paper::INK;
 use super::{HIGHLIGHT, Metrics};
 
 /// The typing line's height, as a share of the view.
-const TYPING_LINE_HEIGHT: f32 = 0.62;
+pub const TYPING_LINE_HEIGHT: f32 = 0.62;
 const JOLT_SECONDS: f64 = 0.18;
 const JOLT_AMPLITUDE: f32 = 3.0;
 const JOLT_HZ: f32 = 28.0;
@@ -24,6 +24,8 @@ pub struct PlatenView {
     /// Slide the paper with the carriage. Off: the paper stays centred and
     /// the pointer moves instead.
     pub carriage_travel: bool,
+    /// The typing line's height, as a share of the view.
+    pub typing_line_height: f32,
     glide: Glide,
     jolt_started: Option<f64>,
 }
@@ -37,6 +39,7 @@ impl PlatenView {
     pub fn new(carriage_travel: bool) -> Self {
         Self {
             carriage_travel,
+            typing_line_height: TYPING_LINE_HEIGHT,
             glide: Glide::default(),
             jolt_started: None,
         }
@@ -63,7 +66,7 @@ impl PlatenView {
         let carriage = self.glide.follow(cell, metrics, now);
         let fixed = pos2(
             view.center().x,
-            view.top() + view.height() * TYPING_LINE_HEIGHT,
+            view.top() + view.height() * self.typing_line_height,
         );
         let x = if self.carriage_travel {
             fixed.x - carriage.x - metrics.column_width / 2.0
