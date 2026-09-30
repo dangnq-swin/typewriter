@@ -16,9 +16,13 @@ use crate::storage;
 /// frame.
 const WRITE_AFTER_SECONDS: f64 = 0.5;
 
-pub const ZOOM_MIN: u16 = 50;
-pub const ZOOM_MAX: u16 = 200;
-pub const ZOOM_STEP: u16 = 10;
+/// The zoom's notches, a wheel step apart: in ratio far out, in tens from
+/// 70 %, where fine control matters. An edition may stop short of the first.
+pub const ZOOM_NOTCHES: [u16; 18] = [
+    25, 35, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
+];
+pub const ZOOM_MIN: u16 = ZOOM_NOTCHES[0];
+pub const ZOOM_MAX: u16 = ZOOM_NOTCHES[ZOOM_NOTCHES.len() - 1];
 pub const ZOOM_DEFAULT: u16 = 100;
 pub const VOLUME_MAX: u8 = 100;
 pub const CALM_FALLOFF_LINES: std::ops::RangeInclusive<u8> = 1..=10;
@@ -293,6 +297,14 @@ impl Rules {
     }
 }
 
+/// The notch at or below `percent`: the first, below it.
+pub fn zoom_notch(percent: u16) -> usize {
+    ZOOM_NOTCHES
+        .iter()
+        .rposition(|&notch| notch <= percent)
+        .unwrap_or(0)
+}
+
 impl Settings {
     /// Clamps hand-edited values to what the controls allow.
     fn within_limits(mut self) -> Self {
@@ -305,8 +317,7 @@ impl Settings {
         look.calm_minimum_percent = look
             .calm_minimum_percent
             .clamp(*CALM_MINIMUM_PERCENT.start(), *CALM_MINIMUM_PERCENT.end());
-        let zoom = look.zoom_percent.clamp(ZOOM_MIN, ZOOM_MAX);
-        look.zoom_percent = zoom - (zoom - ZOOM_MIN) % ZOOM_STEP;
+        look.zoom_percent = ZOOM_NOTCHES[zoom_notch(look.zoom_percent)];
         let goals = &mut self.goals;
         goals.custom_words = goals.custom_words.clamp(1, CUSTOM_WORDS_MAX);
         goals.custom_minutes = goals.custom_minutes.clamp(1, CUSTOM_MINUTES_MAX);

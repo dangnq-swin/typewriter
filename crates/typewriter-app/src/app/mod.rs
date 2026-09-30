@@ -90,6 +90,7 @@ impl TypewriterApp {
         let platen = PlatenView::new(settings.look.carriage_travel);
         let feed_motion = audio::sheet_feed_motion();
         let mut desk = Desk::new(machine, filing, settings, machines, feed_motion);
+        desk.follow_zoom_min(stage.zoom_min());
         let look = &mut desk.settings.look;
         let background = Background::load(&cc.egui_ctx, look, stage.backdrop());
         let background_trouble = background.problem().map(str::to_owned);
@@ -283,6 +284,7 @@ impl TypewriterApp {
     /// The window's parts around `desk` on `stage`: no sound, nothing on
     /// disk.
     fn nowhere(ctx: &egui::Context, stage: Box<dyn Stage>, mut desk: Desk) -> Self {
+        desk.follow_zoom_min(stage.zoom_min());
         let background = Background::load(ctx, &mut desk.settings.look, stage.backdrop());
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Self {

@@ -32,6 +32,11 @@ impl Stage for Desk {
         "the typewriter on a desk"
     }
 
+    /// Sitting far back, the paper support's scale in view.
+    fn zoom_min(&self) -> u16 {
+        typewriter_app::settings::ZOOM_MIN
+    }
+
     fn backdrop(&self) -> Option<fn(&Painter, Rect)> {
         Some(room::paint)
     }

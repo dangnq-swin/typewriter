@@ -26,7 +26,7 @@ use crate::picker::Dialog;
 use crate::render::feed::FeedMotion;
 use crate::render::notice::Notice;
 use crate::render::{COURIER_PRIME, font_characters, holder, pad};
-use crate::settings::{Settings, ZOOM_DEFAULT};
+use crate::settings::{Settings, ZOOM_DEFAULT, ZOOM_MIN};
 use crate::stage::Return;
 
 /// What fills the window.
@@ -77,6 +77,8 @@ pub struct Desk {
     /// Months the writing log is turned back from today's.
     log_back: u32,
     pub zoom_percent: u16,
+    /// The edition's furthest out.
+    pub zoom_min: u16,
     /// Scroll not yet turned into zoom steps.
     scroll_zoom: f32,
     /// Knob turn not yet a whole notch: wheel or drag points, down positive.
@@ -118,6 +120,7 @@ impl Desk {
             selected: 0,
             log_back: 0,
             zoom_percent: settings.look.zoom_percent,
+            zoom_min: ZOOM_MIN,
             scroll_zoom: 0.0,
             knob_turn: 0.0,
             last_strike: f64::NEG_INFINITY,

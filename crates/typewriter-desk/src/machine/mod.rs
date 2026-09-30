@@ -35,10 +35,12 @@ use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
 use typewriter_app::draw::Metrics;
 
 /// The typing line's height in the view: leaning over the page at 100 %
-/// zoom and above, sitting back to see the whole machine at 50 %. Never
+/// zoom and above, sitting back to see the whole machine at 50 %, and far
+/// back at 25 %, lower again to see the paper support and its scale. Never
 /// lower than keeps the panel's controls in view, nor higher than the least.
 const TYPING_LINE_LEANING: f32 = 0.62;
 const TYPING_LINE_SITTING: f32 = 0.25;
+const TYPING_LINE_FAR: f32 = 0.55;
 const TYPING_LINE_LEAST: f32 = 0.2;
 /// Past a knob's grip, its outline and shading.
 const KNOB_EDGE: f32 = 2.0;
@@ -62,8 +64,14 @@ const ENGRAVED: Color32 = Color32::from_rgb(0x6E, 0x6A, 0x5E);
 /// The typing line's share of `view`'s height at `zoom_percent`, keeping
 /// the panel's controls in view where it can.
 pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f32 {
-    let leaning = ((f32::from(zoom_percent) - 50.0) / 50.0).clamp(0.0, 1.0);
-    let wanted = TYPING_LINE_SITTING + (TYPING_LINE_LEANING - TYPING_LINE_SITTING) * leaning;
+    let zoom = f32::from(zoom_percent);
+    let wanted = if zoom < 50.0 {
+        let far = ((50.0 - zoom) / 25.0).clamp(0.0, 1.0);
+        TYPING_LINE_SITTING + (TYPING_LINE_FAR - TYPING_LINE_SITTING) * far
+    } else {
+        let leaning = ((zoom - 50.0) / 50.0).clamp(0.0, 1.0);
+        TYPING_LINE_SITTING + (TYPING_LINE_LEANING - TYPING_LINE_SITTING) * leaning
+    };
     let eye = Eye::new(view, metrics, 0.0);
     let reach = KNOB_RADIUS * INDEX_MARKS.1 + 0.1;
     let readings = eye
@@ -175,6 +183,17 @@ mod tests {
         assert_eq!(at(200), TYPING_LINE_LEANING);
         assert_eq!(at(50), TYPING_LINE_SITTING);
         assert!(at(75) < TYPING_LINE_LEANING);
+        assert_eq!(at(25), TYPING_LINE_FAR);
+        assert!(at(35) > TYPING_LINE_SITTING && at(35) < TYPING_LINE_FAR);
+    }
+
+    #[test]
+    fn far_back_a_whole_sheet_fits_above_the_typing_line() {
+        // Where the support's scale reads the sheet's top edge near its end.
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(1536.0, 960.0));
+        let metrics = metrics(25);
+        let typing_y = view.height() * typing_line_height(view, &metrics, 25);
+        assert!(typing_y > metrics.paper_size.y, "{typing_y}");
     }
 
     #[test]

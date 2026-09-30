@@ -9,6 +9,7 @@ use super::eye::{Eye, paint_flat_text};
 use super::geometry::add;
 use super::{CHROME, ENGRAVED, IVORY, IVORY_LIT, SHIFT_CAP, SHIFT_FRONT};
 use typewriter_app::draw::{Controls, HIGHLIGHT, Metrics, ruler};
+use typewriter_app::settings::{ZOOM_NOTCHES, zoom_notch};
 
 /// The front panel, falling from the cover's fold to the keyboard's opening.
 pub(super) const PANEL_BOTTOM: (f32, f32) = (4.7, -2.35);
@@ -196,8 +197,10 @@ impl Panel {
                     (marks[notch], marks, reading, READING)
                 }
                 Control::Zoom => {
-                    let share = (f32::from(state.zoom_percent) - 50.0) / 150.0;
-                    let turn = -135.0 + 270.0 * share.clamp(0.0, 1.0);
+                    // A notch apart, evenly: most of the turn is above 70 %.
+                    let last = (ZOOM_NOTCHES.len() - 1) as f32;
+                    let share = zoom_notch(state.zoom_percent) as f32 / last;
+                    let turn = -135.0 + 270.0 * share;
                     let reading = format!("{} %", state.zoom_percent);
                     (turn, notches(4, 270.0), reading, READING)
                 }

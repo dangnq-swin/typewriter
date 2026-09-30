@@ -9,6 +9,9 @@ use typewriter_core::{EraseMode, Goal, LineSpacing};
 use crate::filing::Keeping;
 use crate::render::Metrics;
 
+/// The plain app's furthest out: the page still reads.
+const PLAIN_ZOOM_MIN: u16 = 50;
+
 /// Where the machine stands this frame.
 pub struct Scene<'a> {
     pub view: Rect,
@@ -83,6 +86,11 @@ pub trait Stage {
     fn title(&self) -> &'static str;
     /// What it is, in `--help`.
     fn about(&self) -> &'static str;
+
+    /// The furthest out it zooms, one of the zoom's notches.
+    fn zoom_min(&self) -> u16 {
+        PLAIN_ZOOM_MIN
+    }
 
     /// Behind everything, in place of the chosen background, which then
     /// shows on the sheets only. `None`: the chosen background.
