@@ -180,6 +180,7 @@ impl Desk {
             Intent::KeepSheet => self.overlays.confirm_scrunch = None,
             Intent::Leave(answer) => self.answer(answer, now),
             Intent::Picked(picked) => self.picked(picked, now),
+            Intent::OpenFile(path) => self.open_file(path, now),
             Intent::CloseWindow => self.close_window(),
             Intent::WindowFullscreen(on) => self.settings.look.fullscreen = on,
         }

@@ -102,6 +102,15 @@ impl Filing {
     }
 
     /// Saved under its own name, not a draft.
+    /// The project's file is `path`, however either is spelled.
+    pub fn is_at(&self, path: &Path) -> bool {
+        let same = |a: &Path, b: &Path| match (fs::canonicalize(a), fs::canonicalize(b)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => a == b,
+        };
+        self.path.as_deref().is_some_and(|own| same(own, path))
+    }
+
     pub fn is_saved(&self) -> bool {
         self.path.as_deref().is_some_and(|p| !storage::is_draft(p))
     }

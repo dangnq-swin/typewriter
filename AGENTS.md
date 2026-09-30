@@ -95,8 +95,9 @@ Rules:
 
 ## Folder format
 
-Projects are `*.typr` files (`typewriter-core/src/document.rs`), RON inside. The format is
-versioned major.minor, written `version: "1.0"` at the top of the file. Changing what the files hold needs the maintainer's yes (see above).
+Projects are `*.typr` files (`typewriter-core/src/document.rs`), RON inside, of MIME type
+`application/x-typewriter-folder`. The format is versioned major.minor, written `version: "1.0"`
+at the top of the file. Changing what the files hold needs the maintainer's yes (see above).
 
 - **Minor** (1.1, 1.2, …): only what older files lack and can be read with defaults. The app
   opens every older minor of its major and writes only its own. Bump the minor in

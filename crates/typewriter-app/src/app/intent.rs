@@ -1,5 +1,7 @@
 //! What the user asks of the desk, and what the desk asks of the window.
 
+use std::path::PathBuf;
+
 use typewriter_core::{Event, Side};
 
 use super::desk::Answer;
@@ -63,6 +65,8 @@ pub enum Intent {
     KeepSheet,
     Leave(Answer),
     Picked(Picked),
+    /// A project from outside: the file manager, through another launch.
+    OpenFile(PathBuf),
     /// The window's close button.
     CloseWindow,
     /// The desktop switched the window in or out of fullscreen.

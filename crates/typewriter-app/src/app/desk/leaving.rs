@@ -133,6 +133,13 @@ impl Desk {
         }
     }
 
+    /// A project handed in from outside, unless it is the one in already.
+    pub(super) fn open_file(&mut self, path: PathBuf, now: f64) {
+        if !self.project.filing.is_at(&path) {
+            self.leave(Leaving::Open(path), now);
+        }
+    }
+
     /// Closing puts the project away too: holds the window back to ask, if
     /// needed.
     pub(super) fn close_window(&mut self) {
@@ -168,6 +175,26 @@ mod tests {
 
     fn is_blank(desk: &Desk) -> bool {
         desk.project.machine.page().is_blank()
+    }
+
+    #[test]
+    fn a_project_from_the_file_manager_asks_first_like_open() {
+        let mut desk = desk();
+        type_text(&mut desk, "unsaved", 10.0);
+        let path = PathBuf::from("/nowhere/novel.typr");
+        desk.update(Intent::OpenFile(path.clone()), 11.0);
+        assert_eq!(desk.leaving, Some(Leaving::Open(path)));
+    }
+
+    #[test]
+    fn the_project_already_in_is_not_opened_again() {
+        let mut desk = desk();
+        let path = PathBuf::from("/nowhere/novel.typr");
+        desk.project.filing = Filing::at(path.clone());
+        type_text(&mut desk, "kept", 10.0);
+        desk.update(Intent::OpenFile(path), 11.0);
+        assert!(desk.leaving.is_none());
+        assert!(!is_blank(&desk), "still the same sheet");
     }
 
     #[test]

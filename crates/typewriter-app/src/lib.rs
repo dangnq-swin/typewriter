@@ -6,6 +6,7 @@ mod audio;
 mod filing;
 pub mod import;
 mod input;
+mod instance;
 pub mod machines;
 pub mod odt;
 mod picker;
@@ -18,6 +19,7 @@ pub mod storage;
 mod terminal;
 
 use std::ffi::OsStr;
+use std::path::PathBuf;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Both commands' options, for their help.
@@ -47,6 +49,11 @@ pub fn run() -> anyhow::Result<()> {
         if terminal::run(&args)? {
             return Ok(());
         }
+    }
+    // A project while the app is open goes to it: one desk.
+    let project = std::env::args_os().nth(1).filter(|arg| !is_option(arg));
+    if project.is_some_and(|path| instance::hand_over(&PathBuf::from(path))) {
+        return Ok(());
     }
     // Load before the window opens: it must open fullscreen at once.
     let settings = settings::SettingsFile::load();

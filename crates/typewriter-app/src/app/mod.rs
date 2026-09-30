@@ -15,6 +15,7 @@ use typewriter_core::{Constraints, Typewriter};
 use crate::audio::{self, Audio};
 use crate::filing::{self, Filing};
 use crate::input::{Action, Input};
+use crate::instance::{self, Listening};
 use crate::machines::Machines;
 use crate::picker::Picker;
 use crate::render::background::Background;
@@ -55,6 +56,8 @@ pub struct TypewriterApp {
     quitting: bool,
     settings_file: SettingsFile,
     running: storage::Running,
+    /// Projects later launches hand over. `None` if another app took them.
+    listening: Option<Listening>,
 }
 
 impl TypewriterApp {
@@ -100,6 +103,7 @@ impl TypewriterApp {
             quitting: false,
             settings_file,
             running,
+            listening: instance::listen(&cc.egui_ctx),
         })
     }
 
@@ -249,6 +253,7 @@ impl TypewriterApp {
             quitting: false,
             settings_file: SettingsFile::nowhere(),
             running: storage::Running::nowhere(),
+            listening: None,
         }
     }
 }
@@ -265,6 +270,11 @@ impl eframe::App for TypewriterApp {
         self.follow_fullscreen(&ctx, now);
         if let Some(picked) = self.picker.picked() {
             self.send(Intent::Picked(picked), &ctx, now);
+        }
+        while let Some(project) = self.listening.as_ref().and_then(Listening::take) {
+            // Wayland may refuse the focus; the desktop then flags the window.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.send(Intent::OpenFile(project), &ctx, now);
         }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
             self.send(Intent::CloseWindow, &ctx, now);
@@ -301,6 +311,9 @@ impl eframe::App for TypewriterApp {
             eprintln!("{err}");
         }
         self.running.clear();
+        if let Some(listening) = &self.listening {
+            listening.stop();
+        }
         if let Err(err) = self.settings_file.keep(&self.desk.settings, 0.0, true) {
             eprintln!("{err}");
         }
