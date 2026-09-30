@@ -25,6 +25,8 @@ const CURL_INSET_IN: f32 = 0.06;
 #[derive(Debug, Clone)]
 pub struct FeedMotion {
     wind_out: f64,
+    /// Seconds into the wind-in that the sheet goes in by hand, the knob still.
+    by_hand: f64,
     /// Wind-in progress (0..=1) at the end of each window.
     progress: Vec<f32>,
 }
@@ -82,6 +84,7 @@ impl FeedMotion {
         }
         Self {
             wind_out: 0.0,
+            by_hand: 0.0,
             progress,
         }
     }
@@ -92,6 +95,19 @@ impl FeedMotion {
             wind_out: seconds.max(0.0),
             ..self
         }
+    }
+
+    /// The wind-in's first `seconds` are a hand putting the sheet in.
+    pub fn in_by_hand(self, seconds: f64) -> Self {
+        Self {
+            by_hand: seconds.max(0.0),
+            ..self
+        }
+    }
+
+    /// Share of the wind-in (0..=1) made by hand, before the knob turns.
+    pub fn by_hand(&self) -> f32 {
+        self.progress(self.wind_out + self.by_hand)
     }
 
     /// Seconds the finished sheet winds out for.
@@ -235,6 +251,15 @@ mod tests {
             })
             .collect();
         FeedMotion::from_sound(&samples, 1, RATE)
+    }
+
+    #[test]
+    fn the_hand_s_share_is_the_wind_in_before_the_knob() {
+        let m = one_turn().after_wind_out(1.0);
+        assert_eq!(m.by_hand(), 0.0);
+        let m = m.in_by_hand(1.5);
+        assert!((m.by_hand() - m.progress(2.5)).abs() < 1e-6);
+        assert!(m.by_hand() > 0.0 && m.by_hand() < 1.0);
     }
 
     #[test]

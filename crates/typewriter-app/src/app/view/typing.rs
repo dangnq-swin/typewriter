@@ -84,8 +84,12 @@ impl TypewriterApp {
             let placed = layout.strike_point.y - cell.y;
             let below = view.bottom() + SHADOW_ROOM;
             paper_origin.y = below + (placed - below) * motion.progress(t);
-            // The knob turns with each sheet in turn.
+            // The knob turns with each sheet in turn, but not while a hand
+            // puts the new one in.
             let resting = |half_line| self.metrics.cell_offset(half_line, 0).y;
+            let rise = below - placed;
+            let by_hand = motion.by_hand();
+            let wound_in = (motion.progress(t) - by_hand).max(0.0) * rise;
             knob_rolled = knob::feed_roll(
                 &self.metrics,
                 feeding
@@ -93,8 +97,8 @@ impl TypewriterApp {
                     .as_ref()
                     .map(|(_, half_line)| resting(*half_line)),
                 layout.strike_point.y - placed,
-                wound_out.0 + below - paper_origin.y,
-                wound_out.1 + below - placed,
+                wound_out.0 + wound_in,
+                wound_out.1 + (1.0 - by_hand) * rise,
             );
             self.paint_lifted(&painter, view, paper_origin, motion.curl(t), motion.lift(t));
             pointer_opacity = motion.pointer_opacity(t);
