@@ -65,7 +65,9 @@ The design principles in `AGENTS.md` hold here as well: only what a real office 
       desktop and the machine seen from the chair, in place of the flat texture behind the page
 - [ ] ❓ The desk as a scene rather than fixed screen positions: the copy holder stands left of
       the document at a fixed angle, and the view (position, field of view) can be moved and
-      zoomed, more like a game camera than a page on screen
+      zoomed, more like a game camera than a page on screen. Drawn in real 3D by then (a depth
+      buffer, not parts in a fixed order), first tried on a branch with the SM9's body: how
+      sharp the text stays, and the work
 
 ## Around the desk
 
@@ -104,8 +106,9 @@ tried on its own before the next.
 
 ### The machine itself
 
-- [ ] ❓ The typewriter drawn around the paper: the paper bail's scale, the margin rack, the
-      platen knobs, the card holder's pointer
+- [ ] The margin rack at the back of the paper table, its two stops set there rather than on
+      the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
+      then set the stops. Dragging it up again, or the next key typed, unfolds it
 - [ ] ❓ Its own levers and keys in place of plates and chords: the line-space lever, tab set
       and clear keys
 - [ ] ❓ The levers beside the keyboard work: the carriage lock, the touch control, and the
