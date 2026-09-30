@@ -49,8 +49,6 @@ cargo install --locked --git https://github.com/dangnq-swin/typewriter typewrite
 | Key | Does |
 |---|---|
 | Backspace | Move back one step. After a type jam: free the typebars |
-| é, ü, ç… | Not on the Olympia SM9: accented letters don't type (`typewriter import` keeps them). Machines with dead keys (see `docs/profiles.md`) strike the accent without moving on, so the next letter lands on it |
-| Ж, α, ✓… | Characters the typewriter's typeface doesn't have don't type |
 | Shift+Backspace or Delete | Move back one step while fixing your mistake |
 | Tab | Jump to the next tab stop |
 | Shift + Tab (tap while holding Shift) | Once: set a tab stop at the carriage. Twice: clear the nearest stop. Three times: clear all stops |
@@ -108,15 +106,9 @@ Opened with **Page Up** or the folder icon.
 | Typing | Back to the typewriter |
 | 1 or ! | Open the scratchpad (or click the notebook beside the folder) |
 
-The plates below the folder save, open, rename and export the project; click the name on
-the folder's tab to rename it. The **Sheet…** plate puts the chosen sheet on the
-copy holder left of the machine (click a line to move its guide, ✕ to take it down), rolls it
-back into the machine (a little out of line, as a re-fed sheet is; it goes back to its place when fed
-out), renumbers it, or scrunches it up, deleting after asking.
 
-The calendar standing beyond the notebook is the writing log: each day's words, pencilled in.
-Click it to bring it up close, where hovering a day shows its date and words, and Page Up /
-Page Down or the arrows by the month turn the months. Esc or a click away puts it back.
+The calendar standing beyond the notebook is the writing log, showing progress as words written per day,
+can be clicked to be zoomed in.
 
 In an open sheet, click its top margin to pencil a note there (Enter for a new line, as many
 lines as the margin has room for). Click elsewhere or press Esc when done. Notes will show up in exports.
