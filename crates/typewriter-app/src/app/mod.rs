@@ -5,6 +5,8 @@
 mod desk;
 mod fonts;
 mod intent;
+#[cfg(feature = "snapshot")]
+pub mod snapshot;
 mod view;
 
 use std::path::{Path, PathBuf};
@@ -276,15 +278,15 @@ impl TypewriterApp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot"))]
 impl TypewriterApp {
-    /// The window's parts around a test desk: no sound, nothing on disk.
-    fn for_tests(ctx: &egui::Context) -> Self {
-        let mut desk = desk::testing::desk();
-        let background = Background::load(ctx, &mut desk.settings.look, None);
+    /// The window's parts around `desk` on `stage`: no sound, nothing on
+    /// disk.
+    fn nowhere(ctx: &egui::Context, stage: Box<dyn Stage>, mut desk: Desk) -> Self {
+        let background = Background::load(ctx, &mut desk.settings.look, stage.backdrop());
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Self {
-            stage: Box::new(crate::Plain),
+            stage,
             desk,
             input: Input::default(),
             picker: Picker::default(),
@@ -302,6 +304,14 @@ impl TypewriterApp {
             listening: None,
             printing: Printing::default(),
         }
+    }
+}
+
+#[cfg(test)]
+impl TypewriterApp {
+    /// The window's parts around a test desk on the plain app.
+    fn for_tests(ctx: &egui::Context) -> Self {
+        Self::nowhere(ctx, Box::new(crate::Plain), desk::testing::desk())
     }
 }
 

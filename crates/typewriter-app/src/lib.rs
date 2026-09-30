@@ -26,6 +26,9 @@ mod terminal;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
+#[cfg(feature = "snapshot")]
+#[doc(hidden)]
+pub use app::snapshot;
 pub use stage::{Plain, Stage};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -29,6 +29,11 @@ toml.workspace = true
 zip.workspace = true
 quick-xml.workspace = true
 
+[features]
+# The typing view drawn to an image, without a window: for looking at a
+# change where there is no display.
+snapshot = []
+
 [build-dependencies]
 image.workspace = true
 

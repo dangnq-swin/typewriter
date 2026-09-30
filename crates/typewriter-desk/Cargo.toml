@@ -12,5 +12,8 @@ typewriter-app.workspace = true
 eframe.workspace = true
 anyhow.workspace = true
 
+[dev-dependencies]
+typewriter-app = { workspace = true, features = ["snapshot"] }
+
 [lints]
 workspace = true

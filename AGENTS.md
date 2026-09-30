@@ -175,6 +175,15 @@ manuscript instead of seeded prose):
 cargo test -p typewriter-app --release -- --ignored --nocapture novel
 ```
 
+Snapshots, to look at a drawing change where no display is: the typing view drawn to PNGs
+without a window (typewriter-app's `snapshot` feature, `app/snapshot.rs`). The shots are in the
+desk edition's `stage.rs` test; add one there to look at something new. Check a change to the
+drawing this way before calling it done.
+
+```sh
+TYPEWRITER_SNAPSHOT=<folder> cargo test -p typewriter-desk --release -- --ignored snapshot
+```
+
 ### Releases
 
 Releases follow semver on `version` in `Cargo.toml`, which is separate from the folder format's

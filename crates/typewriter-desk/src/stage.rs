@@ -127,3 +127,71 @@ fn lever(scene: &Scene) -> (f32, f32) {
     let Return { at, inches } = scene.last_return;
     (left, Throw::new(at, inches).amount(scene.now))
 }
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::vec2;
+    use typewriter_app::snapshot::{Shot, render};
+
+    use super::Desk;
+
+    /// Draws the desk to PNGs in `$TYPEWRITER_SNAPSHOT`, to look at:
+    /// `cargo test -p typewriter-desk --release -- --ignored snapshot`.
+    #[test]
+    #[ignore]
+    fn snapshot() {
+        let Some(folder) = std::env::var_os("TYPEWRITER_SNAPSHOT") else {
+            return;
+        };
+        let folder = std::path::PathBuf::from(folder);
+        let text = "The quick brown fox jumps over the lazy dog.\nA second line.";
+        let fresh = Shot {
+            size: vec2(1600.0, 1600.0),
+            zoom_percent: 200,
+            text: "",
+            after_seconds: 5.0,
+        };
+        let image = render(Box::new(Desk), &fresh).unwrap();
+        image.save(folder.join("fresh.png")).unwrap();
+        // Wide enough for both of the carriage's ends.
+        let lever = Shot {
+            size: vec2(3000.0, 1400.0),
+            zoom_percent: 200,
+            text: "x",
+            after_seconds: 5.0,
+        };
+        let image = render(Box::new(Desk), &lever).unwrap();
+        image.save(folder.join("lever.png")).unwrap();
+        // The left knob passing the cover's corner as the carriage moves.
+        for typed in [20, 30, 40] {
+            let along = Shot {
+                size: vec2(3000.0, 1400.0),
+                zoom_percent: 200,
+                text: &"x".repeat(typed),
+                after_seconds: 5.0,
+            };
+            let image = render(Box::new(Desk), &along).unwrap();
+            image
+                .save(folder.join(format!("along-{typed}.png")))
+                .unwrap();
+        }
+        let shots = [
+            ("desk", vec2(1600.0, 1000.0), 100),
+            ("sitting-back", vec2(1600.0, 1000.0), 50),
+            ("close", vec2(1600.0, 1000.0), 200),
+            ("tall", vec2(1400.0, 2400.0), 100),
+            ("platen", vec2(1600.0, 1600.0), 200),
+            ("far-back", vec2(1536.0, 960.0), 25),
+        ];
+        for (name, size, zoom_percent) in shots {
+            let shot = Shot {
+                size,
+                zoom_percent,
+                text,
+                after_seconds: 5.0,
+            };
+            let image = render(Box::new(Desk), &shot).unwrap();
+            image.save(folder.join(format!("{name}.png"))).unwrap();
+        }
+    }
+}

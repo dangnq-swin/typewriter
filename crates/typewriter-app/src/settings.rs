@@ -371,7 +371,7 @@ impl SettingsFile {
     }
 
     /// A file that is never written.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "snapshot"))]
     pub fn nowhere() -> Self {
         Self {
             path: None,

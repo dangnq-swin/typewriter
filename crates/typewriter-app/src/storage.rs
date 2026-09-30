@@ -144,7 +144,7 @@ pub struct Running(Option<File>);
 
 impl Running {
     /// No marker: for tests.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "snapshot"))]
     pub fn nowhere() -> Self {
         Self(None)
     }
