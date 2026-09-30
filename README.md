@@ -1,5 +1,7 @@
 # typewriter
 
+[![Latest release](https://img.shields.io/github/v/release/dangnq-swin/typewriter?label=latest%20release)](https://github.com/dangnq-swin/typewriter/releases/latest)
+
 ## TLDR
 
 It's a typewriter simulator, so expect the writing process to be slow and tedious. The app is very opinionated:
@@ -15,7 +17,8 @@ There's also other modes + goodies that are nice-to-have without being too bloat
 
 ## Install
 
-Linux only. You need [Rust](https://rustup.rs) and, to build the sound, the ALSA headers and
+Download a build for Linux or Windows from the [latest release](https://github.com/dangnq-swin/typewriter/releases/latest),
+or build it yourself (Linux only). You need [Rust](https://rustup.rs) and, to build the sound, the ALSA headers and
 `pkg-config` (e.g. `alsa-lib` on Arch and Gentoo, `libasound2-dev` on Debian and Ubuntu,
 `alsa-lib-devel` on Fedora).
 
