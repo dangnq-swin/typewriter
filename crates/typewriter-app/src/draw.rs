@@ -8,7 +8,7 @@ pub use crate::render::knob::Knob;
 pub use crate::render::perspective::{Camera, warp};
 pub use crate::render::platen::glide_seconds;
 pub use crate::render::{HIGHLIGHT, Metrics, points_per_inch, smoothstep, splitmix64, unit};
-pub use crate::stage::{Controls, Return, Scene};
+pub use crate::stage::{Controls, PaperTable, Platen, Return, Scene};
 
 /// The scale's height, and the plates' readings, which the desk's panel
 /// shows too.

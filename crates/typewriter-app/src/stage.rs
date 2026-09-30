@@ -2,7 +2,7 @@
 //! default is the plain app's: the chosen background behind, the sheet flat
 //! on it, the scale and knobs hanging from the typing line, the plates below.
 
-use eframe::egui::{Painter, Rect, Ui};
+use eframe::egui::{Painter, Pos2, Rect, Ui};
 use typewriter_core::session::Progress;
 use typewriter_core::{EraseMode, Goal, LineSpacing};
 
@@ -34,6 +34,30 @@ impl Return {
         at: f64::NEG_INFINITY,
         inches: 0.0,
     };
+}
+
+/// The platen as drawn: its ends and its axis, on screen.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Platen {
+    pub ends: [f32; 2],
+    pub axis_y: f32,
+}
+
+/// Behind the platen, where a sheet goes in: the part not yet wound round
+/// lies on it, its blank back to the writer.
+pub struct PaperTable {
+    /// Paper round the platen from where it goes in to the typing line.
+    pub wrap_inches: f32,
+    /// How far up the table from there a sheet shows: past that it has gone
+    /// over the top, out of sight.
+    pub seen_inches: f32,
+    /// The platen's axis and radius on screen: the sheet wraps round it.
+    pub platen_axis_y: f32,
+    pub platen_radius: f32,
+    /// Where a point of the sheet shows, `x` its place across on screen at
+    /// the sheet's scale and `along` its inches up the table from where it
+    /// goes in; and how lit it is there, 0..=1.
+    pub place: Box<dyn Fn(f32, f32) -> (Pos2, f32)>,
 }
 
 /// What the spacing, zoom, correction, goal and save controls read.
@@ -83,10 +107,22 @@ pub trait Stage {
         None
     }
 
+    /// Where sheets go in behind the platen. `None`: nowhere, they rise
+    /// from below the window.
+    fn paper_table(&self, _scene: &Scene) -> Option<PaperTable> {
+        None
+    }
+
     /// A resting sheet's shadow strength, standing off what is behind it.
     /// `None`: it lies flat.
     fn sheet_lift(&self) -> Option<f32> {
         None
+    }
+
+    /// How far a resting sheet's top edge stays curled back toward the
+    /// platen, 0..=1.
+    fn sheet_curl(&self) -> f32 {
+        0.0
     }
 
     /// After the sheets, calm or not: what stands in front of them.
@@ -111,9 +147,9 @@ pub trait Stage {
         None
     }
 
-    /// The platen's ends on screen, where the knobs turn on the typing line.
-    /// `None`: beside the paper, hanging from the scale.
-    fn platen_ends(&self, _scene: &Scene) -> Option<[f32; 2]> {
+    /// The platen on screen, where the knobs turn. `None`: beside the
+    /// paper, hanging from the scale.
+    fn platen(&self, _scene: &Scene) -> Option<Platen> {
         None
     }
 

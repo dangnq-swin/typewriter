@@ -19,6 +19,21 @@ const TURNING_DB: f32 = 20.0;
 /// Leading-edge curl at full strength, inches.
 const CURL_DEPTH_IN: f32 = 0.4;
 const CURL_INSET_IN: f32 = 0.06;
+/// A rolled top edge at full roll: the paper in the roll, the radius that
+/// turns its edge upright, how far its corners draw in, how much darker it
+/// turns away. Rows enough for a smooth curve.
+const ROLL_INCHES: f32 = 0.6;
+const ROLL_RADIUS_INCHES: f32 = ROLL_INCHES / std::f32::consts::FRAC_PI_2;
+const ROLL_INSET_INCHES: f32 = 0.05;
+const ROLL_SHADE: f32 = 0.5;
+const ROLL_ROWS: u16 = 12;
+const ROLL_COLUMNS: u16 = 16;
+/// How much further than the middle the corners curl.
+const ROLL_CORNERS: f32 = 0.45;
+/// Wrapped under the platen: how much darker by its bottom; rows enough for
+/// a smooth curve.
+const WRAP_SHADE: f32 = 0.55;
+const WRAP_ROWS: u16 = 8;
 
 /// A feed's timing: wind-out lasts as long as the clicks; wind-in moves only
 /// while the knob is heard.
@@ -160,6 +175,110 @@ impl FeedMotion {
     }
 }
 
+/// A sheet's shadow, as strong as it is `lift`ed (0..=1).
+pub fn paint_sheet_shadow(painter: &Painter, sheet: Rect, lift: f32) {
+    if lift > 0.0 {
+        let shadow = Shadow {
+            offset: [0, (4.0 * lift).round() as i8],
+            blur: 16,
+            spread: 0,
+            color: Color32::from_black_alpha((70.0 * lift) as u8),
+        };
+        painter.add(shadow.as_shape(sheet, 0));
+    }
+}
+
+/// A sheet whose top edge rolls back round a cylinder, `roll` (0..=1) of
+/// the way to upright at the edge in its middle, its corners further; and,
+/// given the `platen`'s axis and radius on screen, wrapped under it below
+/// the axis, out of sight past its bottom. Its mesh, each vertex's uv where
+/// on the sheet it is, its colour the shade; and the top edge, on screen,
+/// left to right.
+pub fn rolled_sheet(
+    sheet: Rect,
+    points_per_inch: f32,
+    roll: f32,
+    platen: Option<(f32, f32)>,
+) -> (Mesh, Vec<Pos2>) {
+    let inches = |v: f32| v * points_per_inch;
+    let fold = sheet.top() + inches(ROLL_INCHES);
+    let height_inches = sheet.height() / points_per_inch;
+    let across = |column: u16| f32::from(column) / f32::from(ROLL_COLUMNS);
+    let x = |u: f32| sheet.left() + u * sheet.width();
+    // Rows bottom to top, each left to right: where, where on the sheet, shade.
+    let mut rows: Vec<Vec<(Pos2, Pos2, f32)>> = Vec::new();
+    let flat = |y: f32, v: f32, shade: f32| {
+        (0..=ROLL_COLUMNS)
+            .map(|column| {
+                let u = across(column);
+                (pos2(x(u), y), pos2(u, v), shade)
+            })
+            .collect::<Vec<_>>()
+    };
+    match platen.filter(|&(axis, _)| axis < sheet.bottom() && axis > fold) {
+        Some((axis, radius)) => {
+            // Under the platen: as much paper as a quarter turn, or the rest.
+            let at_axis = (axis - sheet.top()) / sheet.height();
+            let quarter = radius * std::f32::consts::FRAC_PI_2;
+            let under = quarter.min(sheet.bottom() - axis);
+            for i in (0..=WRAP_ROWS).rev() {
+                let paper = under * f32::from(i) / f32::from(WRAP_ROWS);
+                let turned = paper / radius;
+                let shade = 1.0 - WRAP_SHADE * (1.0 - turned.cos());
+                let v = at_axis + paper / sheet.height();
+                rows.push(flat(axis + radius * turned.sin(), v, shade));
+            }
+        }
+        None => rows.push(flat(sheet.bottom(), 1.0, 1.0)),
+    }
+    let mut edge = Vec::new();
+    for i in 0..=ROLL_ROWS {
+        // Up the roll from the fold.
+        let along = ROLL_INCHES * f32::from(i) / f32::from(ROLL_ROWS);
+        let v = (ROLL_INCHES - along) / height_inches;
+        let row: Vec<_> = (0..=ROLL_COLUMNS)
+            .map(|column| {
+                let u = across(column);
+                // Unheld, the corners curl further, bowing the edge.
+                let side = 2.0 * u - 1.0;
+                let curl = roll * (1.0 + ROLL_CORNERS * side * side);
+                let turned = curl * along / ROLL_RADIUS_INCHES;
+                let up = if curl > 0.0 {
+                    ROLL_RADIUS_INCHES / curl * turned.sin()
+                } else {
+                    along
+                };
+                let away = 1.0 - turned.cos();
+                let pos = pos2(
+                    x(u) - side * inches(ROLL_INSET_INCHES * away),
+                    fold - inches(up),
+                );
+                (pos, pos2(u, v), 1.0 - ROLL_SHADE * away)
+            })
+            .collect();
+        edge = row.iter().map(|&(pos, _, _)| pos).collect();
+        rows.push(row);
+    }
+    let mut mesh = Mesh::default();
+    for (pos, uv, shade) in rows.iter().flatten().copied() {
+        mesh.vertices.push(Vertex {
+            pos,
+            uv,
+            color: Color32::from_gray((255.0 * shade.clamp(0.0, 1.0)) as u8),
+        });
+    }
+    let width = u32::from(ROLL_COLUMNS) + 1;
+    // Safe cast: a few dozen rows.
+    for row in 0..rows.len() as u32 - 1 {
+        for column in 0..u32::from(ROLL_COLUMNS) {
+            let (below, above) = (row * width + column, (row + 1) * width + column);
+            mesh.add_triangle(below, below + 1, above + 1);
+            mesh.add_triangle(below, above + 1, above);
+        }
+    }
+    (mesh, edge)
+}
+
 /// A sheet held off the desk: shadow, then a body of the background paper,
 /// so only edges, curl and shadow show.
 pub fn paint_lifted_sheet(
@@ -171,15 +290,7 @@ pub fn paint_lifted_sheet(
     curl: f32,
     lift: f32,
 ) {
-    if lift > 0.0 {
-        let shadow = Shadow {
-            offset: [0, (4.0 * lift).round() as i8],
-            blur: 16,
-            spread: 0,
-            color: Color32::from_black_alpha((70.0 * lift) as u8),
-        };
-        painter.add(shadow.as_shape(sheet, 0));
-    }
+    paint_sheet_shadow(painter, sheet, lift);
 
     // Curled back toward the platen, the edge foreshortens and narrows.
     let depth = curl * CURL_DEPTH_IN * points_per_inch;

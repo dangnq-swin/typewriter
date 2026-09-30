@@ -7,7 +7,7 @@
 
 use std::f32::consts::PI;
 
-use eframe::egui::{Color32, Painter, Shape, Stroke, pos2};
+use eframe::egui::{Color32, Painter, Rect, Shape, Stroke, pos2};
 
 use super::eye::Eye;
 use super::geometry::rounded;
@@ -22,6 +22,9 @@ use typewriter_app::draw::Metrics;
 const GUIDE_FOOT: (f32, f32) = (0.09, -0.5);
 const GUIDE_TOP: (f32, f32) = (-0.1, 0.27);
 const GUIDE_X: (f32, f32) = (0.7, 3.8);
+/// The plates' top corners, rounded: outside and in.
+const OUTER_TOP_ROUNDING: f32 = 0.25;
+const INNER_TOP_ROUNDING: f32 = 0.08;
 /// The scale stuck along each plate's foot, white marks on black: its top at
 /// the typing line's foot, `z`, and its depth down the plate, the cover's
 /// back edge hiding its foot; its marks, on the columns' edges out from the
@@ -58,10 +61,17 @@ const SCALE_MARK: Color32 = Color32::from_rgb(0xEC, 0xEC, 0xE6);
 const RIBBON_INK: Color32 = Color32::from_rgb(0x1E, 0x1D, 0x20);
 const RIBBON_RED: Color32 = Color32::from_rgb(0xB0, 0x2C, 0x28);
 
-/// Behind the guide first, then what stands in front of it.
-pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics) {
-    paint_plates(painter, eye);
-    paint_scale(painter, eye, metrics);
+/// Behind the guide first, then what stands in front of it. The guide only
+/// between the carriage's side plates, `inside` on screen: they pass behind
+/// it, and its edges would cross them.
+pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, inside: [f32; 2]) {
+    let clip = painter.clip_rect();
+    let guide = painter.with_clip_rect(Rect::from_x_y_ranges(
+        inside[0].max(clip.left())..=inside[1].min(clip.right()),
+        clip.y_range(),
+    ));
+    paint_plates(&guide, eye);
+    paint_scale(&guide, eye, metrics);
     paint_ribbon(painter, eye);
     paint_card_holder(painter, eye);
     paint_vibrator(painter, eye);
@@ -91,15 +101,19 @@ fn paint_plates(painter: &Painter, eye: &Eye) {
         let outline = rounded(&[
             (on_guide(side * inner, 0.0), 0.03),
             (on_guide(side * outer, 0.0), 0.03),
-            (on_guide(side * outer, 1.0), 0.25),
-            (on_guide(side * inner, 1.0), 0.08),
+            (on_guide(side * outer, 1.0), OUTER_TOP_ROUNDING),
+            (on_guide(side * inner, 1.0), INNER_TOP_ROUNDING),
         ]);
         eye.fill(painter, &outline, |_| GLASS);
         painter.add(Shape::closed_line(
             eye.polygon(&outline),
             Stroke::new(1.0, GLASS_EDGE),
         ));
-        let top = [on_guide(side * inner, 1.0), on_guide(side * outer, 1.0)];
+        // Along the top's straight run, between its rounded corners.
+        let top = [
+            on_guide(side * (inner + INNER_TOP_ROUNDING), 1.0),
+            on_guide(side * (outer - OUTER_TOP_ROUNDING), 1.0),
+        ];
         eye.line(painter, &top, 0.015, Color32::from_white_alpha(170));
     }
 }

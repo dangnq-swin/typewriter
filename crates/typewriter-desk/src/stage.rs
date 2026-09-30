@@ -4,13 +4,17 @@
 
 use eframe::egui::{Painter, Rect, Ui};
 use typewriter_app::Stage;
-use typewriter_app::draw::{Controls, Metrics, Return, Scene};
+use typewriter_app::draw::{Controls, Knob, Metrics, PaperTable, Platen, Return, Scene};
+use typewriter_core::Side;
 
 use crate::machine::{self, Control, Panel, Throw};
 use crate::room;
 
 /// The sheet in the machine: just off the wall behind.
 const STANDING_LIFT: f32 = 0.25;
+/// Its top edge keeps some of its wind round the platen, clearing the
+/// platen's top.
+const SHEET_CURL: f32 = 0.85;
 
 /// `typewriter-desk`: the typewriter on a desk, seen from the chair.
 pub struct Desk;
@@ -49,14 +53,27 @@ impl Stage for Desk {
         Some(machine::sheet_bottom(view, metrics, typing_y))
     }
 
+    /// Behind the platen: sheets go in over it.
+    fn paper_table(&self, scene: &Scene) -> Option<PaperTable> {
+        Some(machine::paper_table(
+            scene.view,
+            scene.metrics,
+            scene.typing_y,
+        ))
+    }
+
     fn sheet_lift(&self) -> Option<f32> {
         Some(STANDING_LIFT)
+    }
+
+    fn sheet_curl(&self) -> f32 {
+        SHEET_CURL
     }
 
     /// The machine in front of the sheet, and the paper bail over it.
     fn paint_over_sheets(&self, painter: &Painter, scene: &Scene) {
         let (metrics, typing_y) = (scene.metrics, scene.typing_y);
-        machine::paint_front(painter, scene.view, metrics, typing_y);
+        machine::paint_front(painter, scene.view, metrics, typing_y, scene.carriage_x);
         machine::paint_bail(painter, metrics, scene.carriage_x, typing_y);
     }
 
@@ -84,9 +101,12 @@ impl Stage for Desk {
         Some(machine::bail_scale_top(scene.metrics, scene.typing_y))
     }
 
-    /// At the carriage's ends, travelling with it.
-    fn platen_ends(&self, scene: &Scene) -> Option<[f32; 2]> {
-        Some(machine::platen_ends(scene.carriage_x, scene.metrics))
+    /// At the carriage's ends, travelling with it, on the platen's axis.
+    fn platen(&self, scene: &Scene) -> Option<Platen> {
+        Some(Platen {
+            ends: machine::platen_ends(scene.carriage_x, scene.metrics),
+            axis_y: machine::platen_axis_y(scene.view, scene.metrics, scene.typing_y),
+        })
     }
 
     /// The return lever's bracket, behind the left knob.
@@ -102,8 +122,14 @@ impl Stage for Desk {
         );
     }
 
-    /// The return lever, over the left knob.
+    /// The ribbon cover, where it stands in front of the knobs, then the
+    /// return lever over the left knob.
     fn paint_over_knobs(&self, painter: &Painter, scene: &Scene) {
+        let axis_y = machine::platen_axis_y(scene.view, scene.metrics, scene.typing_y);
+        let [left_end, right_end] = machine::platen_ends(scene.carriage_x, scene.metrics);
+        let knobs = [(Side::Left, left_end), (Side::Right, right_end)]
+            .map(|(side, end)| Knob::on_axis(scene.metrics, side, end, axis_y).grip());
+        machine::paint_cover_over_knobs(painter, scene.view, scene.metrics, scene.typing_y, knobs);
         let (left, throw) = lever(scene);
         machine::paint_lever(
             painter,

@@ -1,5 +1,5 @@
 //! The carriage-return lever. Its base lies flat in a chrome bracket on the
-//! carriage's left end, behind the left knob; a slotless screw, a little
+//! side of the carriage's left end, behind the left knob; a slotless screw, a little
 //! proud, holds it there and is what it turns about. Out of the bracket it
 //! swoops up over the knob, then runs straight toward the writer well past
 //! it. A little past the knob its left edge folds down into a wall, whose
@@ -11,6 +11,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use eframe::egui::{Painter, Rect, Stroke};
 
+use super::carriage::platen_axis;
 use super::eye::Eye;
 use super::geometry::{add, cross, normalized, scaled, sub};
 use super::light::{brighten, chrome_at, paint_chrome, streak, toward_light};
@@ -18,11 +19,11 @@ use super::{EDGE, METAL, METAL_SHINE};
 use typewriter_app::draw::{Metrics, glide_seconds, smoothstep};
 
 /// The bracket, `x` out from the carriage's left end (negative), `y` behind
-/// the knob's axis, `z` round it: longer than wide, low enough that the knob
-/// hides most of it.
-const BRACKET_X: (f32, f32) = (-0.46, -0.2);
-const BRACKET_Y: (f32, f32) = (-1.1, -0.55);
-const BRACKET_Z: (f32, f32) = (-0.15, 0.25);
+/// the knob's axis, `z` round it: a thin strip standing out from the end,
+/// longer out than deep, low enough that the knob hides most of it.
+const BRACKET_X: (f32, f32) = (-0.5, 0.0);
+const BRACKET_Y: (f32, f32) = (-1.12, -0.72);
+const BRACKET_Z: (f32, f32) = (0.06, 0.2);
 /// The screw's middle on the lever's base, its radius, and how proud of the
 /// lever it stands.
 const SCREW: (f32, f32) = (-0.33, -0.85);
@@ -46,8 +47,7 @@ const TIP_Y: f32 = 2.6;
 const SWOOP_STEPS: u16 = 12;
 const RUN_STEPS: u16 = 20;
 /// Along the run, where the left edge starts to fold down and where the
-/// curl is whole: the wall forms over the first half, its foot curls in
-/// over the second.
+/// curl is whole: the wall deepens as its foot curls in.
 const CURL_Y: (f32, f32) = (0.8, 1.8);
 /// The fold from flat down into the wall, the wall, and the curl in at its
 /// foot: radii, depth, and how far round the curl turns.
@@ -112,8 +112,14 @@ pub fn paint_lever_base(
     left: f32,
     amount: f32,
 ) {
-    let eye = Eye::new(view, metrics, typing_y);
-    let left = (left - eye.origin.x) / eye.ppi;
+    let eye = Eye::new(view, metrics, typing_y).about(platen_axis());
+    // It meets the side plate: nothing of it over the plate.
+    let clip = painter.clip_rect();
+    let painter = &painter.with_clip_rect(Rect::from_min_max(
+        clip.min,
+        eframe::egui::pos2(left.min(clip.right()), clip.bottom()),
+    ));
+    let left = end_at(&eye, left);
     paint_bracket(painter, &eye, left);
     let strap = Strap::new(left, amount);
     paint_strap(painter, &eye, &strap.frames[..=strap.behind_knob], false);
@@ -130,9 +136,16 @@ pub fn paint_lever(
     left: f32,
     amount: f32,
 ) {
-    let eye = Eye::new(view, metrics, typing_y);
-    let strap = Strap::new((left - eye.origin.x) / eye.ppi, amount);
+    let eye = Eye::new(view, metrics, typing_y).about(platen_axis());
+    let strap = Strap::new(end_at(&eye, left), amount);
     paint_strap(painter, &eye, &strap.frames[strap.behind_knob..], true);
+}
+
+/// The carriage's left end, at `left` on screen, in inches: where the
+/// bracket meets it. The carriage is drawn flat, the lever in depth.
+fn end_at(eye: &Eye, left: f32) -> f32 {
+    let bracket = [0.0, BRACKET_Y.1, BRACKET_Z.1];
+    (left - eye.origin.x) / eye.scale(bracket)
 }
 
 /// The bracket's faces toward the eye, for the carriage's left end at
@@ -146,7 +159,7 @@ fn paint_bracket(painter: &Painter, eye: &Eye, left: f32) {
         [x1, front, bottom],
         [x1, back, bottom],
     ];
-    if Eye::sees(inner[0], [1.0, 0.0, 0.0]) {
+    if eye.faces(inner[0], [1.0, 0.0, 0.0]) {
         eye.fill(painter, &inner, |_| METAL);
     }
     paint_chrome(painter, eye, [x0, x1], front, top, top - bottom);
@@ -177,7 +190,7 @@ fn paint_screw(painter: &Painter, eye: &Eye, at: [f32; 3]) {
     for i in 0..n {
         let j = (i + 1) % n;
         let outward = sub(add(base[i], base[j]), scaled(at, 2.0));
-        if Eye::sees(base[i], outward) {
+        if eye.faces(base[i], outward) {
             eye.fill(painter, &[face[i], face[j], base[j], base[i]], |_| METAL);
         }
     }
@@ -209,7 +222,7 @@ fn paint_strap(painter: &Painter, eye: &Eye, frames: &[Frame], tip: bool) {
             if normal.iter().map(|c| c * c).sum::<f32>() < 1e-10 {
                 continue;
             }
-            let seen = if Eye::sees(strip[0], normal) {
+            let seen = if eye.faces(strip[0], normal) {
                 normal
             } else {
                 scaled(normal, -1.0)
@@ -234,12 +247,13 @@ fn paint_strap(painter: &Painter, eye: &Eye, frames: &[Frame], tip: bool) {
 /// and the curl in underneath, `formed` (0..=1) of the way. Unformed, those
 /// all lie on the left edge.
 fn profile(formed: f32) -> [(f32, f32); ACROSS] {
-    let wall = (2.0 * formed).clamp(0.0, 1.0);
-    let curl = (2.0 * formed - 1.0).clamp(0.0, 1.0);
+    let formed = formed.clamp(0.0, 1.0);
     let mut points = [(WIDTH / 2.0, 0.0); ACROSS];
     let mut at = (-WIDTH / 2.0, 0.0);
     points[1] = at;
     // Out to the left, turning down, then in: turns are counterclockwise.
+    // The fold always turns right down, smaller while forming: a lip that
+    // deepens, never a wall slanting out.
     let mut heading = PI;
     let mut next = 2;
     let mut walk = |turn: f32, length: f32, at: &mut (f32, f32), heading: &mut f32| {
@@ -249,12 +263,12 @@ fn profile(formed: f32) -> [(f32, f32); ACROSS] {
         points[next] = *at;
         next += 1;
     };
-    let fold = FRAC_PI_2 * wall / FOLD_STEPS as f32;
+    let fold = FRAC_PI_2 / FOLD_STEPS as f32;
     for _ in 0..FOLD_STEPS {
-        walk(fold, FOLD_RADIUS * fold, &mut at, &mut heading);
+        walk(fold, FOLD_RADIUS * fold * formed, &mut at, &mut heading);
     }
-    walk(0.0, WALL_DEPTH * wall, &mut at, &mut heading);
-    let turn = CURL_DEGREES.to_radians() * curl / CURL_STEPS as f32;
+    walk(0.0, WALL_DEPTH * formed, &mut at, &mut heading);
+    let turn = CURL_DEGREES.to_radians() * formed / CURL_STEPS as f32;
     for _ in 0..CURL_STEPS {
         walk(turn, CURL_RADIUS * turn, &mut at, &mut heading);
     }
@@ -391,20 +405,30 @@ mod tests {
     }
 
     #[test]
-    fn the_bracket_is_longer_than_wide_and_the_knob_hides_its_front() {
-        assert!(BRACKET_Y.1 - BRACKET_Y.0 > BRACKET_X.1 - BRACKET_X.0);
+    fn the_bracket_stands_out_from_the_carriage_s_end_the_knob_hiding_its_front() {
+        assert_eq!(BRACKET_X.1, 0.0, "on the carriage's end");
+        let (across, deep, tall) = (
+            BRACKET_X.1 - BRACKET_X.0,
+            BRACKET_Y.1 - BRACKET_Y.0,
+            BRACKET_Z.1 - BRACKET_Z.0,
+        );
+        assert!(across > deep && deep > tall, "a thin strip, long across");
+        assert!(-BRACKET_X.0 <= DISC_REACH, "no further out than the knob");
         let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
         let metrics = Metrics::new(&Profile::from_toml_str(sm9).unwrap(), 96.0);
         let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
         let typing_y = 600.0;
-        let eye = Eye::new(view, &metrics, typing_y);
+        let eye = Eye::new(view, &metrics, typing_y).about(platen_axis());
         let left = eye.origin.x - 5.9 * 96.0;
-        let knob = Knob::on_axis(&metrics, Side::Left, left, typing_y).grip();
-        for x in [BRACKET_X.0, BRACKET_X.1] {
-            for z in [BRACKET_Z.0, BRACKET_Z.1] {
-                let corner = eye.at([x - 5.9, BRACKET_Y.1, z]);
-                assert!(knob.contains(corner), "{corner:?} outside {knob:?}");
-            }
+        let axis_y = eye.at([0.0; 3]).y;
+        let knob = Knob::on_axis(&metrics, Side::Left, left, axis_y).grip();
+        let end = end_at(&eye, left);
+        // Its inner end meets the side plate; the knob hides its outer front.
+        let inner = eye.at([end, BRACKET_Y.1, BRACKET_Z.1]);
+        assert!((inner.x - left).abs() < 0.01, "{inner:?} at {left}");
+        for z in [BRACKET_Z.0, BRACKET_Z.1] {
+            let corner = eye.at([end + BRACKET_X.0, BRACKET_Y.1, z]);
+            assert!(knob.contains(corner), "{corner:?} outside {knob:?}");
         }
     }
 
@@ -462,19 +486,22 @@ mod tests {
     }
 
     #[test]
-    fn flat_until_the_bend_then_a_wall_whose_foot_curls_in_underneath() {
+    fn flat_until_the_bend_then_a_wall_whose_foot_curls_in_as_it_deepens() {
         let flat = profile(0.0);
         assert!(flat[1..].iter().all(|&p| p == (-WIDTH / 2.0, 0.0)));
-        // Half formed: the wall straight down from the fold, not yet curled.
+        // Half formed: the wall half down, its foot already turning in.
         let walled = profile(0.5);
         let foot = walled[2 + FOLD_STEPS];
         assert!(foot.0 < -WIDTH / 2.0, "out past the left edge");
-        assert!((foot.1 + FOLD_RADIUS + WALL_DEPTH).abs() < 0.01, "{foot:?}");
-        assert_eq!(walled[ACROSS - 1], foot);
+        assert!(
+            foot.1 < 0.0 && foot.1 > -WALL_DEPTH - FOLD_RADIUS,
+            "partway down"
+        );
+        assert!(walled[ACROSS - 1].1 < foot.1, "curling under");
         // Whole: its end turned back in, under the lever.
         let curled = profile(1.0);
         let end = curled[ACROSS - 1];
-        assert!(end.0 > foot.0 && end.1 < 0.0, "{end:?}");
+        assert!(end.0 > curled[2 + FOLD_STEPS].0 && end.1 < 0.0, "{end:?}");
         let before = path().into_iter().filter(|(p, _)| p[1] <= CURL_Y.0);
         assert!(before.map(|(_, formed)| formed).all(|f| f == 0.0));
     }

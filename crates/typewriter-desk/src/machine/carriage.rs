@@ -1,18 +1,24 @@
 //! The carriage, travelling with the sheet: the platen, the carriage's back
-//! and side plates, the paper bail. Flat on screen at the sheet's scale.
+//! and side plates, the paper bail. Flat on screen at the sheet's scale,
+//! about the platen's axis where the eye sees it, behind and below the
+//! printing point on the platen's front.
 
 use std::f32::consts::PI;
 use std::ops::RangeInclusive;
 
 use eframe::egui::{Color32, CornerRadius, Mesh, Painter, Rect, Shape, Stroke, StrokeKind, pos2};
 
+use super::eye::Eye;
 use super::geometry::add_quad;
 use super::{CHROME, EDGE, METAL, METAL_SHINE};
 use typewriter_app::draw::{Metrics, ruler};
 
 /// Centre to the carriage's ends, where the knobs are.
 const PLATEN_HALF_INCHES: f32 = 5.9;
-const PLATEN_DIAMETER_INCHES: f32 = 1.3;
+pub(super) const PLATEN_DIAMETER_INCHES: f32 = 1.3;
+/// Up the platen's front from level with its axis, where the type strikes:
+/// its lower part goes behind the cover and the ribbon.
+pub(super) const STRIKE_DEGREES: f32 = 35.0;
 /// The metal rings at the platen's ends.
 const PLATEN_END_INCHES: f32 = 0.08;
 /// Bands of shading round a roller: enough for a smooth curve.
@@ -20,7 +26,7 @@ const ROLLER_BANDS: u16 = 14;
 /// Light from above and in front: angle round a roller from its top.
 const LIGHT_DEGREES: f32 = 55.0;
 /// The carriage's side plates, inside its ends; its back behind the platen,
-/// above the typing line; how far the side plates reach below it.
+/// above its axis; how far the side plates reach below the typing line.
 const SIDE_PLATE_INCHES: f32 = 0.2;
 const CARRIAGE_BACK: (f32, f32) = (1.05, 0.6);
 const SIDE_PLATE_BELOW: f32 = 0.55;
@@ -45,15 +51,36 @@ pub fn platen_ends(centre_x: f32, metrics: &Metrics) -> [f32; 2] {
     [centre_x - half, centre_x + half]
 }
 
+/// Between the carriage's side plates, on screen, for a sheet centred at
+/// `centre_x`.
+pub(super) fn inside(centre_x: f32, metrics: &Metrics) -> [f32; 2] {
+    let [left, right] = platen_ends(centre_x, metrics);
+    let plate = SIDE_PLATE_INCHES * metrics.points_per_inch;
+    [left + plate, right - plate]
+}
+
+/// The platen's axis from the printing point.
+pub(super) fn platen_axis() -> [f32; 3] {
+    let (sin, cos) = STRIKE_DEGREES.to_radians().sin_cos();
+    let radius = PLATEN_DIAMETER_INCHES / 2.0;
+    [0.0, -radius * cos, -radius * sin]
+}
+
+/// The platen's axis on screen, for the typing line at `typing_y`.
+pub fn platen_axis_y(view: Rect, metrics: &Metrics, typing_y: f32) -> f32 {
+    Eye::new(view, metrics, typing_y).at(platen_axis()).y
+}
+
 /// The carriage for the sheet centred at `carriage_x`: its back behind the
 /// platen, the platen and its metal ends, and the side plates.
-pub(super) fn paint(painter: &Painter, metrics: &Metrics, typing_y: f32, carriage_x: f32) {
+pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, carriage_x: f32) {
     let ppi = metrics.points_per_inch;
+    let (typing_y, axis_y) = (eye.origin.y, eye.at(platen_axis()).y);
     let [left, right] = platen_ends(carriage_x, metrics);
     // The carriage's back, behind the platen.
     let back = (
-        typing_y - CARRIAGE_BACK.0 * ppi,
-        typing_y - CARRIAGE_BACK.1 * ppi,
+        axis_y - CARRIAGE_BACK.0 * ppi,
+        axis_y - CARRIAGE_BACK.1 * ppi,
     );
     let mut mesh = Mesh::default();
     let back_radius = (back.1 - back.0) / 2.0;
@@ -69,12 +96,12 @@ pub(super) fn paint(painter: &Painter, metrics: &Metrics, typing_y: f32, carriag
     let radius = PLATEN_DIAMETER_INCHES * ppi / 2.0;
     let (inner_left, inner_right) = (left + plate, right - plate);
     let rubber = inner_left + end_ring..=inner_right - end_ring;
-    roller(&mut mesh, rubber, typing_y, radius, [RUBBER, RUBBER_SHINE]);
+    roller(&mut mesh, rubber, axis_y, radius, [RUBBER, RUBBER_SHINE]);
     for x in [
         inner_left..=inner_left + end_ring,
         inner_right - end_ring..=inner_right,
     ] {
-        roller(&mut mesh, x, typing_y, radius, [METAL, METAL_SHINE]);
+        roller(&mut mesh, x, axis_y, radius, [METAL, METAL_SHINE]);
     }
     painter.add(Shape::mesh(mesh));
     // The side plates, from the back down to the deck.

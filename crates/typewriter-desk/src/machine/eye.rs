@@ -4,12 +4,12 @@ use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
 
 use super::EDGE;
-use super::geometry::{dot, sub};
+use super::geometry::{add, dot, sub};
 use typewriter_app::draw::{Metrics, convex_mesh, warp};
 
 /// The eye from the printing point, and how far it looks down.
 const EYE_INCHES: f32 = 24.0;
-const EYE_TILT_DEGREES: f32 = 35.0;
+pub(super) const EYE_TILT_DEGREES: f32 = 35.0;
 /// Text laid flat on the machine is set at this many points an inch, then
 /// bent onto its surface.
 pub(super) const FLAT_TEXT: f32 = 160.0;
@@ -21,11 +21,17 @@ pub(super) fn toward_eye() -> [f32; 3] {
 }
 
 /// The seated eye, anchored at the printing point.
+#[derive(Clone, Copy)]
 pub(super) struct Eye {
     pub(super) origin: Pos2,
     pub(super) ppi: f32,
     /// The tilt's sine and cosine.
     tilt: (f32, f32),
+    /// Where points are measured from, from the printing point.
+    anchor: [f32; 3],
+    /// Across at the sheet's scale, whatever the depth: for what travels
+    /// with the flat sheet.
+    flat_across: bool,
 }
 
 impl Eye {
@@ -38,7 +44,29 @@ impl Eye {
             origin,
             ppi,
             tilt: EYE_TILT_DEGREES.to_radians().sin_cos(),
+            anchor: [0.0; 3],
+            flat_across: false,
         }
+    }
+
+    /// The same eye, placing points across at the sheet's scale.
+    pub(super) fn flat_across(self) -> Self {
+        Self {
+            flat_across: true,
+            ..self
+        }
+    }
+
+    /// The same eye, taking points from `anchor` rather than the printing
+    /// point.
+    pub(super) fn about(self, anchor: [f32; 3]) -> Self {
+        Self { anchor, ..self }
+    }
+
+    /// Whether a face at `p` from the anchor, facing `normal`, is turned
+    /// toward the eye.
+    pub(super) fn faces(&self, p: [f32; 3], normal: [f32; 3]) -> bool {
+        Self::sees(add(p, self.anchor), normal)
     }
 
     /// Whether a face at `p` facing `normal` is turned toward the eye.
@@ -48,7 +76,8 @@ impl Eye {
     }
 
     /// Screen points per inch at `p`: `ppi` at the printing point.
-    pub(super) fn scale(&self, [_, y, z]: [f32; 3]) -> f32 {
+    pub(super) fn scale(&self, p: [f32; 3]) -> f32 {
+        let [_, y, z] = add(p, self.anchor);
         let (sin, cos) = self.tilt;
         let depth = (EYE_INCHES - y * cos - z * sin).max(1.0);
         self.ppi * EYE_INCHES / depth
@@ -56,10 +85,12 @@ impl Eye {
 
     /// Where `p` shows on screen.
     pub(super) fn at(&self, p: [f32; 3]) -> Pos2 {
-        let [x, y, z] = p;
+        let [x, y, z] = add(p, self.anchor);
         let (sin, cos) = self.tilt;
         let up = z * cos - y * sin;
-        self.origin + self.scale(p) * vec2(x, -up)
+        let scale = self.scale(p);
+        let across = if self.flat_across { self.ppi } else { scale };
+        self.origin + vec2(x * across, -up * scale)
     }
 
     pub(super) fn polygon(&self, points: &[[f32; 3]]) -> Vec<Pos2> {

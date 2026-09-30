@@ -21,14 +21,15 @@ mod light;
 mod panel;
 mod printing_point;
 mod side_controls;
+mod support;
 
-pub use carriage::{bail_scale_top, paint_bail, platen_ends};
+pub use carriage::{bail_scale_top, paint_bail, platen_axis_y, platen_ends};
 pub use lever::{Throw, paint_lever, paint_lever_base};
 pub use panel::{Control, Panel};
+pub use support::paper_table;
 
 use eframe::egui::{Color32, Painter, Rect};
 
-use body::THROAT_TOP;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
 use typewriter_app::draw::Metrics;
@@ -39,6 +40,8 @@ use typewriter_app::draw::Metrics;
 const TYPING_LINE_LEANING: f32 = 0.62;
 const TYPING_LINE_SITTING: f32 = 0.25;
 const TYPING_LINE_LEAST: f32 = 0.2;
+/// Past a knob's grip, its outline and shading.
+const KNOB_EDGE: f32 = 2.0;
 /// Between the panel's readings and the window's bottom edge.
 const CONTROLS_ROOM: f32 = 12.0;
 
@@ -71,16 +74,32 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     wanted.min(in_view).max(TYPING_LINE_LEAST)
 }
 
-/// Where the sheet goes out of sight round the platen, for the typing line
+/// Where the sheet goes out of sight under the platen, for the typing line
 /// at `typing_y`: nothing of it shows below.
 pub fn sheet_bottom(view: Rect, metrics: &Metrics, typing_y: f32) -> f32 {
+    let radius = carriage::PLATEN_DIAMETER_INCHES / 2.0 * metrics.points_per_inch;
+    platen_axis_y(view, metrics, typing_y) + radius
+}
+
+/// The ribbon cover again over the knobs, `knobs` on screen: it stands in
+/// front of them, and its rounded corners and slanting sides are no rect
+/// to clip them by.
+pub fn paint_cover_over_knobs(
+    painter: &Painter,
+    view: Rect,
+    metrics: &Metrics,
+    typing_y: f32,
+    knobs: [Rect; 2],
+) {
     let eye = Eye::new(view, metrics, typing_y);
-    eye.at([0.0, THROAT_TOP.0, THROAT_TOP.1]).y
+    for knob in knobs {
+        cover::paint(&painter.with_clip_rect(knob.expand(KNOB_EDGE)), &eye);
+    }
 }
 
 /// Behind the sheet, before it: the machine's shadow, the body's top under
-/// the carriage, the carriage for the sheet centred at `carriage_x`, and the
-/// gap under its platen.
+/// the carriage, the paper support and the carriage for the sheet centred
+/// at `carriage_x`, and the gap under its platen.
 pub fn paint_behind(
     painter: &Painter,
     view: Rect,
@@ -91,7 +110,9 @@ pub fn paint_behind(
     let eye = Eye::new(view, metrics, typing_y);
     body::paint_shadow(painter, &eye);
     body::paint_deck(painter, &eye);
-    carriage::paint(painter, metrics, typing_y, carriage_x);
+    let middle = (carriage_x - eye.origin.x) / eye.ppi;
+    support::paint(painter, &eye, metrics, middle);
+    carriage::paint(painter, &eye, metrics, carriage_x);
     let ends = platen_ends(carriage_x, metrics).map(|x| (x - eye.origin.x) / eye.ppi);
     body::paint_throat(painter, &eye, ends);
 }
@@ -99,11 +120,18 @@ pub fn paint_behind(
 /// In front of the sheet, after it: the alignment guide, ribbon and card
 /// holder at the printing point, the ribbon cover over the type bars, the
 /// front panel and the keyboard.
-pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f32) {
+pub fn paint_front(
+    painter: &Painter,
+    view: Rect,
+    metrics: &Metrics,
+    typing_y: f32,
+    carriage_x: f32,
+) {
     let eye = Eye::new(view, metrics, typing_y);
     // The ribbon hangs down into the cover's opening, and behind its plates.
     cover::paint_opening(painter, &eye);
-    printing_point::paint(painter, &eye, metrics);
+    let inside = carriage::inside(carriage_x, metrics);
+    printing_point::paint(painter, &eye, metrics, inside);
     cover::paint(painter, &eye);
     panel::paint_face(painter, &eye);
     // The keyboard, deepest first: the levers run back under the rows behind

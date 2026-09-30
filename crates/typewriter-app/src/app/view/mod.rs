@@ -99,7 +99,7 @@ mod tests {
     use crate::app::desk::testing::{press, type_text};
     use crate::app::desk::{Answer, Leaving};
     use crate::app::fonts;
-    use crate::draw::{Controls, Metrics, Scene};
+    use crate::draw::{Controls, Metrics, Platen, Scene};
     use crate::input::Action;
     use crate::render::folder::FolderAction;
     use crate::stage::Stage;
@@ -211,7 +211,7 @@ mod tests {
             None
         }
 
-        fn platen_ends(&self, _: &Scene) -> Option<[f32; 2]> {
+        fn platen(&self, _: &Scene) -> Option<Platen> {
             self.note("knobs");
             None
         }

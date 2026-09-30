@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::epaint::{Vertex, WHITE_UV};
+use eframe::egui::epaint::{Mesh, Vertex, WHITE_UV};
 use eframe::egui::{
     self, Color32, ColorImage, CornerRadius, Painter, Pos2, Rect, Shape, TextureFilter,
     TextureHandle, TextureOptions, Vec2, pos2,
@@ -174,6 +174,27 @@ impl Background {
                 color: *colour,
             }),
         };
+        painter.add(Shape::mesh(mesh));
+    }
+
+    /// A sheet `size` points flat, bent into `mesh`: each vertex's uv is
+    /// where on the sheet it is (0..=1), its colour a tint.
+    pub fn paint_bent_sheet(&self, painter: &Painter, size: Vec2, mut mesh: Mesh) {
+        match &self.fill {
+            Fill::Texture(texture) => {
+                let uv = cover_uv(texture.size_vec2(), size);
+                for vertex in &mut mesh.vertices {
+                    vertex.uv = uv.min + vertex.uv.to_vec2() * uv.size();
+                }
+                mesh.texture_id = texture.id();
+            }
+            Fill::Flat(colour) => {
+                for vertex in &mut mesh.vertices {
+                    vertex.uv = WHITE_UV;
+                    vertex.color = vertex.color * *colour;
+                }
+            }
+        }
         painter.add(Shape::mesh(mesh));
     }
 }
