@@ -1,14 +1,12 @@
 //! The scratchpad closed: a kraft-covered pocket memo book, an icon on the
 //! desk and lying beside the folder. Open, it is [`super::pad`].
 
-use eframe::egui::epaint::{TessellationOptions, Tessellator};
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Align, Color32, FontFamily, FontId, Id, Mesh, Painter, Pos2, Rect, Shape, Stroke, Ui, Vec2,
-    pos2, vec2,
+    Align, Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Ui, Vec2, pos2, vec2,
 };
 
-use super::{HIGHLIGHT, rotate};
+use super::{DeskIcon, HIGHLIGHT, rotate};
 
 pub const COVER_FAMILY: &str = "cover";
 pub const JOST: &[u8] = include_bytes!("../../../../assets/fonts/jost/Jost-Bold.ttf");
@@ -54,27 +52,18 @@ const DETAILS: &str =
 
 /// The closed book on the desk, beside the folder icon. True when clicked.
 pub fn desk_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
-    if opacity <= 0.0 {
-        return false;
-    }
     let rect = ICON.translate(view.left_bottom().to_vec2());
-    // React only when fully shown, not mid-fade.
-    let response = (opacity >= 1.0).then(|| {
-        ui.interact(rect, Id::new("scratchpad-icon"), super::CLICK)
-            .on_hover_text("Scratchpad (1)")
-    });
-    let hovered = response.as_ref().is_some_and(|r| r.hovered());
-    let mut painter = ui.painter_at(view);
-    painter.multiply_opacity(opacity);
-    for mut shape in cover(&painter, rect.size(), hovered) {
-        shape.translate(rect.min.to_vec2());
-        painter.add(shape);
-    }
-    if hovered {
-        ui.ctx()
-            .set_cursor_icon(eframe::egui::CursorIcon::PointingHand);
-    }
-    response.is_some_and(|r| r.clicked())
+    let icon = DeskIcon {
+        hit: rect,
+        id: "scratchpad-icon",
+        tip: "Scratchpad (1)",
+    };
+    icon.show(ui, view, opacity, |painter, hovered| {
+        for mut shape in cover(painter, rect.size(), hovered) {
+            shape.translate(rect.min.to_vec2());
+            painter.add(shape);
+        }
+    })
 }
 
 /// The closed cover, `size` points, from (0, 0) at its top-left: square
@@ -188,26 +177,6 @@ pub fn outline(size: Vec2) -> Vec<Pos2> {
     points.extend(arc(pos2(size.x - radius, size.y - radius), 0.0));
     points.push(pos2(0.0, size.y));
     points
-}
-
-/// `shapes` as one mesh, every vertex moved by `to_screen`: draws a flat
-/// design, text included, onto a surface in perspective.
-pub fn warp(painter: &Painter, shapes: Vec<Shape>, to_screen: impl Fn(Pos2) -> Pos2) -> Mesh {
-    let font_image = painter.fonts(|fonts| fonts.font_image_size());
-    let mut tessellator = Tessellator::new(
-        painter.pixels_per_point(),
-        TessellationOptions::default(),
-        font_image,
-        Vec::new(),
-    );
-    let mut mesh = Mesh::default();
-    for shape in shapes {
-        tessellator.tessellate_shape(shape, &mut mesh);
-    }
-    for vertex in &mut mesh.vertices {
-        vertex.pos = to_screen(vertex.pos);
-    }
-    mesh
 }
 
 #[cfg(test)]

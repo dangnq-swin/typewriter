@@ -9,9 +9,11 @@ pub mod folder;
 pub mod holder;
 pub mod knob;
 pub mod note;
+pub mod notice;
 pub mod pad;
 pub mod paper;
 pub mod pdf;
+pub mod perspective;
 pub mod platen;
 pub mod ruler;
 pub mod scratchpad;
@@ -19,8 +21,13 @@ pub mod scrunch;
 pub mod settings;
 
 use std::collections::HashSet;
+use std::fmt::Debug;
+use std::hash::Hash;
 
-use eframe::egui::{Color32, FontFamily, FontId, Rect, Sense, Shape, Stroke, Vec2, vec2};
+use eframe::egui::{
+    Color32, CursorIcon, FontFamily, FontId, Id, Painter, Rect, Response, Sense, Shape, Stroke, Ui,
+    Vec2, vec2,
+};
 use typewriter_core::Profile;
 
 pub const FONT_FAMILY: &str = "typewriter";
@@ -35,18 +42,65 @@ pub const COURIER_ASCENT_EM: f32 = 1600.0 / 2048.0;
 const COURIER_ASCENDER_EM: f32 = 1312.0 / 2048.0;
 const COURIER_DESCENDER_EM: f32 = 410.0 / 2048.0;
 pub const MM_PER_INCH: f32 = 25.4;
+/// Screen points per inch at 100 % zoom.
+const POINTS_PER_INCH: f32 = 96.0;
 
 /// A sheet drawn flat (folder, icons, cards).
 pub const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
 pub const SHEET_EDGE: Color32 = Color32::from_rgb(0xA8, 0xA0, 0x92);
 /// Hovered controls and the typing pointer.
 pub const HIGHLIGHT: Color32 = Color32::from_rgb(0x80, 0x30, 0x20);
+/// The desk dimmed behind the folder, an open sheet or the settings.
+pub const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
+/// Text on the dimmed desk.
+pub const LABEL: Color32 = Color32::from_rgb(0xEE, 0xE8, 0xDC);
+/// A shadow on the desk.
+pub const SHADOW: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x30);
 
 /// Clickable, never focused: Tab and Enter belong to the typewriter, and a
 /// focused control would take Enter as a click.
 pub const CLICK: Sense = Sense::CLICK;
 /// [`CLICK`], and draggable.
 pub const CLICK_AND_DRAG: Sense = Sense::CLICK.union(Sense::DRAG);
+
+/// Clickable `rect` with a tooltip; the pointing hand while hovered.
+pub fn button(ui: &Ui, rect: Rect, id: impl Hash + Debug, tip: &str) -> Response {
+    let response = ui.interact(rect, Id::new(id), CLICK).on_hover_text(tip);
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    response
+}
+
+/// An icon on the desk, fading with the chrome.
+pub struct DeskIcon<'a> {
+    /// Where it answers the pointer.
+    pub hit: Rect,
+    pub id: &'a str,
+    pub tip: &'a str,
+}
+
+impl DeskIcon<'_> {
+    /// Draws it `opacity` shown by `paint` (lit if hovered). Answers only
+    /// fully shown, not mid-fade. True when clicked.
+    pub fn show(
+        &self,
+        ui: &Ui,
+        view: Rect,
+        opacity: f32,
+        paint: impl FnOnce(&Painter, bool),
+    ) -> bool {
+        if opacity <= 0.0 {
+            return false;
+        }
+        let response = (opacity >= 1.0).then(|| button(ui, self.hit, self.id, self.tip));
+        let hovered = response.as_ref().is_some_and(Response::hovered);
+        let mut painter = ui.painter_at(view);
+        painter.multiply_opacity(opacity);
+        paint(&painter, hovered);
+        response.is_some_and(|r| r.clicked())
+    }
+}
 
 /// Page geometry in screen points.
 #[derive(Debug, Clone)]
@@ -109,6 +163,11 @@ impl Metrics {
     pub fn cell_size(&self) -> Vec2 {
         vec2(self.column_width, self.half_line_height * 2.0)
     }
+}
+
+/// Screen points per inch at `zoom_percent`.
+pub fn points_per_inch(zoom_percent: u16) -> f32 {
+    POINTS_PER_INCH * f32::from(zoom_percent) / 100.0
 }
 
 /// Eases 0..=1 in and out. Clamps `t`.

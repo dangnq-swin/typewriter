@@ -3,16 +3,14 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{
-    self, Color32, CornerRadius, CursorIcon, Id, Margin, RichText, Shape, Stroke, Ui, UiBuilder,
-    pos2, vec2,
+    self, Color32, CornerRadius, Margin, Pos2, Rect, RichText, Shape, Stroke, Ui, UiBuilder, pos2,
+    vec2,
 };
-use eframe::egui::{Pos2, Rect};
 
-use super::{HIGHLIGHT, SHEET, SHEET_EDGE};
+use super::{DIM, DeskIcon, HIGHLIGHT, SHEET, SHEET_EDGE};
 use crate::machines::{self, Machines};
 use crate::settings::{self, Settings};
 
-const DIM: Color32 = Color32::from_rgba_premultiplied(0x1A, 0x17, 0x14, 0xB4);
 const TEXT: Color32 = Color32::from_rgb(0x2A, 0x26, 0x22);
 const QUIET: Color32 = Color32::from_rgb(0x6E, 0x66, 0x5A);
 const PROBLEM: Color32 = Color32::from_rgb(0xA0, 0x2C, 0x1C);
@@ -220,39 +218,31 @@ fn machine(ui: &mut Ui, machine: &mut settings::Machine, machines: &Machines) {
 
 /// A small gear right of the calm mode icon. Fades with the chrome.
 pub fn gear_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
-    if opacity <= 0.0 {
-        return false;
-    }
     let centre = view.left_bottom() + vec2(160.0, -31.0);
-    let hit = Rect::from_center_size(centre, vec2(30.0, 30.0));
-    let response = (opacity >= 1.0).then(|| {
-        ui.interact(hit, Id::new("settings-icon"), super::CLICK)
-            .on_hover_text("Settings")
-    });
-    let hovered = response.as_ref().is_some_and(|r| r.hovered());
-    let edge = if hovered { HIGHLIGHT } else { ICON_EDGE };
-    let mut painter = ui.painter_at(view);
-    painter.multiply_opacity(opacity);
-    let outline = gear(centre, 12.0, 9.0, 8);
-    // Not convex: fill as a disc plus a quad per tooth.
-    painter.circle_filled(centre, 9.0, ICON_FILL);
-    let n = outline.len();
-    for i in (0..n).step_by(4) {
-        // Root before, two tips, root after.
-        let quad = vec![
-            outline[(i + n - 1) % n],
-            outline[i],
-            outline[i + 1],
-            outline[i + 2],
-        ];
-        painter.add(Shape::convex_polygon(quad, ICON_FILL, Stroke::NONE));
-    }
-    painter.add(Shape::closed_line(outline, Stroke::new(1.0, edge)));
-    painter.circle(centre, 4.0, Color32::TRANSPARENT, Stroke::new(1.2, edge));
-    if hovered {
-        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-    }
-    response.is_some_and(|r| r.clicked())
+    let icon = DeskIcon {
+        hit: Rect::from_center_size(centre, vec2(30.0, 30.0)),
+        id: "settings-icon",
+        tip: "Settings",
+    };
+    icon.show(ui, view, opacity, |painter, hovered| {
+        let edge = if hovered { HIGHLIGHT } else { ICON_EDGE };
+        let outline = gear(centre, 12.0, 9.0, 8);
+        // Not convex: fill as a disc plus a quad per tooth.
+        painter.circle_filled(centre, 9.0, ICON_FILL);
+        let n = outline.len();
+        for i in (0..n).step_by(4) {
+            // Root before, two tips, root after.
+            let quad = vec![
+                outline[(i + n - 1) % n],
+                outline[i],
+                outline[i + 1],
+                outline[i + 2],
+            ];
+            painter.add(Shape::convex_polygon(quad, ICON_FILL, Stroke::NONE));
+        }
+        painter.add(Shape::closed_line(outline, Stroke::new(1.0, edge)));
+        painter.circle(centre, 4.0, Color32::TRANSPARENT, Stroke::new(1.2, edge));
+    })
 }
 
 /// A gear outline: `teeth` flat-topped teeth between two radii.

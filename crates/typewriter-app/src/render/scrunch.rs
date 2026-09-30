@@ -2,7 +2,7 @@
 
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, Vec2, vec2};
 
-use super::{SHEET, SHEET_EDGE, smoothstep, splitmix64, unit};
+use super::{SHADOW, SHEET, SHEET_EDGE, smoothstep, splitmix64, unit};
 
 /// Keep equal to the crumple sound's length.
 pub const SECONDS: f64 = 0.9;
@@ -13,7 +13,6 @@ const RAYS: usize = 48;
 const CREASES: usize = 9;
 
 const CREASE: Color32 = Color32::from_rgba_premultiplied(0x50, 0x4A, 0x40, 0x50);
-const SHADOW: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x30);
 
 /// Draws the sheet that was `quad`, `t` seconds into scrunching. `seed`
 /// varies the folds per sheet.

@@ -1,12 +1,11 @@
 //! Keeps the project saved: autosave, Save / Save As / Rename, Open and
-//! Export. One project = one `*.folder.ron` file.
+//! Export. One project = one `*.folder.ron` file. Reports what the user
+//! should hear of it; the app shows it.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use anyhow::Context as _;
-use eframe::egui::{self, Color32, CornerRadius, FontId, Id, LayerId, Order, Rect, vec2};
 use typewriter_core::{Typewriter, export};
 
 use crate::machines::Machines;
@@ -15,30 +14,14 @@ use crate::storage;
 
 /// Autosave after this pause in typing.
 const AUTOSAVE_AFTER_SECONDS: f64 = 2.0;
-const NOTICE_SECONDS: f64 = 4.0;
 /// Hold the dot amber this long after a write, so it shows at all.
 const WRITING_SECONDS: f64 = 0.4;
-const NOTICE_FADE_SECONDS: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     Markdown,
     Text,
     Pdf,
-}
-
-/// Which desktop dialog is open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Dialog {
-    SaveAs,
-    Open,
-}
-
-/// A desktop dialog's answer.
-pub enum Picked {
-    SaveAs(PathBuf),
-    Open(PathBuf),
-    Cancelled,
 }
 
 /// How the project is kept. Drives the Autosave plate.
@@ -64,8 +47,6 @@ pub struct Filing {
     path: Option<PathBuf>,
     /// First unsaved change.
     changed_at: Option<f64>,
-    dialog: Option<(Dialog, Receiver<Option<PathBuf>>)>,
-    notice: Option<(String, f64)>,
     /// (when, error if it failed)
     last_write: Option<(f64, Option<String>)>,
 }
@@ -81,12 +62,16 @@ impl Filing {
         Self::with_path(Some(path))
     }
 
+    /// A draft with nowhere to keep it: never written.
+    #[cfg(test)]
+    pub fn nowhere() -> Self {
+        Self::with_path(None)
+    }
+
     fn with_path(path: Option<PathBuf>) -> Self {
         Self {
             path,
             changed_at: None,
-            dialog: None,
-            notice: None,
             last_write: None,
         }
     }
@@ -160,66 +145,74 @@ impl Filing {
     }
 
     /// Writes after a pause in typing. With autosave off, still writes drafts:
-    /// a crash must lose nothing.
-    pub fn autosave(&mut self, machine: &Typewriter, now: f64, autosave: bool) {
+    /// a crash must lose nothing. `Err`: why it failed.
+    pub fn autosave(
+        &mut self,
+        machine: &Typewriter,
+        now: f64,
+        autosave: bool,
+    ) -> Result<(), String> {
         if self
             .changed_at
             .is_some_and(|at| now - at >= AUTOSAVE_AFTER_SECONDS)
         {
-            self.keep(machine, now, autosave);
+            self.keep(machine, now, autosave)?;
         }
+        Ok(())
     }
 
     /// Writes now if autosave would. Call on a sheet feed and on quit.
-    pub fn keep(&mut self, machine: &Typewriter, now: f64, autosave: bool) {
+    pub fn keep(&mut self, machine: &Typewriter, now: f64, autosave: bool) -> Result<(), String> {
         if autosave || !self.is_saved() {
-            self.save(machine, now);
+            self.save(machine, now)?;
         }
+        Ok(())
     }
 
     /// Writes if anything changed. Skips untouched drafts so they don't
-    /// pile up. False if the write failed.
-    pub fn save(&mut self, machine: &Typewriter, now: f64) -> bool {
+    /// pile up. `Err`: why the write failed.
+    pub fn save(&mut self, machine: &Typewriter, now: f64) -> Result<(), String> {
         if self.changed_at.is_none() {
-            return true;
+            return Ok(());
         }
         let Some(path) = self.path.clone() else {
-            return true;
+            return Ok(());
         };
         // On failure too: retry after the next change.
         self.changed_at = None;
         if is_untouched(machine) && storage::is_draft(&path) && !path.exists() {
-            return true;
+            return Ok(());
         }
         let error = write_project(machine, &path)
             .err()
             .map(|err| format!("{err:#}"));
-        if let Some(err) = &error {
-            self.notify(format!("Could not save the project: {err}"), now);
+        self.last_write = Some((now, error.clone()));
+        match error {
+            Some(err) => Err(format!("Could not save the project: {err}")),
+            None => Ok(()),
         }
-        let saved = error.is_none();
-        self.last_write = Some((now, error));
-        saved
     }
 
-    /// The Save command: writes now, or Save As for a draft.
-    pub fn save_now(&mut self, machine: &Typewriter, ctx: &egui::Context, now: f64) {
-        if !self.is_saved() {
-            self.ask(Dialog::SaveAs, ctx);
-            return;
-        }
+    /// The Save command for a saved project: writes now. What to tell.
+    pub fn save_now(&mut self, machine: &Typewriter, now: f64) -> String {
         self.changed(now);
-        if self.save(machine, now) {
-            self.notify("Saved".to_owned(), now);
+        match self.save(machine, now) {
+            Ok(()) => "Saved".to_owned(),
+            Err(err) => err,
         }
     }
 
-    /// Saves under a chosen path; a draft moves there. True if saved.
-    pub fn save_as(&mut self, machine: &Typewriter, chosen: PathBuf, now: f64) -> bool {
+    /// Saves under a chosen path; a draft moves there. What to tell either
+    /// way; `Ok` if saved.
+    pub fn save_as(
+        &mut self,
+        machine: &Typewriter,
+        chosen: PathBuf,
+        now: f64,
+    ) -> Result<String, String> {
         let path = storage::with_extension(chosen);
         if let Err(err) = write_project(machine, &path) {
-            self.notify(format!("Could not save the project: {err:#}"), now);
-            return false;
+            return Err(format!("Could not save the project: {err:#}"));
         }
         self.last_write = Some((now, None));
         if let Some(old) = self.path.replace(path.clone())
@@ -230,51 +223,40 @@ impl Filing {
             let _ = fs::remove_file(old);
         }
         self.changed_at = None;
-        self.notify(format!("Saved as {}", storage::home_relative(&path)), now);
-        true
+        Ok(format!("Saved as {}", storage::home_relative(&path)))
     }
 
-    /// Renames the project's file where it is.
-    pub fn rename(&mut self, machine: &Typewriter, name: &str, now: f64) {
-        let Some(old) = self.path.clone().filter(|_| self.is_saved()) else {
-            return;
-        };
+    /// Renames the project's file where it is. What to tell, if anything.
+    pub fn rename(&mut self, machine: &Typewriter, name: &str) -> Option<String> {
+        let old = self.path.clone().filter(|_| self.is_saved())?;
         if name.is_empty() || name.contains(['/', '\0']) {
-            self.notify("A name cannot be empty or contain a slash.".to_owned(), now);
-            return;
+            return Some("A name cannot be empty or contain a slash.".to_owned());
         }
         let path = old.with_file_name(format!("{name}{}", storage::EXTENSION));
         if path == old {
-            return;
+            return None;
         }
         if path.exists() {
             let taken = storage::home_relative(&path);
-            self.notify(format!("{taken} already exists."), now);
-            return;
+            return Some(format!("{taken} already exists."));
         }
         let renamed = write_project(machine, &old)
             .and_then(|()| fs::rename(&old, &path).context("renaming the file"))
             .and_then(|()| storage::remember_last(&path).context("remembering it"));
-        match renamed {
+        Some(match renamed {
             Ok(()) => {
                 self.path = Some(path);
                 self.changed_at = None;
-                self.notify(format!("Renamed to {name}"), now);
+                format!("Renamed to {name}")
             }
-            Err(err) => self.notify(format!("Could not rename the project: {err:#}"), now),
-        }
+            Err(err) => format!("Could not rename the project: {err:#}"),
+        })
     }
 
-    pub fn export(
-        &mut self,
-        machine: &Typewriter,
-        format: ExportFormat,
-        ink_realism: bool,
-        now: f64,
-    ) {
+    /// Writes an export beside the project. What to tell.
+    pub fn export(&self, machine: &Typewriter, format: ExportFormat, ink_realism: bool) -> String {
         let Some(project) = self.path.clone().filter(|_| self.is_saved()) else {
-            self.notify("Save the project first: exports go beside it.".into(), now);
-            return;
+            return "Save the project first: exports go beside it.".into();
         };
         let document = machine.document();
         let (extension, contents) = match format {
@@ -289,69 +271,23 @@ impl Filing {
         let written = contents
             .and_then(|bytes| storage::write_atomic(&path, &bytes).context("writing the file"));
         match written {
-            Ok(()) => self.notify(
-                format!("Exported to {}", storage::home_relative(&path)),
-                now,
-            ),
-            Err(err) => self.notify(format!("Could not export: {err:#}"), now),
+            Ok(()) => format!("Exported to {}", storage::home_relative(&path)),
+            Err(err) => format!("Could not export: {err:#}"),
         }
     }
 
-    pub fn ask_save_as(&mut self, ctx: &egui::Context) {
-        self.ask(Dialog::SaveAs, ctx);
-    }
-
-    pub fn ask_open(&mut self, ctx: &egui::Context) {
-        self.ask(Dialog::Open, ctx);
-    }
-
-    /// Opens the desktop dialog on a thread, so the window keeps drawing.
-    fn ask(&mut self, dialog: Dialog, ctx: &egui::Context) {
-        if self.dialog.is_some() {
-            return;
-        }
-        let (sender, receiver) = mpsc::channel();
-        let directory = self
-            .path
+    /// Where a file dialog opens: beside the project, unless it is a draft.
+    pub fn dialog_folder(&self) -> Option<PathBuf> {
+        self.path
             .as_deref()
             .filter(|p| !storage::is_draft(p))
             .and_then(Path::parent)
-            .map(Path::to_path_buf);
-        let file_name = format!("{}{}", self.name(), storage::EXTENSION);
-        let ctx = ctx.clone();
-        std::thread::spawn(move || {
-            let mut picker = rfd::FileDialog::new().add_filter("Typewriter project", &["ron"]);
-            if let Some(directory) = directory {
-                picker = picker.set_directory(directory);
-            }
-            let picked = match dialog {
-                Dialog::SaveAs => picker
-                    .set_title("Save the project as")
-                    .set_file_name(file_name)
-                    .save_file(),
-                Dialog::Open => picker.set_title("Open a project").pick_file(),
-            };
-            let _ = sender.send(picked);
-            ctx.request_repaint();
-        });
-        self.dialog = Some((dialog, receiver));
+            .map(Path::to_path_buf)
     }
 
-    /// The dialog's answer, once it has closed.
-    pub fn picked(&mut self) -> Option<Picked> {
-        let (dialog, receiver) = self.dialog.as_ref()?;
-        let picked = match receiver.try_recv() {
-            Err(TryRecvError::Empty) => return None,
-            Ok(picked) => picked,
-            Err(TryRecvError::Disconnected) => None,
-        };
-        let dialog = *dialog;
-        self.dialog = None;
-        Some(match (picked, dialog) {
-            (Some(path), Dialog::SaveAs) => Picked::SaveAs(path),
-            (Some(path), Dialog::Open) => Picked::Open(path),
-            (None, _) => Picked::Cancelled,
-        })
+    /// The project's file name, for Save As to suggest.
+    pub fn file_name(&self) -> String {
+        format!("{}{}", self.name(), storage::EXTENSION)
     }
 
     /// The project to reopen next time.
@@ -363,55 +299,10 @@ impl Filing {
         }
     }
 
-    pub fn notify(&mut self, text: String, now: f64) {
-        self.notice = Some((text, now));
-    }
-
-    /// Takes the notice down early, if it still says `text`.
-    pub fn withdraw(&mut self, text: &str) {
-        if self.notice.as_ref().is_some_and(|(shown, _)| shown == text) {
-            self.notice = None;
-        }
-    }
-
     pub fn is_animating(&self, now: f64) -> bool {
-        self.dialog.is_some()
-            || self
-                .last_write
-                .as_ref()
-                .is_some_and(|(at, _)| now - at < WRITING_SECONDS)
-            || self
-                .notice
-                .as_ref()
-                .is_some_and(|(_, at)| now - at < NOTICE_SECONDS)
-    }
-
-    /// A short fading note at the bottom of the window.
-    pub fn paint_notice(&self, ctx: &egui::Context, view: Rect, now: f64) {
-        let Some((text, at)) = &self.notice else {
-            return;
-        };
-        let age = now - at;
-        if age >= NOTICE_SECONDS {
-            return;
-        }
-        let opacity = ((NOTICE_SECONDS - age) / NOTICE_FADE_SECONDS).min(1.0) as f32;
-        let painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("notice")));
-        let galley = painter.layout(
-            text.clone(),
-            FontId::proportional(13.0),
-            Color32::from_rgb(0xEE, 0xE8, 0xDC).gamma_multiply(opacity),
-            view.width() - 80.0,
-        );
-        let size = galley.size() + vec2(24.0, 14.0);
-        let rect =
-            Rect::from_center_size(view.center_bottom() - vec2(0.0, 90.0 + size.y / 2.0), size);
-        painter.rect_filled(
-            rect,
-            CornerRadius::same(4),
-            Color32::from_rgba_unmultiplied(0x2A, 0x26, 0x22, 0xE0).gamma_multiply(opacity),
-        );
-        painter.galley(rect.min + vec2(12.0, 7.0), galley, Color32::WHITE);
+        self.last_write
+            .as_ref()
+            .is_some_and(|(at, _)| now - at < WRITING_SECONDS)
     }
 }
 
@@ -443,16 +334,6 @@ fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_notice_is_withdrawn_only_while_it_still_says_so() {
-        let mut filing = Filing::draft();
-        filing.notify("Jammed".into(), 0.0);
-        filing.withdraw("Saved");
-        assert!(filing.notice.is_some());
-        filing.withdraw("Jammed");
-        assert!(filing.notice.is_none());
-    }
 
     #[test]
     fn the_autosave_plate_follows_the_last_write() {
