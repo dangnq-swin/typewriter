@@ -57,6 +57,8 @@ The design principles in `AGENTS.md` hold here as well: only what a real office 
 
 ## A desk in perspective
 
+- [ ] ❓ Try out (on the `desk-viewpoint` branch): a desk drawn from the writer's viewpoint, the
+      desktop and the machine seen from the chair, in place of the flat texture behind the page
 - [ ] ❓ The desk as a scene rather than fixed screen positions: the copy holder stands left of
       the document at a fixed angle, and the view (position, field of view) can be moved and
       zoomed, more like a game camera than a page on screen
