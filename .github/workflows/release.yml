@@ -2,13 +2,19 @@
 # and musl) and Windows and publishes a GitHub Release, its notes the tag's
 # message. It stays a draft until every build is attached, each Linux build
 # having run on a virtual display first. Run by hand (Actions → Release → Run
-# workflow) for a dry run: every build and test, no release.
+# workflow) for a dry run of one build or all: builds and tests, no release.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      build:
+        description: Which build to try
+        type: choice
+        options: [all, linux, musl, windows]
+        default: all
 
 permissions:
   contents: write
@@ -44,6 +50,7 @@ jobs:
 
   linux:
     needs: draft
+    if: github.event_name == 'push' || contains(fromJSON('["all", "linux"]'), inputs.build)
     # Built on the oldest runner: the programs need its glibc (2.35) or newer.
     runs-on: ubuntu-22.04
     steps:
@@ -68,6 +75,7 @@ jobs:
 
   musl:
     needs: draft
+    if: github.event_name == 'push' || contains(fromJSON('["all", "musl"]'), inputs.build)
     runs-on: ubuntu-latest
     # Linked to Alpine's musl and libraries, not static: a static build can't
     # load the graphics and window libraries.
@@ -77,7 +85,8 @@ jobs:
     steps:
       - run: >-
           apk add --no-cache build-base pkgconf alsa-lib-dev rustup git github-cli coreutils
-          xvfb xvfb-run xauth mesa-dri-gallium mesa-egl mesa-gl libxkbcommon libxcursor libxi libxrandr
+          xvfb xvfb-run xauth mesa-dri-gallium mesa-egl mesa-gl libxkbcommon libxkbcommon-x11
+          libxcursor libxi libxrandr
       - uses: actions/checkout@v7
       - run: rustup-init -y --no-modify-path --default-toolchain none
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
@@ -91,6 +100,7 @@ jobs:
 
   windows:
     needs: draft
+    if: github.event_name == 'push' || contains(fromJSON('["all", "windows"]'), inputs.build)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
