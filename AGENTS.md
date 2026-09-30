@@ -75,7 +75,8 @@ than keep a listing here.
   test-only: a writer's months of work, seeded.
 - The command line (flags, `--import` among them) is Linux only, in `terminal.rs`. On Windows,
   `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
-  console program there.
+  console program there. Commands are flags (`--import`), never bare words: a bare word is a
+  project file.
 - `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
 - `packaging/linux/`: the desktop entry and the project file type, for `install.sh` and the
