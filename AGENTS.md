@@ -88,6 +88,9 @@ Rules:
 - The core emits **events** (e.g. `Bell`, `CarriageReturn`, `KeyStrike`, `PageEnd`) that the
   app maps to sounds and animation. Do not call audio from the core.
 - Machine characteristics belong in profile data (`profiles/*.toml`), not hard-coded constants.
+- The app decides in the **desk** (`app/desk/`), which knows no egui, sound or window: it takes
+  `Intent`s and asks for `Effect`s. Views (`app/view/`) draw it and push intents; `app/mod.rs`
+  does the effects. Test app behaviour on the desk (`desk/testing.rs`).
 
 ## Folder format
 

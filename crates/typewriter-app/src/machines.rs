@@ -25,15 +25,7 @@ impl Machines {
     /// Built-in machines, then the user's in file name order. Taken names
     /// are refused.
     pub fn load() -> anyhow::Result<Self> {
-        let mut machines = Self {
-            profiles: Vec::new(),
-            problems: Vec::new(),
-        };
-        for (file, text) in BUILT_IN {
-            let profile = Profile::from_toml_str(text)
-                .map_err(|err| anyhow::anyhow!("built-in profile {file}: {err}"))?;
-            machines.profiles.push(profile);
-        }
+        let mut machines = Self::built_in()?;
         let Some(dir) = storage::profiles_dir() else {
             return Ok(machines);
         };
@@ -65,6 +57,21 @@ impl Machines {
             }
         }
         Ok(machines)
+    }
+
+    /// The built-in machines alone.
+    pub fn built_in() -> anyhow::Result<Self> {
+        let profiles = BUILT_IN
+            .iter()
+            .map(|(file, text)| {
+                Profile::from_toml_str(text)
+                    .map_err(|err| anyhow::anyhow!("built-in profile {file}: {err}"))
+            })
+            .collect::<anyhow::Result<_>>()?;
+        Ok(Self {
+            profiles,
+            problems: Vec::new(),
+        })
     }
 
     pub fn all(&self) -> &[Profile] {

@@ -313,6 +313,17 @@ impl SettingsFile {
         }
     }
 
+    /// A file that is never written.
+    #[cfg(test)]
+    pub fn nowhere() -> Self {
+        Self {
+            path: None,
+            written: Settings::default(),
+            changed_at: None,
+            unreadable: false,
+        }
+    }
+
     /// Writes `settings` once settled. `force` writes now (on quit).
     pub fn keep(&mut self, settings: &Settings, now: f64, force: bool) -> Result<(), String> {
         if *settings == self.written {

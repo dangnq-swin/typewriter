@@ -144,6 +144,12 @@ fn running_marker() -> Option<PathBuf> {
 pub struct Running(Option<File>);
 
 impl Running {
+    /// No marker: for tests.
+    #[cfg(test)]
+    pub fn nowhere() -> Self {
+        Self(None)
+    }
+
     /// Marks this run. True if the last run crashed (not merely still running).
     pub fn mark() -> (Self, bool) {
         match running_marker().map(|path| lock_marker(&path)) {

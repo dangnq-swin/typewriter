@@ -42,6 +42,8 @@ pub const COURIER_ASCENT_EM: f32 = 1600.0 / 2048.0;
 const COURIER_ASCENDER_EM: f32 = 1312.0 / 2048.0;
 const COURIER_DESCENDER_EM: f32 = 410.0 / 2048.0;
 pub const MM_PER_INCH: f32 = 25.4;
+/// Screen points per inch at 100 % zoom.
+const POINTS_PER_INCH: f32 = 96.0;
 
 /// A sheet drawn flat (folder, icons, cards).
 pub const SHEET: Color32 = Color32::from_rgb(0xF7, 0xF4, 0xEC);
@@ -161,6 +163,11 @@ impl Metrics {
     pub fn cell_size(&self) -> Vec2 {
         vec2(self.column_width, self.half_line_height * 2.0)
     }
+}
+
+/// Screen points per inch at `zoom_percent`.
+pub fn points_per_inch(zoom_percent: u16) -> f32 {
+    POINTS_PER_INCH * f32::from(zoom_percent) / 100.0
 }
 
 /// Eases 0..=1 in and out. Clamps `t`.

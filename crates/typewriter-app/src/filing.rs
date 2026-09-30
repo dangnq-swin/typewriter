@@ -62,6 +62,12 @@ impl Filing {
         Self::with_path(Some(path))
     }
 
+    /// A draft with nowhere to keep it: never written.
+    #[cfg(test)]
+    pub fn nowhere() -> Self {
+        Self::with_path(None)
+    }
+
     fn with_path(path: Option<PathBuf>) -> Self {
         Self {
             path,

@@ -4,8 +4,8 @@
 //! unless a real machine would: only letters, arrows and Enter do.
 //!
 //! - printable keys: type, except 1 and ! (no such keys) and characters the
-//!   typeface lacks (`app.rs` checks). Accented letters need the machine's
-//!   dead key (`Profile::dead_keys`); the SM9 has none
+//!   typeface lacks (`app/desk/typing.rs` checks). Accented letters need the
+//!   machine's dead key (`Profile::dead_keys`); the SM9 has none
 //! - 1 / !: the scratchpad; Esc or a click away puts it back. While it is
 //!   open, Page Up / Page Down turn its leaves (`render/pad.rs`)
 //! - Enter: return; held, rolls the paper a line per key repeat
@@ -25,7 +25,7 @@
 //!   drag / scroll a knob either side of the paper
 //! - Left / Right: free movement (if allowed)
 //! - Page Up / Page Down, arrows, Shift+arrows, Enter, Esc: the folder;
-//!   `app.rs` redirects them there
+//!   the desk redirects them there
 //! - the writing log up close (click the calendar in the folder): Page Up /
 //!   Page Down turn the months, Esc or a click away puts it back
 //! - Esc: calm mode (typing view)
