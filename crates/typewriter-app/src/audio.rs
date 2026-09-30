@@ -70,6 +70,9 @@ impl Voice {
         match self {
             Self::Key => 3,
             Self::Space | Self::Backspace => 2,
+            // Keys wait only for the audible part: the next feed may start
+            // over the last one's quiet tail.
+            Self::Feed => 2,
             _ => 1,
         }
     }
@@ -426,6 +429,10 @@ mod tests {
         assert!(voices.take(Voice::Key, at(280), key));
         // Voices don't take each other's places.
         assert!(voices.take(Voice::Roll, at(100), Duration::from_millis(100)));
+        // Feeding again once the keys are back, the last feed still ringing.
+        let feed = Duration::from_millis(8460);
+        assert!(voices.take(Voice::Feed, at(0), feed));
+        assert!(voices.take(Voice::Feed, at(4000), feed));
     }
 
     #[test]
