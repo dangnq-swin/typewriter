@@ -1,83 +1,45 @@
 # Roadmap
 
-What comes next, in order. Each step should leave the app in a working, testable state. Items
-marked ❓ need input from the maintainer before implementation starts. Finished work leaves this
-file: the git history and the release notes keep it.
+What comes next, in order: the desk edition's machine first, as that is the work under way;
+then small, important changes to both editions; then larger features, the biggest last. Each
+step should leave the app in a working, testable state. Items marked ❓ need input from the
+maintainer before implementation starts. Finished work leaves this file: the git history and the
+release notes keep it.
+
+The desk edition (`typewriter-desk`) is the immersive, game-like side of the project, kept apart
+so that the plain app stays a focused writing tool (see `AGENTS.md`). Items for it say so.
 
 ---
 
-## Look
+## The desk's machine
 
-- [ ] Night desk: a dim room with a lamp's pool of light on the paper
+On the `desk-viewpoint` branch.
 
-## Ribbon
-
-- [ ] ❓ Two-colour ribbon (black / red) switch
-- [ ] Ribbon wear: ink fades gradually and is refreshed by "changing the ribbon"
-
-## More machines
-
-- [ ] Profiles with their own sounds and typeface
-- [ ] ❓ A machine's look in its profile, built with the second machine: a `[look]` table the app
-      reads (knob colours, the scale), the SM9's by default; and a `model` naming the
-      desk edition's drawing of it. Open: what the desk draws for a profile without one
-- [ ] Elite (12 cpi) type option for the SM9
-- [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
-      its own pitch, typeface, bell offset and sounds
-
-## Paper
-
-- [ ] ❓ Other stock: onion skin, coloured bond, US Letter beside A4, chosen when feeding a
-      sheet (a real stack of paper beside the machine)
-- [ ] ❓ Index cards and envelopes: small stock fed the same way, typed on and filed
-
-## Filing away
-
-- [ ] ❓ Export as .odt, the other half of `typewriter --import`
-- [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
-      (a static binary can't load the system's graphics and window libraries)
-- [ ] ❓ A Flatpak
-
-## Testers
-
-- [ ] ❓ A round of fixes for what trips up the first testers, on the release builds. Choices
-      held back for their feedback (key rebinding among them) are settled afterwards
-
----
-
-# The desk edition
-
-The immersive, game-like side of the project lives apart from the typewriter app so that the
-plain app stays a focused writing tool. It is a separate crate in this workspace (a second
-binary) on the app's library: its room and machine live there and draw through the app's
-hooks, sharing `typewriter-core` and the app's drawing, so that every fix reaches both.
-The design principles in `AGENTS.md` hold here as well: only what a real office has.
-
-## A second binary
-
+- [ ] Desk: the margin rack at the back of the paper table, its two stops set there rather than
+      on the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
+      then set the stops. Dragging it up again, or the next key typed, unfolds it
+- [ ] ❓ Desk: its own levers and keys in place of plates and chords: the line-space lever, tab
+      set and clear keys
+- [ ] ❓ Desk: the carriage lock and the touch control beside the keyboard work. The ribbon
+      selector beside them waits for the two-colour ribbon
+- [ ] ❓ Close the try-out: merge `desk-viewpoint` into `main`
 - [ ] `typewriter-desk` installed and packaged beside `typewriter` (`install.sh`, the release
       builds, its own desktop entry)
 
-## A desk in perspective
+## Small and important
 
-- [ ] ❓ Try out (on the `desk-viewpoint` branch): a desk drawn from the writer's viewpoint, the
-      desktop and the machine seen from the chair, in place of the flat texture behind the page
-- [ ] ❓ The desk as a scene rather than fixed screen positions: the copy holder stands left of
-      the document at a fixed angle, and the view (position, field of view) can be moved and
-      zoomed, more like a game camera than a page on screen. Drawn in real 3D by then (a depth
-      buffer, not parts in a fixed order), first tried on a branch with the SM9's body: how
-      sharp the text stays, and the work
-
-## Around the desk
-
-- [ ] ❓ Drawers holding the projects: open one by pulling its folder out
-- [ ] ❓ A wastepaper basket for scrunched sheets
-- [ ] ❓ A shelf of machines: change profile by lifting another typewriter onto the desk
+- [ ] ❓ Export as .odt, the other half of `typewriter --import`, beside the text and Markdown
+      exports
+- [ ] Elite (12 cpi) type option for the SM9
+- [ ] ❓ Two-colour ribbon (black / red) switch: colour in the folder format. On the desk, the
+      ribbon selector beside the keyboard sets it (blue for black, white for stencil, red)
+- [ ] ❓ A round of fixes for what trips up the first testers, on the release builds. Choices
+      held back for their feedback (key rebinding among them) are settled afterwards
 
 ## Nothing but the desk
 
-The app's icons, plates and menus become the things they stand for, easiest first, each group
-tried on its own before the next.
+The desk edition's icons, plates and menus become the things they stand for, easiest first,
+each group tried on its own before the next.
 
 ### What is already drawn, lying out
 
@@ -94,28 +56,50 @@ tried on its own before the next.
 
 ### Tools on the desk
 
-- [ ] ❓ Correction tools in place of the Correct plate: correction paper tabs, a typewriter
+- [ ] ❓ Correction tools in place of the Correct control: correction paper tabs, a typewriter
       eraser with its brush, a bottle of fluid. Pick one up to use it
-- [ ] ❓ Goals in place of the Goal plate: an egg timer for minutes, a tally slip for words
+- [ ] ❓ Goals in place of the Goal control: an egg timer for minutes, a tally slip for words
 
 ### Sheets by hand
 
 - [ ] ❓ Drag a finished sheet onto the machine to roll it back in, or onto the stand
 - [ ] ❓ Renumber a sheet by pencilling on its corner
 
-### The machine itself
+## Ribbon, paper and light
 
-- [ ] The carriage-return lever at the carriage's left end, thrown on Return. No mouse throw,
-      and no short throw for a line alone: Up / Down roll the platen
-- [ ] The margin rack at the back of the paper table, its two stops set there rather than on
-      the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
-      then set the stops. Dragging it up again, or the next key typed, unfolds it
-- [ ] ❓ Its own levers and keys in place of plates and chords: the line-space lever, tab set
-      and clear keys
-- [ ] ❓ The levers beside the keyboard work: the carriage lock, the touch control, and the
-      ribbon selector (blue for black, white for stencil, red), with the two-colour ribbon
+- [ ] Ribbon wear: ink fades gradually and is refreshed by "changing the ribbon"
+- [ ] ❓ Other stock: onion skin, coloured bond, US Letter beside A4, chosen when feeding a
+      sheet (a real stack of paper beside the machine)
+- [ ] ❓ Index cards and envelopes: small stock fed the same way, typed on and filed
+- [ ] ❓ Desk: night, a dim room with a lamp's pool of light on the paper
 
-## Someday: A walkable office
+## More machines
 
-- [ ] ❓ An immersive desk you can get up from: walk over to a photocopier for copies of
+- [ ] Profiles with their own sounds and typeface
+- [ ] ❓ A machine's look in its profile, built with the second machine: a `[look]` table the app
+      reads (knob colours, the scale), the SM9's by default; and a `model` naming the desk
+      edition's drawing of it. Open: what the desk draws for a profile without one
+- [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
+      its own pitch, typeface, bell offset and sounds
+
+## Packaging
+
+- [ ] ❓ A Flatpak
+- [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
+      (a static binary can't load the system's graphics and window libraries)
+
+## The desk as a scene
+
+- [ ] ❓ Desk: a scene rather than fixed screen positions: the copy holder stands left of the
+      document at a fixed angle, and the view (position, field of view) can be moved and zoomed,
+      more like a game camera than a page on screen. Drawn in real 3D by then (a depth buffer,
+      not parts in a fixed order), first tried on a branch with the SM9's body: how sharp the
+      text stays, and the work
+- [ ] ❓ Desk: drawers holding the projects: open one by pulling its folder out
+- [ ] ❓ Desk: a wastepaper basket for scrunched sheets
+- [ ] ❓ Desk: a shelf of machines: change profile by lifting another typewriter onto the desk
+
+## Someday: a walkable office
+
+- [ ] ❓ Desk: an immersive desk you can get up from: walk over to a photocopier for copies of
       finished sheets (instead of carbon copies at the machine)

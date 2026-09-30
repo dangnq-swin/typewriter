@@ -7,13 +7,16 @@ Guidance for AI coding agents (and humans) working on this repository.
 **typewriter** is a native desktop typewriter simulator for focused, distraction-free
 writing, written in Rust. It emulates the feel and constraints of a real mechanical
 typewriter: fixed pitch, fixed line width, a margin bell, a manual carriage return,
-and typewriter sounds. It renders the text onto a textured sheet of paper.
+typewriter sounds, and the text on a textured sheet of paper.
+
+It comes in two editions on one library: `typewriter`, the plain app, a focused writing tool;
+and `typewriter-desk`, the desk edition, the same machine seen from the chair at a desk.
 
 The first and default machine profile is the **Olympia SM9** (1960s–70s West German
-portable). Other machines are added later as additional profiles.
+portable). Other machines come later as profiles.
 
-See [`ROADMAP.md`](ROADMAP.md) for what comes next. Its sections run in order and carry no
-numbers; finished items leave it, as the git history and release notes keep them.
+[`ROADMAP.md`](ROADMAP.md) lists what comes next, in order and without numbers; finished items
+leave it, as the git history and release notes keep them.
 
 ## Design principles
 
@@ -22,8 +25,7 @@ numbers; finished items leave it, as the git history and release notes keep them
   soundtracks. The one exception is **Delete**, a traceless digital correction method, kept at
   the maintainer's request and off the correction cycle unless the settings add it.
 - **Game-like features go to the desk edition.** A scene with a moving camera, walking about an
-  office and the like belong in the desk edition, a separate crate sharing the core and the
-  app's drawing (see the roadmap), never in `typewriter-app`, which stays a focused writing tool.
+  office and the like belong there, never in the plain app, which stays a focused writing tool.
 - **The plain app's look is settled.** New parts of the machine drawn around the paper (levers,
   the margin rack) are the desk edition's only.
 
@@ -71,18 +73,12 @@ than keep a listing here.
 
 - `crates/typewriter-core`: the machine as a library (pages, carriage, profiles, sessions, the
   folder format), unit-tested without a window.
-- `crates/typewriter-app`: the app as a library, opened by `run()` in `lib.rs` on a `Stage`
-  (`stage.rs`): the eframe window, drawing (`render/`), input, audio, settings, filing and
-  `typewriter --import`. `main.rs` only calls `run(Plain)`. Modules stay private unless
-  `typewriter-import` needs them; the desk edition reaches the app's drawing only through
-  `draw.rs`. `simulate.rs` is test-only: a writer's months of work, seeded.
-- `crates/typewriter-desk`: the desk edition, `run(stage::Desk)` on the app's library. Its room
-  and machine (`room.rs`, `machine/`) live here and draw through the app's `Stage` hooks. Not
-  packaged or released yet.
-- The command line (flags, `--import` among them) is Linux only, in `terminal.rs`. On Windows,
-  `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
-  console program there. Commands are flags (`--import`), never bare words: a bare word is a
-  project file.
+- `crates/typewriter-app`: the app as a library, and `typewriter`. `run()` in `lib.rs` opens it
+  on a `Stage` (`stage.rs`); `main.rs` only calls `run(Plain)`. The window, drawing
+  (`render/`), input, audio, settings, filing, the command line and `typewriter --import`.
+  `simulate.rs` is test-only: a writer's months of work, seeded.
+- `crates/typewriter-desk`: the desk edition, `run(stage::Desk)` on the app's library: its room
+  (`room.rs`) and machine (`machine/`). Not packaged or released yet.
 - `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
 - `packaging/linux/`: the desktop entry and the project file type, for `install.sh` and the
@@ -96,7 +92,7 @@ than keep a listing here.
   - `convert-format-8.sh`: converts projects from before folder format 1.0.
 - `README.md` is the maintainer's: keep only its *Controls* section current.
 
-Rules:
+## Architecture rules
 
 - `typewriter-core` must not depend on `egui`, `eframe`, audio crates, or the filesystem
   (except through `serde` types). The app crate handles all side effects.
@@ -106,13 +102,21 @@ Rules:
 - The app decides in the **desk** (`app/desk/`), which knows no egui, sound or window: it takes
   `Intent`s and asks for `Effect`s. Views (`app/view/`) draw it and push intents; `app/mod.rs`
   does the effects. Test app behaviour on the desk (`desk/testing.rs`).
+- The app's modules stay private unless `typewriter-import` needs them.
+- The command line (flags, `--import` among them) is Linux only, in `terminal.rs`. On Windows,
+  `typewriter` has no console, so anything it prints is lost; `typewriter-import` is the one
+  console program there. Commands are flags (`--import`), never bare words: a bare word is a
+  project file.
+
+### The two editions
+
 - What only the desk edition draws lives in `typewriter-desk`, never in the app. Where it needs
   to draw, the app offers a hook on `Stage` whose default is the plain app's, and the typing
-  view calls the hooks in its steps (behind the sheets, over them, around the knobs). The desk
-  edition keeps no state: the app's desk keeps what it draws from (e.g. the last return), and
-  clicks on its controls come back to the app as rects.
-- Share drawing with the desk edition by re-exporting it in `draw.rs`, not by making a module
-  public.
+  view calls the hooks in its steps (behind the sheets, over them, around the knobs).
+- The desk edition keeps no state: the app's desk keeps what it draws from (e.g. the last
+  return), and clicks on its controls come back to the app as rects.
+- It reaches the app's drawing only through `draw.rs`: share a helper by re-exporting it there,
+  not by making a module public.
 
 ## Folder format
 
@@ -145,7 +149,8 @@ at the top of the file. Changing what the files hold needs the maintainer's yes 
 
 ```sh
 cargo build --workspace
-cargo run
+cargo run                     # typewriter
+cargo run -p typewriter-desk  # the desk edition
 cargo test --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -155,18 +160,9 @@ A change is done when fmt, clippy (warnings denied) and tests all pass. A change
 or the packaging is done when a by-hand run of the Release workflow passes for the builds it
 touches.
 
-CI (`.github/workflows/`) runs those three on Linux for every push. The Windows build is started
-by hand (Actions → Windows build → Run workflow) and leaves the programs as a download on the
-run. Keep the workflows in step with the commands above.
-
-Releases follow semver on `version` in `Cargo.toml`, which is separate from the folder format's
-version. To release: bump it, commit and push, wait for Checks, then push an annotated tag
-`vX.Y.Z` whose message is the release notes (`git tag -a v0.1.0 -F notes.md`). `release.yml`
-builds Linux for glibc (on the oldest Ubuntu runner, for its older glibc) and for musl (on Alpine,
-linked to its libraries: a static build can't open a window), and Windows. Each Linux build must
-run on a virtual display (`scripts/smoke-test.sh`). It attaches the tarballs, AppImage and zip,
-and publishes the Release once all are there; a failed build leaves it a draft. Run by hand
-(Actions → Release → Run workflow), it is a dry run of one build or all, with nothing released.
+CI (`.github/workflows/`) runs those three on Linux for every push; keep the workflows in step
+with the commands above. The Windows build is started by hand (Actions → Windows build → Run
+workflow) and leaves the programs as a download on the run.
 
 After pushing, check that the push's Checks run passed, with whatever GitHub access you have (the
 `gh` CLI, or a GitHub MCP server with its Actions tools), and report a failure with its log. With
@@ -179,6 +175,19 @@ manuscript instead of seeded prose):
 cargo test -p typewriter-app --release -- --ignored --nocapture novel
 ```
 
+### Releases
+
+Releases follow semver on `version` in `Cargo.toml`, which is separate from the folder format's
+version. To release: bump it, commit and push, wait for Checks, then push an annotated tag
+`vX.Y.Z` whose message is the release notes (`git tag -a v0.1.0 -F notes.md`).
+
+`release.yml` builds Linux for glibc (on the oldest Ubuntu runner, for its older glibc) and for
+musl (on Alpine, linked to its libraries: a static build can't open a window), and Windows. Each
+Linux build must run on a virtual display (`scripts/smoke-test.sh`). It attaches the tarballs,
+AppImage and zip, and publishes the Release once all are there; a failed build leaves it a
+draft. Run by hand (Actions → Release → Run workflow), it is a dry run of one build or all, with
+nothing released.
+
 ## Code style
 
 - `rustfmt` defaults, idiomatic naming, edition 2024 idioms (let chains, `is_some_and`, …).
@@ -187,8 +196,9 @@ cargo test -p typewriter-app --release -- --ignored --nocapture novel
 - Errors: `thiserror` in the core, `anyhow` at the app boundary.
 - No `unwrap()`/`expect()` outside tests unless the invariant is stated at the call site.
 - Reuse before adding. Shared drawing helpers and the palette live in `render/mod.rs`, pencil
-  text fields in `render/note.rs` (`PencilField`), path and file helpers in `storage.rs`: read
-  them before writing a helper. Extract one once the same logic appears twice.
+  text fields in `render/note.rs` (`PencilField`), path and file helpers in `storage.rs`; the
+  desk's machine shares `machine/geometry.rs` and `machine/light.rs`. Read them before writing a
+  helper. Extract one once the same logic appears twice.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
 - Config and data paths follow XDG (`$XDG_CONFIG_HOME/typewriter`, `$XDG_DATA_HOME/typewriter`);
   on Windows both live in `%APPDATA%\typewriter`. Windows shows paths in full, never as `~`.
@@ -224,8 +234,11 @@ what the next line plainly does.
 the controls already show or that is documented elsewhere. Hover tooltips are fine. Problems
 (a broken profile, a missing machine, a failed save) are always shown.
 
-## Commits
+## Commits and branches
 
-- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`).
+- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`), with
+  `desk:` after the type for the desk edition (`feat: desk: …`).
 - One logical change per commit. Do not commit or push unless asked.
-- Commit straight to `main` for now. Branches start with the desk edition.
+- The plain app and shared code go straight to `main`. The desk edition is built on the
+  `desk-viewpoint` branch: a fix to shared code lands on `main` first and is merged into the
+  branch (merged, not rebased: the branch is pushed).
