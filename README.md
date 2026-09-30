@@ -116,3 +116,5 @@ lines as the margin has room for). Click elsewhere or press Esc when done.
 
 The folder's **Export…** plate writes the project as `.md`, `.txt` or `.pdf` (the sheets as typed), beside the
 project file. Margin notes are included while the notebook isn't.
+
+There's also printing options.
