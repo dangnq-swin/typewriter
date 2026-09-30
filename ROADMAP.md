@@ -72,8 +72,7 @@ M0–M9 are done; the git history has the details.
       (`scripts/convert-format-8.sh` converts format 8)
 - [x] Print: every sheet or the chosen one, from the folder's Export… plate, opened in the
       desktop's PDF viewer to print from its own dialog (draft or not)
-- [ ] Verify and support X11 (Wayland is the current target)
-- [ ] macOS builds
+- [x] Verify and support X11 (Wayland is the current target): checked through XWayland
 
 ## M17: Look
 
