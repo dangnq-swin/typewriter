@@ -1,5 +1,5 @@
 //! Keeps the project saved: autosave, Save / Save As / Rename, Open and
-//! Export. One project = one `*.folder.ron` file. Reports what the user
+//! Export. One project = one `*.typr` file. Reports what the user
 //! should hear of it; the app shows it.
 
 use std::fs;
@@ -9,7 +9,7 @@ use anyhow::Context as _;
 use typewriter_core::{Typewriter, export};
 
 use crate::machines::Machines;
-use crate::render::{calendar, pdf};
+use crate::render::pdf;
 use crate::storage;
 
 /// Autosave after this pause in typing.
@@ -318,11 +318,7 @@ fn is_untouched(machine: &Typewriter) -> bool {
 pub fn open(machines: &Machines, path: &Path) -> anyhow::Result<Typewriter> {
     let text = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let machine = |name: &str| machines.find(name);
-    Ok(Typewriter::from_folder_ron(
-        &text,
-        machine,
-        calendar::local_day,
-    )?)
+    Ok(Typewriter::from_folder_ron(&text, machine)?)
 }
 
 fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {
@@ -337,7 +333,7 @@ mod tests {
 
     #[test]
     fn the_autosave_plate_follows_the_last_write() {
-        let mut filing = Filing::at(PathBuf::from("/nowhere/novel.folder.ron"));
+        let mut filing = Filing::at(PathBuf::from("/nowhere/novel.typr"));
         assert_eq!(filing.keeping(false, 0.0), Keeping::Off { unsaved: false });
         filing.changed(1.0);
         assert_eq!(filing.keeping(false, 1.0), Keeping::Off { unsaved: true });

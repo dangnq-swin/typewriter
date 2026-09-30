@@ -75,7 +75,7 @@ fn help(command: &str, usage: &str) -> String {
 {usage}
 
 Types each paragraph on the machine new projects use, sheet after sheet, into
-`project`, or else beside the manuscript under its name (.folder.ron). Never
+`project`, or else beside the manuscript under its name (.typr). Never
 overwrites a file.
 
 {}",
@@ -84,7 +84,7 @@ overwrites a file.
     )
 }
 
-/// `notes/draft.odt` → `notes/draft.folder.ron`.
+/// `notes/draft.odt` → `notes/draft.typr`.
 fn beside(source: &Path) -> PathBuf {
     storage::with_extension(source.with_extension(""))
 }
@@ -97,7 +97,7 @@ mod tests {
     fn the_project_lands_beside_the_manuscript() {
         assert_eq!(
             beside(Path::new("notes/draft.odt")),
-            Path::new("notes/draft.folder.ron")
+            Path::new("notes/draft.typr")
         );
     }
 

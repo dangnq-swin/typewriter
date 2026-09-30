@@ -78,7 +78,8 @@ than keep a listing here.
 - `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
 - `scripts/`: `install.sh` builds and installs for the current user; `prepare-sounds.sh` cuts
-  the sounds from their CC0 sources.
+  the sounds from their CC0 sources; `convert-format-8.sh` converts projects from before folder
+  format 1.0.
 - `README.md` is the maintainer's: keep only its *Controls* section current.
 
 Rules:
@@ -94,13 +95,19 @@ Rules:
 
 ## Folder format
 
-Projects are `*.folder.ron` files (`typewriter-core/src/document.rs`). Changing what they hold
-needs the maintainer's yes (see above), and then:
+Projects are `*.typr` files (`typewriter-core/src/document.rs`), RON inside. The format is
+versioned major.minor, written `version: "1.0"` at the top of the file. Changing what the files hold needs the maintainer's yes (see above).
 
-- Bump `FORMAT_VERSION`, with a one-line note of what changed.
-- Keep opening every older version; write only the newest. Read a retired field with
-  `#[serde(default, skip_serializing)]` and fold it into its replacement.
-- Add a test that opens a file in the previous version.
+- **Minor** (1.1, 1.2, …): only what older files lack and can be read with defaults. The app
+  opens every older minor of its major and writes only its own. Bump the minor in
+  `FORMAT_VERSION`'s note, read the new field with `#[serde(default)]`, and add a test that opens
+  a file of the previous minor. A retired field is read with `#[serde(default, skip_serializing)]`
+  and folded into its replacement.
+- **Major** (2.0): anything older files can't be read into with defaults. The app refuses older
+  majors and says so; ship a conversion with it (a script or a command), as
+  `scripts/convert-format-8.sh` converts the last format from before 1.0.
+- Files from a newer version, minor or major, are refused with the reason: opening one would drop
+  what this build doesn't know on the next save.
 - Parse straight into the real types, never in a pass that ignores fields (such as reading
   `version` alone): ron skips ignored values in quadratic time, hours for a novel. The
   reopening-time test in `simulate.rs` guards this.

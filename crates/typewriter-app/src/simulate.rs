@@ -445,7 +445,7 @@ mod tests {
         let saved = start.elapsed();
         let profile = machine.profile().clone();
         let start = Instant::now();
-        let back = Typewriter::from_folder_ron(&text, |_| Some(profile), |_| first_day()).unwrap();
+        let back = Typewriter::from_folder_ron(&text, |_| Some(profile)).unwrap();
         (text, back, [saved, start.elapsed()])
     }
 

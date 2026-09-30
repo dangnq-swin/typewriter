@@ -1,29 +1,83 @@
 //! The sheets typed so far (filed ones and the one in the machine) and the
 //! folder file that saves them.
 
-use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use crate::carriage::Carriage;
 use crate::constraints::Constraints;
 use crate::page::{Page, Shift};
 use crate::scratchpad::Scratchpad;
-use crate::session::{SessionStats, WritingLog};
+use crate::session::WritingLog;
 
-/// Bump when older versions can't read the file. 2: session stats. 3: notes.
-/// 4: scratchpad. 5: type jams, the Delete correction. 6: re-fed sheets.
-/// 7: words per day instead of sessions. 8: lines as text.
-pub const FORMAT_VERSION: u32 = 8;
+/// The folder format this build writes. 1.0: format 8 of the numbering
+/// before it, pinned.
+pub const FORMAT_VERSION: FormatVersion = FormatVersion { major: 1, minor: 0 };
+
+/// A folder format, written `"1.0"`. A minor version only adds what older
+/// files lack and read with defaults; a major one needs files converted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FormatVersion {
+    pub major: u16,
+    pub minor: u16,
+}
+
+impl FormatVersion {
+    /// Whether this build opens a file of this version.
+    fn check(self) -> Result<(), FolderError> {
+        if self > FORMAT_VERSION {
+            Err(FolderError::NewerVersion(self))
+        } else if self.major < FORMAT_VERSION.major {
+            Err(FolderError::OlderMajor(self))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl fmt::Display for FormatVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl FromStr for FormatVersion {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let not_one = || format!("not a folder format version: {text:?}");
+        let (major, minor) = text.split_once('.').ok_or_else(not_one)?;
+        Ok(Self {
+            major: major.parse().map_err(|_| not_one())?,
+            minor: minor.parse().map_err(|_| not_one())?,
+        })
+    }
+}
+
+impl Serialize for FormatVersion {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for FormatVersion {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(serde::de::Error::custom)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     finished: Vec<Page>,
     current: Page,
-    /// Absent before version 4.
-    #[serde(default)]
     scratchpad: Scratchpad,
     /// A finished sheet rolled back in goes back here among the finished
-    /// ones when fed out. Absent before version 6.
+    /// ones when fed out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     returns_to: Option<usize>,
 }
@@ -157,21 +211,16 @@ impl Document {
     }
 }
 
-/// A folder file (`*.folder.ron`): the document plus the machine's state, so
+/// A folder file (`*.typr`): the document plus the machine's state, so
 /// typing resumes where it stopped.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct FolderFile {
-    pub version: u32,
+    pub version: FormatVersion,
     /// Profile name, looked up on load.
     pub profile: String,
     pub constraints: Constraints,
     pub carriage: Carriage,
     pub document: Document,
-    /// Versions 2 to 6: read to fold into `log`, never written.
-    #[serde(default, skip_serializing)]
-    pub sessions: Vec<SessionStats>,
-    /// Absent before version 7.
-    #[serde(default)]
     pub log: WritingLog,
 }
 
@@ -181,8 +230,15 @@ pub enum FolderError {
     Unreadable(#[from] ron::error::SpannedError),
     #[error("the folder could not be written: {0}")]
     Unwritable(#[from] ron::Error),
-    #[error("made by a newer version of typewriter (folder format {0})")]
-    NewerVersion(u32),
+    #[error("made by a newer version of Typewriter (folder format {0})")]
+    NewerVersion(FormatVersion),
+    #[error("folder format {0} needs converting to {FORMAT_VERSION} first")]
+    OlderMajor(FormatVersion),
+    #[error(
+        "saved before folder format 1.0 (format {0}): convert a format 8 file with \
+         scripts/convert-format-8.sh"
+    )]
+    BeforeOne(u32),
     #[error("typed on a machine this version does not have: {0}")]
     UnknownMachine(String),
     #[error("its sheets do not fit the {0}")]
@@ -197,36 +253,48 @@ impl FolderFile {
         Ok(ron::ser::to_string_pretty(self, pretty)?)
     }
 
-    /// A newer file says so, whether or not it parses.
+    /// A file this build can't open says why, whether or not it parses.
     pub fn from_ron(text: &str) -> Result<Self, FolderError> {
         // Never parse just the version: ron skips the rest of the file in
         // quadratic time, hours for a novel.
-        let newer = |version: u32| (version > FORMAT_VERSION).then_some(version);
         match ron::from_str::<Self>(text) {
-            Ok(file) => match newer(file.version) {
-                Some(version) => Err(FolderError::NewerVersion(version)),
-                None => Ok(file),
-            },
-            Err(err) => match leading_version(text).and_then(newer) {
-                Some(version) => Err(FolderError::NewerVersion(version)),
-                None => Err(err.into()),
-            },
+            Ok(file) => file.version.check().map(|()| file),
+            Err(err) => Err(match leading_version(text) {
+                Some(Leading::Numbered(format)) => FolderError::BeforeOne(format),
+                Some(Leading::Version(version)) => match version.check() {
+                    Err(refused) => refused,
+                    Ok(()) => err.into(),
+                },
+                None => err.into(),
+            }),
         }
     }
 }
 
-/// The version from a folder file's opening `(version: N`, as written.
-fn leading_version(text: &str) -> Option<u32> {
+/// A folder file's opening version, as written.
+#[derive(Debug, PartialEq, Eq)]
+enum Leading {
+    /// Before 1.0: `version: 8`.
+    Numbered(u32),
+    Version(FormatVersion),
+}
+
+/// The version from a folder file's opening `(version: …`.
+fn leading_version(text: &str) -> Option<Leading> {
     let rest = text.trim_start().strip_prefix('(')?.trim_start();
     let rest = rest
         .strip_prefix("version")?
         .trim_start()
-        .strip_prefix(':')?;
-    let rest = rest.trim_start();
+        .strip_prefix(':')?
+        .trim_start();
+    if let Some(quoted) = rest.strip_prefix('"') {
+        let (version, _) = quoted.split_once('"')?;
+        return version.parse().ok().map(Leading::Version);
+    }
     let digits = rest
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(rest.len());
-    rest[..digits].parse().ok()
+    rest[..digits].parse().ok().map(Leading::Numbered)
 }
 
 #[cfg(test)]
@@ -234,18 +302,62 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_newer_folder_file_says_so_even_when_it_does_not_parse() {
-        let newer = "(\n    version: 99,\n    sheets: [\"something new\"],\n)";
+    fn versions_are_written_major_dot_minor() {
+        assert_eq!(FORMAT_VERSION.to_string(), "1.0");
+        let v = |text: &str| text.parse::<FormatVersion>();
+        assert_eq!(
+            v("1.12"),
+            Ok(FormatVersion {
+                major: 1,
+                minor: 12
+            })
+        );
+        assert!(v("1").is_err() && v("1.x").is_err() && v("").is_err());
+        assert!(v("1.10").unwrap() > v("1.9").unwrap(), "numbers, not text");
+    }
+
+    #[test]
+    fn a_file_this_build_cannot_open_says_why_even_unparsed() {
+        let refused = |text: &str| FolderFile::from_ron(text).err().map(|e| e.to_string());
+        let newer = "(\n    version: \"1.1\",\n    sheets: [\"something new\"],\n)";
+        assert_eq!(
+            refused(newer).unwrap(),
+            "made by a newer version of Typewriter (folder format 1.1)"
+        );
+        assert!(
+            refused("(version: \"2.0\", x: 1)")
+                .unwrap()
+                .contains("format 2.0")
+        );
+        let old = "(\n    version: 8,\n    profile: \"Olympia SM9\",\n)";
         assert!(matches!(
-            FolderFile::from_ron(newer),
-            Err(FolderError::NewerVersion(99))
+            FolderFile::from_ron(old),
+            Err(FolderError::BeforeOne(8))
         ));
-        let broken = format!("(version: {FORMAT_VERSION}, sheets: 1)");
+        let broken = format!("(version: \"{FORMAT_VERSION}\", sheets: 1)");
         assert!(matches!(
             FolderFile::from_ron(&broken),
             Err(FolderError::Unreadable(_))
         ));
-        assert_eq!(leading_version("  ( version :12, x"), Some(12));
+    }
+
+    #[test]
+    fn an_older_major_needs_converting() {
+        let older = FormatVersion { major: 0, minor: 9 };
+        assert!(matches!(older.check(), Err(FolderError::OlderMajor(_))));
+        assert!(FORMAT_VERSION.check().is_ok());
+    }
+
+    #[test]
+    fn the_opening_version_is_read_as_written() {
+        assert_eq!(
+            leading_version("  ( version :12, x"),
+            Some(Leading::Numbered(12))
+        );
+        assert_eq!(
+            leading_version("(\n    version: \"1.3\","),
+            Some(Leading::Version(FormatVersion { major: 1, minor: 3 }))
+        );
         assert_eq!(leading_version("(profile: \"x\", version: 3)"), None);
     }
 

@@ -78,6 +78,6 @@ mod tests {
         assert!(is_help(OsStr::new("-h")) && is_help(OsStr::new("--help")));
         assert!(is_version(OsStr::new("-V")) && is_version(OsStr::new("--version")));
         assert!(is_option(OsStr::new("--bogus")));
-        assert!(!is_option(OsStr::new("novel.folder.ron")));
+        assert!(!is_option(OsStr::new("novel.typr")));
     }
 }

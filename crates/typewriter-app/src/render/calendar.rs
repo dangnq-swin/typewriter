@@ -8,9 +8,8 @@ use eframe::egui::{
     Align2, Color32, CursorIcon, FontFamily, FontId, Id, Painter, Pos2, Rect, Shape, Stroke,
     StrokeKind, Ui, Vec2, pos2, vec2,
 };
+use jiff::ToSpan;
 use jiff::civil::Date;
-use jiff::tz::TimeZone;
-use jiff::{Timestamp, ToSpan};
 use typewriter_core::WritingLog;
 
 use super::note::{GRAPHITE, PENCIL_FAMILY};
@@ -29,19 +28,6 @@ const WEEKDAYS: [&str; 7] = ["M", "T", "W", "T", "F", "S", "S"];
 const PRINT: Color32 = Color32::from_rgb(0x3A, 0x34, 0x2E);
 const SUNDAY: Color32 = Color32::from_rgb(0xA8, 0x3A, 0x2A);
 const RULE: Color32 = Color32::from_rgba_premultiplied(0x50, 0x48, 0x3C, 0x40);
-
-/// The local day of Unix `seconds`.
-pub fn local_day(seconds: u64) -> Date {
-    day_in(seconds, &TimeZone::system())
-}
-
-fn day_in(seconds: u64, tz: &TimeZone) -> Date {
-    let at = i64::try_from(seconds)
-        .ok()
-        .and_then(|s| Timestamp::from_second(s).ok())
-        .unwrap_or(Timestamp::MAX);
-    tz.to_datetime(at).date()
-}
 
 pub fn today() -> Date {
     jiff::Zoned::now().date()
@@ -423,20 +409,6 @@ mod tests {
             log.add(day, words);
         }
         log
-    }
-
-    #[test]
-    fn days_are_local() {
-        let berlin = TimeZone::get("Europe/Berlin").unwrap();
-        // 1 August 2026, 00:30 in Berlin: still 31 July in UTC.
-        let seconds = date(2026, 8, 1)
-            .at(0, 30, 0, 0)
-            .to_zoned(berlin.clone())
-            .unwrap()
-            .timestamp()
-            .as_second() as u64;
-        assert_eq!(day_in(seconds, &berlin), date(2026, 8, 1));
-        assert_eq!(day_in(seconds, &TimeZone::UTC), date(2026, 7, 31));
     }
 
     #[test]

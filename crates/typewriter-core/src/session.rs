@@ -65,34 +65,12 @@ impl Goal {
     }
 }
 
-/// One session, as folder files kept them before format 7. Read only to fold
-/// into the [`WritingLog`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionStats {
-    /// Unix seconds.
-    pub started: u64,
-    /// Typing time, long pauses left out.
-    pub seconds: u32,
-    /// Net words: at the end less at the start (corrections subtract).
-    pub words: i64,
-}
-
 /// Net words per day: one entry for each day written on.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct WritingLog(BTreeMap<Date, i64>);
 
 impl WritingLog {
-    /// Old sessions, each counted on the day it started. `day`: Unix seconds
-    /// to their day.
-    pub fn from_sessions(sessions: &[SessionStats], day: impl Fn(u64) -> Date) -> Self {
-        let mut log = Self::default();
-        for s in sessions {
-            log.add(day(s.started), s.words);
-        }
-        log
-    }
-
     /// Adds `words` (negative: corrections) to `day`. A day back at zero
     /// is dropped.
     pub fn add(&mut self, day: Date, words: i64) {
@@ -405,21 +383,6 @@ mod tests {
         );
         let progress = session.progress().unwrap();
         assert_eq!((progress.words, progress.minutes), (2, 1));
-    }
-
-    #[test]
-    fn old_sessions_fold_into_the_days_they_started() {
-        let session = |started, words| SessionStats {
-            started,
-            seconds: 60,
-            words,
-        };
-        let day = |seconds: u64| jiff::civil::date(2026, 9, 1 + (seconds / 100) as i8);
-        let log =
-            WritingLog::from_sessions(&[session(10, 100), session(90, -5), session(150, 40)], day);
-        let days: Vec<_> = log.days().iter().map(|(d, &w)| (d.day(), w)).collect();
-        assert_eq!(days, [(1, 95), (2, 40)]);
-        assert_eq!(log.words(), 135);
     }
 
     #[test]

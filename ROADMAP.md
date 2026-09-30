@@ -66,6 +66,8 @@ M0–M9 are done; the git history has the details.
 ## M16: Desktop integration
 
 - [ ] Open `*.folder.ron` files from the file manager (a MIME type)
+- [x] Folder format 1.0, versioned major.minor: format 8 pinned, older files no longer opened
+      (`scripts/convert-format-8.sh` converts format 8)
 - [ ] Print: send the PDF export to a printer
 - [ ] Verify and support X11 (Wayland is the current target)
 - [ ] macOS builds

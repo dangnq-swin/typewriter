@@ -41,7 +41,7 @@ impl Picker {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let mut picker = rfd::FileDialog::new().add_filter("Typewriter project", &["ron"]);
+            let mut picker = rfd::FileDialog::new().add_filter("Typewriter project", &["typr"]);
             if let Some(directory) = directory {
                 picker = picker.set_directory(directory);
             }

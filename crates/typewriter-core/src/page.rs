@@ -125,22 +125,16 @@ pub struct Page {
 struct PageFile {
     columns: u16,
     half_lines: u16,
-    /// Every cell, before format 8. Read, never written.
-    #[serde(default, skip_serializing)]
-    cells: BTreeMap<(u16, u16), Cell>,
     /// Half-line → (first column, text); a space is a blank cell.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     lines: BTreeMap<u16, (u16, String)>,
     /// Cells holding more than one plain letter: overstrikes, corrections.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     stacks: BTreeMap<(u16, u16), Cell>,
-    /// Absent before format 3.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     note: String,
-    /// Absent before format 6.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     refeeds: Vec<Shift>,
-    /// Absent before format 6.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     fed: BTreeMap<(u16, u16), Vec<u8>>,
 }
@@ -170,7 +164,6 @@ impl From<Page> for PageFile {
         Self {
             columns: page.columns,
             half_lines: page.half_lines,
-            cells: BTreeMap::new(),
             lines,
             stacks,
             note: page.note,
@@ -182,7 +175,7 @@ impl From<Page> for PageFile {
 
 impl From<PageFile> for Page {
     fn from(file: PageFile) -> Self {
-        let mut cells = file.cells;
+        let mut cells = BTreeMap::new();
         for (half_line, (first, text)) in file.lines {
             // Bounded: a damaged file can't run the column past the end.
             for (column, letter) in (first..=u16::MAX).zip(text.chars()) {
@@ -430,17 +423,6 @@ mod tests {
             ron::from_str(r#"(columns: 10, half_lines: 10, lines: {0: (65535, "abc")})"#).unwrap();
         assert_eq!(page.cells().count(), 1);
         assert!(!page.fits(10, 10));
-    }
-
-    #[test]
-    fn a_sheet_from_before_line_text_opens() {
-        let old = "(columns: 10, half_lines: 10, cells: {(0, 1): [Glyph('a')], \
-                   (0, 2): [Glyph('b'), Correction(Eraser)]})";
-        let page: Page = ron::from_str(old).unwrap();
-        assert_eq!(page.cell(0, 1).unwrap().marks(), [Mark::Glyph('a')]);
-        assert_eq!(page.cell(0, 2).unwrap().marks().len(), 2);
-        let text = ron::to_string(&page).unwrap();
-        assert!(text.contains(r#"lines:{0:(1,"a")}"#), "{text}");
     }
 
     #[test]

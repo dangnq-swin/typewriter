@@ -9,7 +9,7 @@ use anyhow::bail;
 use crate::{OPTIONS, VERSION, import, is_help, is_option, is_version, storage};
 
 const USAGE: &str = "\
-usage: typewriter [project.folder.ron]
+usage: typewriter [project.typr]
        typewriter import manuscript.odt [project]";
 
 /// Handles a command or flag. False if the app should open.
@@ -61,7 +61,7 @@ mod tests {
     fn a_project_file_opens_the_app() {
         let args = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
         assert!(!run(&args(&[])).unwrap());
-        assert!(!run(&args(&["novel.folder.ron"])).unwrap());
+        assert!(!run(&args(&["novel.typr"])).unwrap());
         assert!(run(&args(&["--version"])).unwrap());
         assert!(run(&args(&["--bogus"])).is_err());
     }

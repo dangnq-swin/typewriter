@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use jiff::Timestamp;
 
 /// A project file: a manila folder on screen, RON inside.
-pub const EXTENSION: &str = ".folder.ron";
+pub const EXTENSION: &str = ".typr";
 /// A draft's name.
 pub const UNTITLED: &str = "Untitled";
 
@@ -105,17 +105,16 @@ pub fn home_relative(path: &Path) -> String {
     }
 }
 
-/// `novel` or `novel.ron` → `novel.folder.ron`.
+/// `novel` → `novel.typr`.
 pub fn with_extension(path: PathBuf) -> PathBuf {
     let name = file_name(&path);
     if name.ends_with(EXTENSION) {
         return path;
     }
-    let stem = name.strip_suffix(".ron").unwrap_or(&name);
-    path.with_file_name(format!("{stem}{EXTENSION}"))
+    path.with_file_name(format!("{name}{EXTENSION}"))
 }
 
-/// An export beside the project file: `novel.folder.ron` → `novel.txt`.
+/// An export beside the project file: `novel.typr` → `novel.txt`.
 pub fn export_path(folder: &Path, extension: &str) -> PathBuf {
     let name = display_name(folder);
     folder.with_file_name(format!("{name}.{extension}"))
@@ -227,20 +226,16 @@ mod tests {
     }
 
     #[test]
-    fn chosen_names_become_folder_files() {
+    fn chosen_names_become_project_files() {
         let folder = |p: &str| with_extension(PathBuf::from(p));
-        assert_eq!(folder("/a/novel"), PathBuf::from("/a/novel.folder.ron"));
-        assert_eq!(folder("/a/novel.ron"), PathBuf::from("/a/novel.folder.ron"));
-        assert_eq!(
-            folder("/a/novel.folder.ron"),
-            PathBuf::from("/a/novel.folder.ron")
-        );
-        assert_eq!(folder("/a/v1.2"), PathBuf::from("/a/v1.2.folder.ron"));
+        assert_eq!(folder("/a/novel"), PathBuf::from("/a/novel.typr"));
+        assert_eq!(folder("/a/novel.typr"), PathBuf::from("/a/novel.typr"));
+        assert_eq!(folder("/a/v1.2"), PathBuf::from("/a/v1.2.typr"));
     }
 
     #[test]
-    fn exports_sit_beside_the_folder_file() {
-        let folder = Path::new("/home/me/writing/novel.folder.ron");
+    fn exports_sit_beside_the_project_file() {
+        let folder = Path::new("/home/me/writing/novel.typr");
         assert_eq!(display_name(folder), "novel");
         assert_eq!(
             export_path(folder, "md"),
@@ -251,7 +246,7 @@ mod tests {
     #[test]
     fn atomic_writes_replace_the_file_and_leave_no_temporary() {
         let dir = std::env::temp_dir().join(format!("typewriter-test-{}", std::process::id()));
-        let path = dir.join("a.folder.ron");
+        let path = dir.join("a.typr");
         write_atomic(&path, "one").unwrap();
         write_atomic(&path, "two").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "two");
