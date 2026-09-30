@@ -1,8 +1,6 @@
 //! The sheet and everything struck or painted on it.
 
-use eframe::egui::{
-    Align2, Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2,
-};
+use eframe::egui::{Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
 use typewriter_core::accents;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::page::{Correction, Mark, Page};
@@ -46,6 +44,16 @@ pub fn paint_margin_frame(
     top_lines: u16,
     origin: Pos2,
 ) {
+    painter.extend(margin_frame(metrics, carriage, top_lines, origin));
+}
+
+/// The frame of [`paint_margin_frame`], as shapes.
+pub fn margin_frame(
+    metrics: &Metrics,
+    carriage: &Carriage,
+    top_lines: u16,
+    origin: Pos2,
+) -> Vec<Shape> {
     let pad = FRAME_PADDING_MM / MM_PER_INCH * metrics.points_per_inch;
     let sheet = Rect::from_min_size(origin, metrics.paper_size);
     let top_left =
@@ -54,18 +62,18 @@ pub fn paint_margin_frame(
     let frame = Rect::from_min_max(top_left, pos2(right, sheet.bottom()));
 
     let extension = Stroke::new(1.0, FRAME_EXTENSION);
-    for y in [frame.top(), frame.bottom()] {
-        painter.hline(sheet.x_range(), y, extension);
-    }
-    for x in [frame.left(), frame.right()] {
-        painter.vline(x, sheet.y_range(), extension);
-    }
-    painter.rect_stroke(
+    let mut shapes: Vec<Shape> = [frame.top(), frame.bottom()]
+        .map(|y| Shape::hline(sheet.x_range(), y, extension))
+        .into_iter()
+        .chain([frame.left(), frame.right()].map(|x| Shape::vline(x, sheet.y_range(), extension)))
+        .collect();
+    shapes.push(Shape::rect_stroke(
         frame,
         CornerRadius::ZERO,
         Stroke::new(1.0, FRAME),
         eframe::egui::StrokeKind::Middle,
-    );
+    ));
+    shapes
 }
 
 /// Fluid wetness per cell: 1 just dabbed, 0 dry.
@@ -127,13 +135,20 @@ pub fn paint_sheet(
         wetness,
         |cell| clip.intersects(cell),
     );
+    painter.extend(shapes(painter, metrics, marks));
+}
+
+/// `marks` as shapes, `painter` laying out their glyphs.
+pub fn shapes(painter: &Painter, metrics: &Metrics, marks: Vec<Drawn>) -> Vec<Shape> {
+    let mut shapes = Vec::new();
     for drawn in marks {
         match drawn {
             Drawn::Glyph { at, c, color } => {
-                painter.text(at, Align2::LEFT_TOP, c, metrics.font.clone(), color);
+                let galley = painter.layout_no_wrap(c.to_string(), metrics.font.clone(), color);
+                shapes.push(Shape::galley(at, galley, color));
             }
             Drawn::Patch { rect, color } => {
-                painter.rect_filled(rect, CornerRadius::same(3), color);
+                shapes.push(Shape::rect_filled(rect, CornerRadius::same(3), color));
             }
             Drawn::Line {
                 from,
@@ -141,7 +156,7 @@ pub fn paint_sheet(
                 width,
                 color,
             } => {
-                painter.line_segment([from, to], Stroke::new(width, color));
+                shapes.push(Shape::line_segment([from, to], Stroke::new(width, color)));
             }
             Drawn::Ellipse {
                 centre,
@@ -149,9 +164,9 @@ pub fn paint_sheet(
                 fill,
                 rim,
             } => {
-                painter.add(Shape::ellipse_filled(centre, radius, fill));
+                shapes.push(Shape::ellipse_filled(centre, radius, fill));
                 if let Some(rim) = rim {
-                    painter.add(Shape::ellipse_stroke(
+                    shapes.push(Shape::ellipse_stroke(
                         centre,
                         radius - Vec2::splat(RIM_WIDTH / 2.0),
                         Stroke::new(RIM_WIDTH, rim),
@@ -160,6 +175,7 @@ pub fn paint_sheet(
             }
         }
     }
+    shapes
 }
 
 /// Every mark on a sheet at `origin`, in the order made, so corrections

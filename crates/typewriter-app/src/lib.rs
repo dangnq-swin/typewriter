@@ -52,6 +52,19 @@ pub fn is_option(arg: &OsStr) -> bool {
     arg.as_encoded_bytes().starts_with(b"-")
 }
 
+/// A depth buffer for a stage drawing in depth.
+fn window_options(stage: &impl Stage) -> eframe::NativeOptions {
+    let depth_buffer = if stage.depth() {
+        render::depth::DEPTH_BITS
+    } else {
+        0
+    };
+    eframe::NativeOptions {
+        depth_buffer,
+        ..Default::default()
+    }
+}
+
 /// A command from the command line, else the window on `stage`. Every
 /// edition shares projects, settings and the one open desk.
 pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
@@ -75,7 +88,7 @@ pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
             .with_app_id(stage.command())
             .with_inner_size([900.0, 1000.0])
             .with_fullscreen(settings.0.look.fullscreen),
-        ..Default::default()
+        ..window_options(&stage)
     };
     eframe::run_native(
         stage.command(),

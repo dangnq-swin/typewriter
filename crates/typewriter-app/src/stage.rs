@@ -63,6 +63,30 @@ pub struct PaperTable {
     pub place: Box<dyn Fn(f32, f32) -> (Pos2, f32)>,
 }
 
+/// A sheet's way through the machine, drawn in depth: up the platen's front
+/// from the printing point to the sheet's top edge, and down round the
+/// platen and up behind it to its bottom edge.
+pub struct SheetWay {
+    /// Where a point of the sheet is: `x` its place across on screen at the
+    /// sheet's scale, `along` its inches from the printing point, up the
+    /// front above zero, round the platen and up behind it below.
+    pub place: Box<dyn Fn(f32, f32) -> Placed>,
+}
+
+/// A point of a sheet on its way.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placed {
+    pub pos: Pos2,
+    /// Its depth, 0 at the eye to 1 far off; and a hair nearer, for what is
+    /// printed on it.
+    pub depth: f32,
+    pub print_depth: f32,
+    /// How lit it is, 0..=1.
+    pub lit: f32,
+    /// Its printed side is turned toward the eye.
+    pub facing: bool,
+}
+
 /// What the spacing, zoom, correction, goal and save controls read.
 pub struct Controls<'a> {
     pub spacing: LineSpacing,
@@ -92,6 +116,12 @@ pub trait Stage {
         PLAIN_ZOOM_MIN
     }
 
+    /// Draws in depth ([`crate::draw::depth`]): the window keeps a depth
+    /// buffer.
+    fn depth(&self) -> bool {
+        false
+    }
+
     /// Behind everything, in place of the chosen background, which then
     /// shows on the sheets only. `None`: the chosen background.
     fn backdrop(&self) -> Option<fn(&Painter, Rect)> {
@@ -118,6 +148,12 @@ pub trait Stage {
     /// Where sheets go in behind the platen. `None`: nowhere, they rise
     /// from below the window.
     fn paper_table(&self, _scene: &Scene) -> Option<PaperTable> {
+        None
+    }
+
+    /// The sheets' way through the machine, drawing them in depth. `None`:
+    /// they are drawn flat, in their order.
+    fn sheet_way(&self, _scene: &Scene) -> Option<SheetWay> {
         None
     }
 

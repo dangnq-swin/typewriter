@@ -21,6 +21,7 @@ use crate::Stage;
 use crate::filing::Filing;
 use crate::input::Action;
 use crate::machines::Machines;
+use crate::render::depth::{Layer, Solids};
 use crate::render::feed::FeedMotion;
 use crate::settings::Settings;
 
@@ -147,18 +148,33 @@ fn rasterize(
     // Safe casts: a window's size in points.
     let (width, height) = (size.x as usize, size.y as usize);
     let mut pixels = vec![[0.0, 0.0, 0.0, 1.0]; width * height];
+    // Cleared once a frame, as the window's.
+    let mut depths = vec![1.0; width * height];
     for primitive in primitives {
-        if let Primitive::Mesh(mesh) = &primitive.primitive {
-            let clip = primitive
-                .clip_rect
-                .intersect(Rect::from_min_size(Pos2::ZERO, size));
-            fill(
-                &mut pixels,
-                width,
-                mesh,
-                clip,
-                textures.get(&mesh.texture_id),
-            );
+        let clip = primitive
+            .clip_rect
+            .intersect(Rect::from_min_size(Pos2::ZERO, size));
+        match &primitive.primitive {
+            Primitive::Mesh(mesh) => {
+                let texture = textures.get(&mesh.texture_id);
+                fill(&mut pixels, width, mesh, clip, texture, None);
+            }
+            Primitive::Callback(callback) => {
+                let Some(solids) = callback.callback.downcast_ref::<Solids>() else {
+                    continue;
+                };
+                for (layer, solids) in solids.layers() {
+                    for solid in solids {
+                        let texture = textures.get(&solid.mesh.texture_id);
+                        let depth = Depth {
+                            of: &solid.depths,
+                            buffer: &mut depths,
+                            layer,
+                        };
+                        fill(&mut pixels, width, &solid.mesh, clip, texture, Some(depth));
+                    }
+                }
+            }
         }
     }
     let bytes = pixels
@@ -170,8 +186,23 @@ fn rasterize(
     RgbaImage::from_raw(width as u32, height as u32, bytes).context("a pixel for each point")
 }
 
-/// Each triangle of `mesh` inside `clip`, blended over `pixels`.
-fn fill(pixels: &mut [Rgba], width: usize, mesh: &Mesh, clip: Rect, texture: Option<&ColorImage>) {
+/// A solid's vertices' depths, tested against the frame's depth `buffer`.
+struct Depth<'a> {
+    of: &'a [f32],
+    buffer: &'a mut [f32],
+    layer: Layer,
+}
+
+/// Each triangle of `mesh` inside `clip`, blended over `pixels`; in depth,
+/// only where nearer than what is there.
+fn fill(
+    pixels: &mut [Rgba],
+    width: usize,
+    mesh: &Mesh,
+    clip: Rect,
+    texture: Option<&ColorImage>,
+    mut depth: Option<Depth>,
+) {
     for triangle in mesh.indices.as_chunks::<3>().0 {
         let [a, b, c] = [0, 1, 2].map(|k| &mesh.vertices[triangle[k] as usize]);
         let area = edge(a.pos, b.pos, c.pos);
@@ -199,6 +230,20 @@ fn fill(pixels: &mut [Rgba], width: usize, mesh: &Mesh, clip: Rect, texture: Opt
                 .map(|e| e / area);
                 if w.iter().any(|&w| w < -1e-4) {
                     continue;
+                }
+                if let Some(depth) = &mut depth {
+                    let z = [0, 1, 2]
+                        .map(|k| depth.of[triangle[k] as usize])
+                        .iter()
+                        .zip(w)
+                        .map(|(z, w)| z * w)
+                        .sum::<f32>();
+                    let there = &mut depth.buffer[y * width + x];
+                    match depth.layer {
+                        Layer::Opaque if z < *there => *there = z,
+                        Layer::Decal if z <= *there => {}
+                        _ => continue,
+                    }
                 }
                 let [ca, cb, cc] = [a.color, b.color, c.color].map(rgba);
                 let colour: Rgba = [0, 1, 2, 3].map(|k| w[0] * ca[k] + w[1] * cb[k] + w[2] * cc[k]);

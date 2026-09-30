@@ -74,6 +74,11 @@ impl TypewriterApp {
         stage: Box<dyn Stage>,
     ) -> anyhow::Result<Self> {
         fonts::install(&cc.egui_ctx);
+        if stage.depth()
+            && let Some(render_state) = &cc.wgpu_render_state
+        {
+            crate::render::depth::install(&cc.egui_ctx, render_state);
+        }
         // No Ctrl shortcuts, egui's zoom keys included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
