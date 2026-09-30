@@ -1,11 +1,13 @@
 //! One light, to the writer's left, above and a little in front, and how
 //! plastic and metal take it.
 
-use eframe::egui::{Color32, Mesh, Painter, Shape};
+use eframe::egui::Color32;
 
+use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
-use super::geometry::{add_quad, dot, normalized};
+use super::geometry::{dot, normalized};
 use super::{METAL, METAL_SHINE};
+use typewriter_app::draw::depth::{Layer, Solid};
 
 /// Toward the light from the machine: to the writer's left, above, a little
 /// in front.
@@ -33,19 +35,19 @@ pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
 /// `top` down `height` inches, outlined. Chrome mirrors the room: bright sky
 /// above, dark room below, a bright band where it turns to the light.
 pub(super) fn paint_chrome(
-    painter: &Painter,
+    canvas: &Canvas,
     eye: &Eye,
     [left, right]: [f32; 2],
     y: f32,
     top: f32,
     height: f32,
 ) {
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for pair in chrome_bands().windows(2) {
         let [(from, upper), (to, lower)] = [pair[0], pair[1]];
-        let at = |x: f32, t: f32| eye.at([x, y, top - height * t]);
-        add_quad(
-            &mut mesh,
+        let at = |x: f32, t: f32| [x, y, top - height * t];
+        eye.quad(
+            &mut solid,
             [
                 (at(left, from), upper),
                 (at(right, from), upper),
@@ -54,7 +56,7 @@ pub(super) fn paint_chrome(
             ],
         );
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
     let bottom = top - height;
     let outline = [
         [left, y, top],
@@ -62,7 +64,7 @@ pub(super) fn paint_chrome(
         [right, y, bottom],
         [left, y, bottom],
     ];
-    eye.outline(painter, &outline);
+    eye.outline(canvas, &outline);
 }
 
 /// Chrome from its top (0) to its bottom (1): the sky, a bright band where

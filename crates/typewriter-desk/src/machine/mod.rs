@@ -1,15 +1,19 @@
 //! The desk edition's typewriter, an Olympia SM9 seen from the chair.
 //!
-//! The body is a model in inches, projected from a seated eye: `x` right of
-//! the machine's centre, `y` toward the writer, `z` up, the origin at the
-//! printing point. There the projection's scale is the sheet's, so the flat
-//! sheet and the carriage (platen, knobs, bail, lever), which travel with it, line
-//! up with the still body around them.
+//! The machine is a model in inches, projected from a seated eye: `x` right
+//! of the machine's centre, `y` toward the writer, `z` up, the origin at the
+//! printing point. There the projection's scale is the sheet's: the line
+//! being typed shows as on a sheet flat on screen.
 //!
-//! Nothing sorts by depth: each part is drawn after what it hides, in the
-//! order [`paint_behind`] and [`paint_front`] call them.
+//! The body, the carriage's platen and the sheets are drawn in depth: what
+//! stands in front hides what is behind. The rest is still drawn flat, each
+//! part after what it hides, in the order [`paint_behind`] and
+//! [`paint_front`] call them: the shadow before the parts in depth; the
+//! keyboard, and the knobs, lever and bail at the carriage's ends in
+//! perspective, after them.
 
 mod body;
+mod canvas;
 mod carriage;
 mod case;
 mod cover;
@@ -20,16 +24,19 @@ mod lever;
 mod light;
 mod panel;
 mod printing_point;
+mod sheet;
 mod side_controls;
 mod support;
 
 pub use carriage::{bail_scale_top, paint_bail, platen_axis_y, platen_ends};
 pub use lever::{Throw, paint_lever, paint_lever_base};
 pub use panel::{Control, Panel};
+pub use sheet::sheet_way;
 pub use support::paper_table;
 
 use eframe::egui::{Color32, Painter, Rect};
 
+use canvas::Canvas;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
 use typewriter_app::draw::Metrics;
@@ -82,13 +89,6 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     wanted.min(in_view).max(TYPING_LINE_LEAST)
 }
 
-/// Where the sheet goes out of sight under the platen, for the typing line
-/// at `typing_y`: nothing of it shows below.
-pub fn sheet_bottom(view: Rect, metrics: &Metrics, typing_y: f32) -> f32 {
-    let radius = carriage::PLATEN_DIAMETER_INCHES / 2.0 * metrics.points_per_inch;
-    platen_axis_y(view, metrics, typing_y) + radius
-}
-
 /// The ribbon cover again over the knobs, `knobs` on screen: it stands in
 /// front of them, and its rounded corners and slanting sides are no rect
 /// to clip them by.
@@ -101,13 +101,14 @@ pub fn paint_cover_over_knobs(
 ) {
     let eye = Eye::new(view, metrics, typing_y);
     for knob in knobs {
-        cover::paint(&painter.with_clip_rect(knob.expand(KNOB_EDGE)), &eye);
+        let clipped = painter.with_clip_rect(knob.expand(KNOB_EDGE));
+        cover::paint(&Canvas::flat(&clipped), &eye);
     }
 }
 
 /// Behind the sheet, before it: the machine's shadow, the body's top under
 /// the carriage, the paper support and the carriage for the sheet centred
-/// at `carriage_x`, and the gap under its platen.
+/// at `carriage_x`.
 pub fn paint_behind(
     painter: &Painter,
     view: Rect,
@@ -117,45 +118,40 @@ pub fn paint_behind(
 ) {
     let eye = Eye::new(view, metrics, typing_y);
     body::paint_shadow(painter, &eye);
-    body::paint_deck(painter, &eye);
+    let canvas = Canvas::depth(painter);
+    body::paint_deck(&canvas, &eye);
     let middle = (carriage_x - eye.origin.x) / eye.ppi;
-    support::paint(painter, &eye, metrics, middle);
-    carriage::paint(painter, &eye, metrics, carriage_x);
-    let ends = platen_ends(carriage_x, metrics).map(|x| (x - eye.origin.x) / eye.ppi);
-    body::paint_throat(painter, &eye, ends);
+    support::paint(&canvas, &eye, metrics, middle);
+    carriage::paint(&canvas, &eye, middle);
+    canvas.finish();
 }
 
 /// In front of the sheet, after it: the alignment guide, ribbon and card
 /// holder at the printing point, the ribbon cover over the type bars, the
 /// front panel and the keyboard.
-pub fn paint_front(
-    painter: &Painter,
-    view: Rect,
-    metrics: &Metrics,
-    typing_y: f32,
-    carriage_x: f32,
-) {
+pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f32) {
     let eye = Eye::new(view, metrics, typing_y);
-    // The ribbon hangs down into the cover's opening, and behind its plates.
-    cover::paint_opening(painter, &eye);
-    let inside = carriage::inside(carriage_x, metrics);
-    printing_point::paint(painter, &eye, metrics, inside);
-    cover::paint(painter, &eye);
-    panel::paint_face(painter, &eye);
+    let canvas = Canvas::depth(painter);
+    cover::paint_opening(&canvas, &eye);
+    printing_point::paint(&canvas, &eye, metrics);
+    cover::paint(&canvas, &eye);
+    panel::paint_face(&canvas, &eye);
+    canvas.finish();
+    let canvas = &Canvas::flat(painter);
     // The keyboard, deepest first: the levers run back under the rows behind
     // and in under the panel's edge, the caps hide them, and the case round
     // the keys hides the caps' feet.
     let levers = keyboard::key_levers();
-    case::paint_well(painter, &eye);
-    keyboard::paint_rod(painter, &eye, &levers);
-    case::paint_inner_walls(painter, &eye);
-    keyboard::paint_shadows(painter, &eye);
-    keyboard::paint_levers(painter, &eye, &levers);
-    side_controls::paint(painter, &eye);
-    case::paint_panel_edge(painter, &eye);
-    keyboard::paint_caps(painter, &eye);
-    case::paint_frame(painter, &eye);
-    side_controls::paint_marks(painter, &eye);
+    case::paint_well(canvas, &eye);
+    keyboard::paint_rod(canvas, &eye, &levers);
+    case::paint_inner_walls(canvas, &eye);
+    keyboard::paint_shadows(canvas, &eye);
+    keyboard::paint_levers(canvas, &eye, &levers);
+    side_controls::paint(canvas, &eye);
+    case::paint_panel_edge(canvas, &eye);
+    keyboard::paint_caps(canvas, &eye);
+    case::paint_frame(canvas, &eye);
+    side_controls::paint_marks(canvas, &eye);
 }
 
 #[cfg(test)]
@@ -211,14 +207,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn the_sheet_shows_below_the_line_being_typed() {
-        let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
-        let metrics = metrics(100);
-        let bottom = sheet_bottom(view, &metrics, 300.0);
-        assert!(bottom > 300.0 + metrics.cell_size().y + 4.0, "{bottom}");
     }
 
     #[test]

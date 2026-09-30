@@ -1,8 +1,9 @@
 //! Beside the keys: the carriage lock, the touch control and the ribbon
 //! selector, and their marks on the walls.
 
-use eframe::egui::{Color32, Painter, Shape, Stroke};
+use eframe::egui::{Color32, Shape, Stroke};
 
+use super::canvas::Canvas;
 use super::case::{OPENING_HALF, wall_top};
 use super::eye::Eye;
 use super::geometry::rounded_rect;
@@ -58,21 +59,21 @@ const MARK_EDGE: Color32 = Color32::from_rgb(0x30, 0x2C, 0x26);
 /// colour selector at its setting. Each selector's paddle stands up level
 /// with its marks on the wall. Before the caps: the nearer keys hide what's
 /// behind them.
-pub(super) fn paint(painter: &Painter, eye: &Eye) {
+pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     let (y, z) = key_row(0.0);
-    paint_lock(painter, eye, [-LOCK_X, y - LOCK_BACK, z + LOCK_RISE]);
+    paint_lock(canvas, eye, [-LOCK_X, y - LOCK_BACK, z + LOCK_RISE]);
     let (y, _) = key_row(2.0);
     let ribbon = y + RIBBON_ALONG[RIBBON_SET];
     for (x, paddle_y) in [(-SELECTOR_X, y), (SELECTOR_X, ribbon)] {
         let top = wall_top(paddle_y) - PADDLE_BELOW_WALL;
-        paint_selector(painter, eye, [x, paddle_y - SELECTOR_REACH, top]);
+        paint_selector(canvas, eye, [x, paddle_y - SELECTOR_REACH, top]);
     }
 }
 
 /// The selectors' marks on the walls' tops beside them: a bold less and more
 /// on the left; on the right, the ribbon's colours back to front, each a
 /// small rounded square standing proud of the case, outlined dark.
-pub(super) fn paint_marks(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
     let on_wall = (OPENING_HALF + PANEL_HALF_BOTTOM) / 2.0;
     let (y, _) = key_row(2.0);
     let (along, half, stroke) = TOUCH_MARKS;
@@ -86,7 +87,7 @@ pub(super) fn paint_marks(painter: &Painter, eye: &Eye) {
         bar(y + along, false),
         bar(y + along, true),
     ] {
-        eye.line(painter, &part, stroke, ENGRAVED);
+        eye.line(canvas, &part, stroke, ENGRAVED);
     }
     let (size, round, proud) = RIBBON_MARK;
     for (colour, along) in RIBBON_MARKS.into_iter().zip(RIBBON_ALONG) {
@@ -100,10 +101,10 @@ pub(super) fn paint_marks(painter: &Painter, eye: &Eye) {
             [x + size, y + size, foot],
             [x - size, y + size, foot],
         ];
-        eye.fill(painter, &front, |_| brighten(colour, 0.6));
+        eye.fill(canvas, &front, |_| brighten(colour, 0.6));
         let face = rounded_rect([x - size, x + size], [y - size, y + size], z, round);
-        eye.fill(painter, &face, |_| matte(colour, [0.0, 0.0, 1.0]));
-        painter.add(Shape::closed_line(
+        eye.fill(canvas, &face, |_| matte(colour, [0.0, 0.0, 1.0]));
+        canvas.painter().add(Shape::closed_line(
             eye.polygon(&face),
             Stroke::new(1.0, MARK_EDGE),
         ));
@@ -112,15 +113,15 @@ pub(super) fn paint_marks(painter: &Painter, eye: &Eye) {
 
 /// The carriage lock: a lever whose green cap's top is at `top`, its post
 /// running on down below the cap, then back into the machine.
-fn paint_lock(painter: &Painter, eye: &Eye, top: [f32; 3]) {
+fn paint_lock(canvas: &Canvas, eye: &Eye, top: [f32; 3]) {
     let [x, y, z] = top;
     let foot = [x, y, z - KEY_FRONT - LOCK_DROP];
     let path = [[x, y, z - KEY_FRONT], foot, into_machine(foot)];
-    paint_steel(painter, eye, &path, post_shine());
+    paint_steel(canvas, eye, &path, post_shine());
     let (half, depth) = LOCK_CAP;
     let colours = [SHIFT_CAP, SHIFT_FRONT];
     paint_cap(
-        painter,
+        canvas,
         eye,
         [x - half, x + half],
         [y - depth, y + depth],
@@ -132,20 +133,15 @@ fn paint_lock(painter: &Painter, eye: &Eye, top: [f32; 3]) {
 /// A selector: a post at `post` (its paddle's top level) up from a rod out
 /// of the machine, bending toward the writer to an upright chrome paddle
 /// facing them, lit in bands as polished metal is.
-fn paint_selector(painter: &Painter, eye: &Eye, post: [f32; 3]) {
+fn paint_selector(canvas: &Canvas, eye: &Eye, post: [f32; 3]) {
     let [x, y, top] = post;
     let (half, height) = PADDLE;
     let bend = [x, y, top - height];
     // Its post runs well down, then back into the machine under the lock's.
     let foot = [x, y, bend[2] - SELECTOR_DROP];
-    paint_steel(
-        painter,
-        eye,
-        &[bend, foot, into_machine(foot)],
-        post_shine(),
-    );
+    paint_steel(canvas, eye, &[bend, foot, into_machine(foot)], post_shine());
     let paddle_y = y + SELECTOR_REACH;
-    eye.line(painter, &[bend, [x, paddle_y, top - height]], 0.05, STEM);
+    eye.line(canvas, &[bend, [x, paddle_y, top - height]], 0.05, STEM);
     // Its top edge behind its face.
     let rim = [
         [x - half, paddle_y - 0.03, top],
@@ -153,8 +149,8 @@ fn paint_selector(painter: &Painter, eye: &Eye, post: [f32; 3]) {
         [x + half, paddle_y, top],
         [x - half, paddle_y, top],
     ];
-    eye.fill(painter, &rim, |_| METAL_SHINE);
-    paint_chrome(painter, eye, [x - half, x + half], paddle_y, top, height);
+    eye.fill(canvas, &rim, |_| METAL_SHINE);
+    paint_chrome(canvas, eye, [x - half, x + half], paddle_y, top, height);
 }
 
 /// How bright the upright posts' streak is.

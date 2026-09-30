@@ -4,17 +4,11 @@
 
 use eframe::egui::{Painter, Rect, Ui};
 use typewriter_app::Stage;
-use typewriter_app::draw::{Controls, Knob, Metrics, PaperTable, Platen, Return, Scene};
+use typewriter_app::draw::{Controls, Knob, Metrics, PaperTable, Platen, Return, Scene, SheetWay};
 use typewriter_core::Side;
 
 use crate::machine::{self, Control, Panel, Throw};
 use crate::room;
-
-/// The sheet in the machine: just off the wall behind.
-const STANDING_LIFT: f32 = 0.25;
-/// Its top edge keeps some of its wind round the platen, clearing the
-/// platen's top.
-const SHEET_CURL: f32 = 0.85;
 
 /// `typewriter-desk`: the typewriter on a desk, seen from the chair.
 pub struct Desk;
@@ -32,6 +26,11 @@ impl Stage for Desk {
         "the typewriter on a desk"
     }
 
+    /// The body and the sheets.
+    fn depth(&self) -> bool {
+        true
+    }
+
     /// Sitting far back, the paper support's scale in view.
     fn zoom_min(&self) -> u16 {
         typewriter_app::settings::ZOOM_MIN
@@ -45,7 +44,8 @@ impl Stage for Desk {
         Some(machine::typing_line_height(view, metrics, zoom_percent))
     }
 
-    /// The machine behind the sheet; the sheet goes out of sight into it.
+    /// The machine behind the sheet. In depth: the platen and the cover
+    /// hide what goes into it.
     fn paint_behind_sheets(&self, painter: &Painter, scene: &Scene) -> Option<f32> {
         let Scene {
             view,
@@ -55,7 +55,17 @@ impl Stage for Desk {
             ..
         } = *scene;
         machine::paint_behind(painter, view, metrics, typing_y, carriage_x);
-        Some(machine::sheet_bottom(view, metrics, typing_y))
+        None
+    }
+
+    /// Round the platen from the printing point: up its front, and back
+    /// round under it and up the paper support.
+    fn sheet_way(&self, scene: &Scene) -> Option<SheetWay> {
+        Some(machine::sheet_way(
+            scene.view,
+            scene.metrics,
+            scene.typing_y,
+        ))
     }
 
     /// Behind the platen: sheets go in over it.
@@ -67,19 +77,11 @@ impl Stage for Desk {
         ))
     }
 
-    fn sheet_lift(&self) -> Option<f32> {
-        Some(STANDING_LIFT)
-    }
-
-    fn sheet_curl(&self) -> f32 {
-        SHEET_CURL
-    }
-
     /// The machine in front of the sheet, and the paper bail over it.
     fn paint_over_sheets(&self, painter: &Painter, scene: &Scene) {
-        let (metrics, typing_y) = (scene.metrics, scene.typing_y);
-        machine::paint_front(painter, scene.view, metrics, typing_y, scene.carriage_x);
-        machine::paint_bail(painter, metrics, scene.carriage_x, typing_y);
+        let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
+        machine::paint_front(painter, view, metrics, typing_y);
+        machine::paint_bail(painter, view, metrics, scene.carriage_x, typing_y);
     }
 
     /// On the front panel. Always shown, calm or not: they are the machine's.
@@ -109,7 +111,7 @@ impl Stage for Desk {
     /// At the carriage's ends, travelling with it, on the platen's axis.
     fn platen(&self, scene: &Scene) -> Option<Platen> {
         Some(Platen {
-            ends: machine::platen_ends(scene.carriage_x, scene.metrics),
+            ends: ends(scene),
             axis_y: machine::platen_axis_y(scene.view, scene.metrics, scene.typing_y),
         })
     }
@@ -131,7 +133,7 @@ impl Stage for Desk {
     /// return lever over the left knob.
     fn paint_over_knobs(&self, painter: &Painter, scene: &Scene) {
         let axis_y = machine::platen_axis_y(scene.view, scene.metrics, scene.typing_y);
-        let [left_end, right_end] = machine::platen_ends(scene.carriage_x, scene.metrics);
+        let [left_end, right_end] = ends(scene);
         let knobs = [(Side::Left, left_end), (Side::Right, right_end)]
             .map(|(side, end)| Knob::on_axis(scene.metrics, side, end, axis_y).grip());
         machine::paint_cover_over_knobs(painter, scene.view, scene.metrics, scene.typing_y, knobs);
@@ -152,9 +154,21 @@ impl Stage for Desk {
     }
 }
 
+/// The carriage's ends on screen, where the knobs turn.
+fn ends(scene: &Scene) -> [f32; 2] {
+    let Scene {
+        view,
+        metrics,
+        typing_y,
+        carriage_x,
+        ..
+    } = *scene;
+    machine::platen_ends(view, metrics, typing_y, carriage_x)
+}
+
 /// The carriage's left end, where the lever is, and how far it is thrown.
 fn lever(scene: &Scene) -> (f32, f32) {
-    let [left, _] = machine::platen_ends(scene.carriage_x, scene.metrics);
+    let [left, _] = ends(scene);
     let Return { at, inches } = scene.last_return;
     (left, Throw::new(at, inches).amount(scene.now))
 }
@@ -206,6 +220,31 @@ mod tests {
                 .save(folder.join(format!("along-{typed}.png")))
                 .unwrap();
         }
+        // A page well begun: its lines over the platen and up the sheet.
+        let page = "Call me Ishmael. Some years ago - never mind how long precisely -\n\
+                    having little or no money in my purse, and nothing particular to\n\
+                    interest me on shore, I thought I would sail about a little and see\n\
+                    the watery part of the world.\n"
+            .repeat(6);
+        for (name, zoom_percent) in [("page", 100), ("page-close", 200)] {
+            let shot = Shot {
+                size: vec2(1600.0, 1400.0),
+                zoom_percent,
+                text: &page,
+                after_seconds: 5.0,
+            };
+            let image = render(Box::new(Desk), &shot).unwrap();
+            image.save(folder.join(format!("{name}.png"))).unwrap();
+        }
+        // A new sheet halfway round the platen, the last one filed.
+        let feeding = Shot {
+            size: vec2(1600.0, 1000.0),
+            zoom_percent: 100,
+            text: &format!("{}The last line.\n", "A line.\n".repeat(63)),
+            after_seconds: 0.6,
+        };
+        let image = render(Box::new(Desk), &feeding).unwrap();
+        image.save(folder.join("feeding.png")).unwrap();
         let shots = [
             ("desk", vec2(1600.0, 1000.0), 100),
             ("sitting-back", vec2(1600.0, 1000.0), 50),

@@ -4,6 +4,7 @@
 use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke};
 use typewriter_core::{EraseMode, LineSpacing};
 
+use super::canvas::Canvas;
 use super::cover::{COVER_FRONT, COVER_HALF};
 use super::eye::{Eye, paint_flat_text};
 use super::geometry::add;
@@ -50,7 +51,7 @@ const READING: Color32 = Color32::from_rgb(0x2A, 0x28, 0x25);
 const LAMP_OFF: Color32 = Color32::from_rgb(0x4A, 0x4A, 0x46);
 
 /// The front panel, falling from the cover to the keyboard's opening.
-pub(super) fn paint_face(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_face(canvas: &Canvas, eye: &Eye) {
     let (y0, z0) = COVER_FRONT;
     let (y1, z1) = PANEL_BOTTOM;
     let (top, bottom) = (COVER_HALF.1, PANEL_HALF_BOTTOM);
@@ -60,7 +61,7 @@ pub(super) fn paint_face(painter: &Painter, eye: &Eye) {
         [bottom, y1, z1],
         [-bottom, y1, z1],
     ];
-    eye.fill(painter, &outline, |[_, y, _]| {
+    eye.fill(canvas, &outline, |[_, y, _]| {
         IVORY_LIT.lerp_to_gamma(IVORY, (y - y0) / (y1 - y0))
     });
 }
@@ -200,6 +201,7 @@ impl Panel {
 
     /// Draws each control, `hovered` ringed.
     pub fn paint(&self, painter: &Painter, state: &Controls, hovered: Option<Control>) {
+        let canvas = &Canvas::flat(painter);
         for control in Control::ALL {
             let lit = hovered == Some(control);
             let (turn, marks, reading, colour) = match control {
@@ -251,60 +253,54 @@ impl Panel {
                 }
                 Control::Save => {
                     let (reading, lamp) = ruler::autosave_state(state.keeping);
-                    self.paint_button(painter, control, lit, lamp);
-                    self.paint_labels(painter, control, reading, READING);
+                    self.paint_button(canvas, control, lit, lamp);
+                    self.paint_labels(canvas, control, reading, READING);
                     continue;
                 }
             };
-            self.paint_knob(painter, control, lit, turn, &marks);
-            self.paint_labels(painter, control, &reading, colour);
+            self.paint_knob(canvas, control, lit, turn, &marks);
+            self.paint_labels(canvas, control, &reading, colour);
         }
     }
 
     /// A ribbed knob standing off the panel, its pointer at `turn` degrees
     /// clockwise from the top, index marks engraved round it at `marks`.
-    fn paint_knob(&self, painter: &Painter, control: Control, lit: bool, turn: f32, marks: &[f32]) {
+    fn paint_knob(&self, canvas: &Canvas, control: Control, lit: bool, turn: f32, marks: &[f32]) {
         let eye = &self.eye;
         let centre = on_panel(control.x(), CONTROLS_Y);
         for &mark in marks {
             let [inner, outer] =
                 [INDEX_MARKS.0, INDEX_MARKS.1].map(|r| panel_offset(centre, KNOB_RADIUS * r, mark));
-            eye.line(painter, &[inner, outer], 0.025, ENGRAVED);
+            eye.line(canvas, &[inner, outer], 0.025, ENGRAVED);
         }
-        let top = self.paint_cylinder(painter, centre, KNOB_HEIGHT, lit, [KNOB_TOP, KNOB_SIDE]);
+        let top = self.paint_cylinder(canvas, centre, KNOB_HEIGHT, lit, [KNOB_TOP, KNOB_SIDE]);
         let [from, to] = [0.25, 0.85].map(|r| panel_offset(top, KNOB_RADIUS * r, turn));
-        eye.line(painter, &[from, to], 0.05, READING);
+        eye.line(canvas, &[from, to], 0.05, READING);
     }
 
     /// The save button, flush, and its lamp beside it: lit in `lamp`'s
     /// colour, dark if `None`.
-    fn paint_button(&self, painter: &Painter, control: Control, lit: bool, lamp: Option<Color32>) {
+    fn paint_button(&self, canvas: &Canvas, control: Control, lit: bool, lamp: Option<Color32>) {
         let eye = &self.eye;
         let centre = on_panel(control.x(), CONTROLS_Y);
-        self.paint_cylinder(
-            painter,
-            centre,
-            BUTTON_HEIGHT,
-            lit,
-            [SHIFT_CAP, SHIFT_FRONT],
-        );
+        self.paint_cylinder(canvas, centre, BUTTON_HEIGHT, lit, [SHIFT_CAP, SHIFT_FRONT]);
         let bulb = on_panel(control.x() + LAMP_OUT, CONTROLS_Y);
         let rim = circle(bulb, LAMP_RIM);
-        eye.fill(painter, &rim, |_| CHROME);
+        eye.fill(canvas, &rim, |_| CHROME);
         let glass = circle(bulb, LAMP_RADIUS);
-        eye.fill(painter, &glass, |_| lamp.unwrap_or(LAMP_OFF));
+        eye.fill(canvas, &glass, |_| lamp.unwrap_or(LAMP_OFF));
         let glint = circle(
             panel_offset(bulb, LAMP_RADIUS * 0.4, -40.0),
             LAMP_RADIUS * 0.3,
         );
-        eye.fill(painter, &glint, |_| Color32::from_white_alpha(120));
+        eye.fill(canvas, &glint, |_| Color32::from_white_alpha(120));
     }
 
     /// A short cylinder on the panel at `base`, `height` tall: its shadow,
     /// ribbed side and top. Returns its top's centre.
     fn paint_cylinder(
         &self,
-        painter: &Painter,
+        canvas: &Canvas,
         base: [f32; 3],
         height: f32,
         lit: bool,
@@ -317,7 +313,7 @@ impl Panel {
             panel_offset(base, SHADOW_OFF, KNOB_SHADOW_TURN),
             KNOB_RADIUS * SHADOW_SPREAD,
         );
-        eye.fill(painter, &shadow, |_| Color32::from_black_alpha(60));
+        eye.fill(canvas, &shadow, |_| Color32::from_black_alpha(60));
         // The side: the base's near half, the top's far half.
         let steps = 24u8;
         let at = |centre: [f32; 3], i: u8| {
@@ -329,14 +325,14 @@ impl Panel {
             .map(|i| at(base, i))
             .chain((half..=steps).map(|i| at(top, i)))
             .collect();
-        eye.fill(painter, &side, |_| side_colour);
+        eye.fill(canvas, &side, |_| side_colour);
         for i in (1..half).step_by(2) {
-            eye.line(painter, &[at(base, i), at(top, i)], 0.02, KNOB_RIB);
+            eye.line(canvas, &[at(base, i), at(top, i)], 0.02, KNOB_RIB);
         }
         let face = circle(top, KNOB_RADIUS);
-        eye.fill(painter, &face, |_| top_colour);
+        eye.fill(canvas, &face, |_| top_colour);
         let rim = if lit { HIGHLIGHT } else { side_colour };
-        painter.add(Shape::closed_line(
+        canvas.painter().add(Shape::closed_line(
             eye.polygon(&face),
             Stroke::new(if lit { 2.0 } else { 1.0 }, rim),
         ));
@@ -344,7 +340,7 @@ impl Panel {
     }
 
     /// `control`'s engraved name beside it, and its reading under the name.
-    fn paint_labels(&self, painter: &Painter, control: Control, reading: &str, colour: Color32) {
+    fn paint_labels(&self, canvas: &Canvas, control: Control, reading: &str, colour: Color32) {
         let eye = &self.eye;
         let (name_y, reading_y) = LABEL_LINES;
         // On the panel's slope, like the knobs.
@@ -359,7 +355,7 @@ impl Panel {
         };
         let left = Align2::LEFT_CENTER;
         paint_flat_text(
-            painter,
+            canvas,
             eye,
             control.name(),
             0.11,
@@ -367,7 +363,7 @@ impl Panel {
             left,
             on(name_y),
         );
-        paint_flat_text(painter, eye, reading, 0.14, colour, left, on(reading_y));
+        paint_flat_text(canvas, eye, reading, 0.14, colour, left, on(reading_y));
     }
 }
 

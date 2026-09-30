@@ -1,8 +1,9 @@
 //! The keys, their levers, and the rod the levers rest on.
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
-use eframe::egui::{Align2, Color32, Mesh, Painter, Shape, Stroke, pos2};
+use eframe::egui::{Align2, Color32, Mesh, Shape, Stroke, pos2};
 
+use super::canvas::Canvas;
 use super::case::OPENING_HALF;
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text, toward_eye};
 use super::geometry::{add, add_quad, dot, hull, lerp3, normalized, rounded_rect, soft, sub};
@@ -210,7 +211,7 @@ fn rod_axis(y: f32, levers: &[[f32; 3]]) -> Option<f32> {
 /// The steel rod behind the far row, across the well from wall to wall, under
 /// the `levers` crossing there: a cylinder lit round its curve, its top in
 /// the light, a highlight where it turns toward it, its underside in shade.
-pub(super) fn paint_rod(painter: &Painter, eye: &Eye, levers: &[[f32; 3]]) {
+pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
     let y = key_row(0.0).0 - ROD_BEHIND;
     let Some(z) = rod_axis(y, levers) else {
         return;
@@ -245,11 +246,11 @@ pub(super) fn paint_rod(painter: &Painter, eye: &Eye, levers: &[[f32; 3]]) {
             ],
         );
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.painter().add(Shape::mesh(mesh));
 }
 
 /// Every cap's shadow on the key bed, the space bar's too.
-pub(super) fn paint_shadows(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_shadows(canvas: &Canvas, eye: &Eye) {
     let (space_y, space_z) = SPACE_ROW;
     let depth = KEY_CAP.1 / 2.0;
     for (row, keys) in KEYS.iter().enumerate() {
@@ -257,19 +258,19 @@ pub(super) fn paint_shadows(painter: &Painter, eye: &Eye) {
         for key in keys.iter() {
             let half = key.half_width();
             let x = [key.x() - half, key.x() + half];
-            paint_key_shadow(painter, eye, x, [y - depth, y + depth], z);
+            paint_key_shadow(canvas, eye, x, [y - depth, y + depth], z);
         }
     }
     for (left, right, _) in SPACE_BAR {
         let span = [space_y - SPACE_HALF_DEPTH, space_y + SPACE_HALF_DEPTH];
-        paint_key_shadow(painter, eye, [left, right], span, space_z);
+        paint_key_shadow(canvas, eye, [left, right], span, space_z);
     }
 }
 
 /// A cap's shadow on the key bed below it, over `x` and `y` ranges, its top
 /// at `z`.
 fn paint_key_shadow(
-    painter: &Painter,
+    canvas: &Canvas,
     eye: &Eye,
     [left, right]: [f32; 2],
     [back, front]: [f32; 2],
@@ -286,7 +287,7 @@ fn paint_key_shadow(
         0.15,
     ));
     let blur = 0.1 * eye.scale([0.0, front, z]);
-    painter.add(Shape::mesh(soft(
+    canvas.painter().add(Shape::mesh(soft(
         &outline,
         blur,
         Color32::from_black_alpha(150),
@@ -294,9 +295,9 @@ fn paint_key_shadow(
 }
 
 /// Each key's post and its lever, from under its cap in `levers`.
-pub(super) fn paint_levers(painter: &Painter, eye: &Eye, levers: &[[f32; 3]]) {
+pub(super) fn paint_levers(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
     for &lever in levers {
-        paint_lever(painter, eye, lever);
+        paint_lever(canvas, eye, lever);
     }
 }
 
@@ -304,11 +305,11 @@ pub(super) fn paint_levers(painter: &Painter, eye: &Eye, levers: &[[f32; 3]]) {
 /// round it, lit in front and dark behind; and its lever running back from
 /// the post under the rows behind, into the machine under the panel, a
 /// streak of light along it.
-fn paint_lever(painter: &Painter, eye: &Eye, under_cap: [f32; 3]) {
+fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: [f32; 3]) {
     let [x, y, z] = under_cap;
     let [foot, end] = lever_path(under_cap);
     let shine = streak(sub(end, foot), 10).max(0.25);
-    paint_steel(painter, eye, &[under_cap, foot, end], shine);
+    paint_steel(canvas, eye, &[under_cap, foot, end], shine);
     let turns = 4u8;
     let coil: Vec<[f32; 3]> = (0..=2 * turns)
         .map(|i| {
@@ -320,32 +321,32 @@ fn paint_lever(painter: &Painter, eye: &Eye, under_cap: [f32; 3]) {
     // Strands crossing in front go one way, those behind the other.
     for (i, strand) in coil.windows(2).enumerate() {
         let colour = if i % 2 == 0 { SPRING_LIT } else { SPRING_DARK };
-        eye.line(painter, strand, 0.022, colour);
+        eye.line(canvas, strand, 0.022, colour);
     }
 }
 
 /// A steel rod along `path`, a streak of light `shine` bright (0..=1) down
 /// its lit side.
-pub(super) fn paint_steel(painter: &Painter, eye: &Eye, path: &[[f32; 3]], shine: f32) {
-    eye.line(painter, path, 0.05, STEM);
+pub(super) fn paint_steel(canvas: &Canvas, eye: &Eye, path: &[[f32; 3]], shine: f32) {
+    eye.line(canvas, path, 0.05, STEM);
     let lit: Vec<[f32; 3]> = path.iter().map(|&[x, y, z]| [x - 0.018, y, z]).collect();
-    eye.line(painter, &lit, 0.014, STEM_SHINE.gamma_multiply(shine));
+    eye.line(canvas, &lit, 0.014, STEM_SHINE.gamma_multiply(shine));
 }
 
 /// The caps, far row first: each hides the levers of the rows behind it.
 /// Then the tab clear key, the space bar and the tab set key.
-pub(super) fn paint_caps(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
     let (space_y, space_z) = SPACE_ROW;
     for (row, keys) in KEYS.iter().enumerate() {
         let (y, z) = key_row(row as f32);
         for key in keys.iter() {
-            paint_key(painter, eye, key, [key.x(), y, z]);
+            paint_key(canvas, eye, key, [key.x(), y, z]);
         }
     }
     for (left, right, name) in SPACE_BAR {
         let (back, front) = (space_y - SPACE_HALF_DEPTH, space_y + SPACE_HALF_DEPTH);
         paint_cap(
-            painter,
+            canvas,
             eye,
             [left, right],
             [back, front],
@@ -353,7 +354,7 @@ pub(super) fn paint_caps(painter: &Painter, eye: &Eye) {
             [CAP, CAP_FRONT],
         );
         legend(
-            painter,
+            canvas,
             eye,
             [(left + right) / 2.0, space_y, space_z],
             name,
@@ -364,7 +365,7 @@ pub(super) fn paint_caps(painter: &Painter, eye: &Eye) {
 }
 
 /// A key's cap, its top's centre at `top`, with its legends.
-fn paint_key(painter: &Painter, eye: &Eye, key: &Key, top: [f32; 3]) {
+fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: [f32; 3]) {
     let [x, y, z] = top;
     let half = key.half_width();
     let depth = KEY_CAP.1 / 2.0;
@@ -374,7 +375,7 @@ fn paint_key(painter: &Painter, eye: &Eye, key: &Key, top: [f32; 3]) {
         [CAP, CAP_FRONT]
     };
     paint_cap(
-        painter,
+        canvas,
         eye,
         [x - half, x + half],
         [y - depth, y + depth],
@@ -386,14 +387,14 @@ fn paint_key(painter: &Painter, eye: &Eye, key: &Key, top: [f32; 3]) {
     } else {
         1.0
     };
-    legend(painter, eye, top, key.legend, key.shifted, size);
+    legend(canvas, eye, top, key.legend, key.shifted, size);
 }
 
 /// A rounded cap over `x` and `y` ranges, its top at `z`: its body the
 /// outline round its rounded top and its flared, rounded foot, darkening
 /// toward the foot and away from the light; its dished top over it.
 pub(super) fn paint_cap(
-    painter: &Painter,
+    canvas: &Canvas,
     eye: &Eye,
     [left, right]: [f32; 2],
     [back, front]: [f32; 2],
@@ -431,14 +432,14 @@ pub(super) fn paint_cap(
             color: brighten(lit_front, (1.0 - 0.1 * down) * (1.0 - 0.05 * across)),
         }
     });
-    painter.add(Shape::mesh(mesh));
-    painter.add(edge);
+    canvas.painter().add(Shape::mesh(mesh));
+    canvas.painter().add(edge);
     // Dished: its back slope in the cap's own shade, its front catching light.
     let lit_top = matte(top_colour, [0.0, 0.2, 1.0]);
-    eye.fill(painter, &top, |[_, py, _]| {
+    eye.fill(canvas, &top, |[_, py, _]| {
         brighten(lit_top, 0.9).lerp_to_gamma(lit_top, (py - back) / (front - back))
     });
-    painter.add(Shape::closed_line(
+    canvas.painter().add(Shape::closed_line(
         eye.polygon(&top),
         Stroke::new(1.0, brighten(front_colour, 0.85)),
     ));
@@ -446,7 +447,7 @@ pub(super) fn paint_cap(
 
 /// `main` printed on a key top at `centre`, `shifted` above it; `size` of a
 /// letter's. Laid flat on the top, it foreshortens with it.
-fn legend(painter: &Painter, eye: &Eye, centre: [f32; 3], main: &str, shifted: &str, size: f32) {
+fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &str, size: f32) {
     if main.is_empty() {
         return;
     }
@@ -467,13 +468,13 @@ fn legend(painter: &Painter, eye: &Eye, centre: [f32; 3], main: &str, shifted: &
                 stroke,
             ),
         ];
-        let mesh = warp(painter, shapes, |p| {
+        let mesh = warp(canvas.painter(), shapes, |p| {
             eye.at(on_top(p.x / FLAT_TEXT, p.y / FLAT_TEXT))
         });
-        painter.add(Shape::mesh(mesh));
+        canvas.painter().add(Shape::mesh(mesh));
     } else if shifted.is_empty() {
         paint_flat_text(
-            painter,
+            canvas,
             eye,
             main,
             0.24 * size,
@@ -484,7 +485,7 @@ fn legend(painter: &Painter, eye: &Eye, centre: [f32; 3], main: &str, shifted: &
     } else {
         let size = 0.16 * size;
         paint_flat_text(
-            painter,
+            canvas,
             eye,
             shifted,
             size,
@@ -492,7 +493,7 @@ fn legend(painter: &Painter, eye: &Eye, centre: [f32; 3], main: &str, shifted: &
             Align2::CENTER_BOTTOM,
             on_top,
         );
-        paint_flat_text(painter, eye, main, size, LEGEND, Align2::CENTER_TOP, on_top);
+        paint_flat_text(canvas, eye, main, size, LEGEND, Align2::CENTER_TOP, on_top);
     }
 }
 

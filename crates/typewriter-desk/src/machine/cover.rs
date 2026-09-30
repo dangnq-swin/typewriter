@@ -2,10 +2,12 @@
 
 use std::f32::consts::PI;
 
-use eframe::egui::{Color32, Mesh, Painter, Shape};
+use eframe::egui::{Color32, Shape};
+use typewriter_app::draw::depth::{Layer, Solid};
 
+use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{add, add_fade, add_quad, fillet, sub};
+use super::geometry::{add, fillet, sub};
 use super::light::{brighten, matte, streak};
 use super::{IVORY_LIT, IVORY_SHADE, METAL, METAL_SHINE};
 use typewriter_app::draw::{splitmix64, unit};
@@ -33,7 +35,7 @@ const PLATE_THICKNESS: f32 = 0.3;
 const SEGMENT_CORE: f32 = 0.95;
 const SEGMENT_RIM: f32 = 1.1;
 const SEGMENT_Z: f32 = -0.76;
-const TYPE_BAR_REACH: (f32, f32) = (4.6, -1.9);
+const TYPE_BAR_REACH: (f32, f32) = (3.8, -1.9);
 /// How far the cover's shadow reaches inside the opening.
 const OPENING_SHADE_INCHES: f32 = 0.3;
 const INSIDE: Color32 = Color32::from_rgb(0x16, 0x12, 0x0E);
@@ -61,18 +63,28 @@ fn opening() -> [[f32; 3]; 4] {
 }
 
 /// Down through the opening: the dark insides, the type bars and segment in
-/// them, the cover's shadow round its edges. Before what hangs down into it
-/// at the back, the ribbon and its vibrator.
-pub(super) fn paint_opening(painter: &Painter, eye: &Eye) {
-    eye.fill(painter, &opening(), |_| INSIDE);
-    paint_type_basket(painter, eye);
-    paint_opening_shade(painter, eye, opening());
+/// them, the cover's shadow round its edges.
+pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
+    // Deep under the cover, below the type bars: the cover and panel hide
+    // all but what shows through the opening.
+    let ((back, _), (front, half)) = (OPENING_BACK, OPENING_FRONT);
+    let floor = TYPE_BAR_REACH.1 - 0.1;
+    let (wide, back, front) = (half + 2.0, back - 3.0, front + 0.5);
+    let insides = [
+        [-wide, back, floor],
+        [wide, back, floor],
+        [wide, front, floor],
+        [-wide, front, floor],
+    ];
+    eye.fill(canvas, &insides, |_| INSIDE);
+    paint_type_basket(canvas, eye);
+    paint_opening_shade(canvas, eye, opening());
 }
 
 /// The cover: two plates, their tips rounded thick where the opening runs
 /// out at the back, and the strip in front; the plates' thickness where they
 /// drop into the opening.
-pub(super) fn paint(painter: &Painter, eye: &Eye) {
+pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     let (back, front) = COVER_HALF;
     let (bl, br) = (on_cover(-back, COVER_BACK.0), on_cover(back, COVER_BACK.0));
     let (fl, fr) = (
@@ -91,7 +103,7 @@ pub(super) fn paint(painter: &Painter, eye: &Eye) {
         .chain([ofr])
         .collect();
     for (edge, facing) in [(&left_edge, 1.0), (&right_edge, -1.0)] {
-        paint_plate_wall(painter, eye, edge, facing);
+        paint_plate_wall(canvas, eye, edge, facing);
     }
     let lit = |[_, y, _]: [f32; 3]| {
         let t = (y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
@@ -109,18 +121,18 @@ pub(super) fn paint(painter: &Painter, eye: &Eye) {
         .collect();
     // Square at the fold: the panel below meets it edge for edge.
     for piece in [left, right, vec![ofl, ofr, fr, fl]] {
-        eye.fill(painter, &piece, lit);
+        eye.fill(canvas, &piece, lit);
     }
     // The opening's front corners rounded: cover fills them in.
     for (corner, before, after) in [(ofl, tip_l, ofr), (ofr, tip_r, ofl)] {
         let fill: Vec<[f32; 3]> = std::iter::once(corner)
             .chain(fillet(before, corner, after, OPENING_CORNER))
             .collect();
-        eye.fill(painter, &fill, lit);
+        eye.fill(canvas, &fill, lit);
     }
     // The rounded top of the plates' edges catches the light.
     for edge in [&left_edge, &right_edge] {
-        eye.line(painter, edge, 0.03, Color32::from_white_alpha(150));
+        eye.line(canvas, edge, 0.03, Color32::from_white_alpha(150));
     }
     let outline = [
         fillet(fl, bl, br, 0.25),
@@ -128,13 +140,13 @@ pub(super) fn paint(painter: &Painter, eye: &Eye) {
         vec![fr, fl],
     ]
     .concat();
-    eye.outline(painter, &outline);
+    eye.outline(canvas, &outline);
 }
 
 /// A plate's thickness under its inner `edge`, facing into the opening
 /// (`facing` +1 right, -1 left): lit as it faces.
-fn paint_plate_wall(painter: &Painter, eye: &Eye, edge: &[[f32; 3]], facing: f32) {
-    let mut mesh = Mesh::default();
+fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[[f32; 3]], facing: f32) {
+    let mut solid = Solid::default();
     for pair in edge.windows(2) {
         let [a, b] = [pair[0], pair[1]];
         let along = sub(b, a);
@@ -146,47 +158,43 @@ fn paint_plate_wall(painter: &Painter, eye: &Eye, edge: &[[f32; 3]], facing: f32
         };
         let colour = matte(IVORY_SHADE, [across[0], across[1], 0.2]);
         let down = |p: [f32; 3]| [p[0], p[1], p[2] - PLATE_THICKNESS];
-        add_quad(
-            &mut mesh,
+        eye.quad(
+            &mut solid,
             [
-                (eye.at(a), colour),
-                (eye.at(b), colour),
-                (eye.at(down(b)), brighten(colour, 0.7)),
-                (eye.at(down(a)), brighten(colour, 0.7)),
+                (a, colour),
+                (b, colour),
+                (down(b), brighten(colour, 0.7)),
+                (down(a), brighten(colour, 0.7)),
             ],
         );
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
 }
 
 /// The cover's shadow just inside the `opening`'s sides and front edge: its
 /// back is open.
-fn paint_opening_shade(painter: &Painter, eye: &Eye, opening: [[f32; 3]; 4]) {
+fn paint_opening_shade(canvas: &Canvas, eye: &Eye, opening: [[f32; 3]; 4]) {
     let [obl, obr, ofr, ofl] = opening;
     let reach = OPENING_SHADE_INCHES;
-    let dark = Color32::from_black_alpha(190);
-    let mut mesh = Mesh::default();
+    let (dark, clear) = (Color32::from_black_alpha(190), Color32::TRANSPARENT);
+    let mut solid = Solid::default();
     // Each edge, and which way is inside from it.
     for (a, b, inward) in [
         (obl, ofl, [reach, 0.0]),
         (obr, ofr, [-reach, 0.0]),
         (ofl, ofr, [0.0, -0.6 * reach]),
     ] {
-        let inside = |p: [f32; 3]| eye.at(on_cover(p[0] + inward[0], p[1] + inward[1]));
-        add_fade(
-            &mut mesh,
-            [eye.at(a), eye.at(b)],
-            [inside(a), inside(b)],
-            dark,
-        );
+        let inside = |p: [f32; 3]| on_cover(p[0] + inward[0], p[1] + inward[1]);
+        let corners = [(a, dark), (b, dark), (inside(b), clear), (inside(a), clear)];
+        eye.lying_quad(&mut solid, corners);
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Decal, solid);
 }
 
 /// The type basket under the cover's opening: the type bars fanned out
 /// wider than the opening, the cover cropping them, and the segment they
 /// hang in: a teal plate in a brushed silver rim.
-fn paint_type_basket(painter: &Painter, eye: &Eye) {
+fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     let centre = OPENING_BACK.0 - 0.15;
     let at =
         |angle: f32, radius: f32, z: f32| [radius * angle.sin(), centre + radius * angle.cos(), z];
@@ -195,18 +203,18 @@ fn paint_type_basket(painter: &Painter, eye: &Eye) {
     for i in 0..=bars {
         let angle = (-86.0 + 172.0 * f32::from(i) / f32::from(bars)).to_radians();
         let (from, to) = (at(angle, SEGMENT_RIM, SEGMENT_Z), at(angle, reach, low));
-        eye.line(painter, &[from, to], 0.075, TYPE_BAR);
+        eye.line(canvas, &[from, to], 0.075, TYPE_BAR);
         // A streak down its lit edge, bright where it points to catch the light.
         let shine = streak(sub(to, from), 12);
         let aside = [-0.022 * angle.cos(), 0.022 * angle.sin(), 0.0];
         let edge = [add(from, aside), add(to, aside)];
         let colour = METAL_SHINE.gamma_multiply(0.12 + 0.88 * shine);
-        eye.line(painter, &edge, 0.02, colour);
+        eye.line(canvas, &edge, 0.02, colour);
     }
 
     // The rim: brushed, so its streak runs round it.
     ring(
-        painter,
+        canvas,
         eye,
         centre,
         [SEGMENT_CORE, SEGMENT_RIM],
@@ -215,10 +223,10 @@ fn paint_type_basket(painter: &Painter, eye: &Eye) {
             METAL.lerp_to_gamma(METAL_SHINE, streak(along, 6))
         },
     );
-    ring(painter, eye, centre, [0.0, SEGMENT_CORE], |_, radius| {
+    ring(canvas, eye, centre, [0.0, SEGMENT_CORE], |_, radius| {
         TEAL_LIGHT.lerp_to_gamma(TEAL, radius / SEGMENT_CORE)
     });
-    speckle(painter, eye, 90, 0x7E_A1, |u, v| {
+    speckle(canvas, eye, 90, 0x7E_A1, |u, v| {
         at((u - 0.5) * PI, v.sqrt() * SEGMENT_CORE * 0.97, SEGMENT_Z)
     });
     let edge: Vec<[f32; 3]> = (0..=36u8)
@@ -230,13 +238,13 @@ fn paint_type_basket(painter: &Painter, eye: &Eye) {
             )
         })
         .collect();
-    eye.line(painter, &edge, 0.025, PALE_RING);
+    eye.line(canvas, &edge, 0.025, PALE_RING);
 }
 
 /// The front half of an annulus round `(0, centre_y)` at the segment's
 /// height, between `radii`; `colour` by angle and radius.
 fn ring(
-    painter: &Painter,
+    canvas: &Canvas,
     eye: &Eye,
     centre_y: f32,
     [inner, outer]: [f32; 2],
@@ -250,13 +258,13 @@ fn ring(
         ]
     };
     let steps = 40u8;
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for i in 0..steps {
         let [a, b] =
             [i, i + 1].map(|k| (-90.0 + 180.0 * f32::from(k) / f32::from(steps)).to_radians());
-        let corner = |angle: f32, radius: f32| (eye.at(at(angle, radius)), colour(angle, radius));
-        add_quad(
-            &mut mesh,
+        let corner = |angle: f32, radius: f32| (at(angle, radius), colour(angle, radius));
+        eye.quad(
+            &mut solid,
             [
                 corner(a, inner),
                 corner(b, inner),
@@ -265,13 +273,13 @@ fn ring(
             ],
         );
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
 }
 
 /// `count` specks of grain, light and dark, at `place(u, v)` for seeded
 /// `u` and `v` in 0..=1.
 fn speckle(
-    painter: &Painter,
+    canvas: &Canvas,
     eye: &Eye,
     count: u64,
     seed: u64,
@@ -286,7 +294,9 @@ fn speckle(
             Color32::from_black_alpha(50)
         };
         let radius = (0.012 * eye.scale(p)).max(0.6);
-        painter.circle_filled(eye.at(p), radius, colour);
+        let depth = eye.lying_depth(p);
+        let speck = Shape::circle_filled(eye.at(p), radius, colour);
+        canvas.lay(vec![speck], |at| (at, depth));
     }
 }
 

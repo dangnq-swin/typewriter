@@ -3,9 +3,10 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use eframe::egui::{Color32, Mesh, Painter, Shape};
+use eframe::egui::{Color32, Mesh, Shape};
 
 use super::body::DESK_Z;
+use super::canvas::Canvas;
 use super::eye::Eye;
 use super::geometry::{add_fade, add_quad, fillet, rounded, sub};
 use super::light::{brighten, matte};
@@ -100,7 +101,7 @@ fn inner_edge(side: f32, from: f32, to: f32) -> Vec<[f32; 3]> {
 /// The well's floor, reaching under the shelf: its rounded lip lets the eye
 /// in past its corner. The machine's insides under the panel's edge, and the
 /// shade at the walls' foot.
-pub(super) fn paint_well(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
     let (y0, z0) = PANEL_BOTTOM;
     let half = OPENING_HALF;
     let bed = KEY_BED_Z;
@@ -110,7 +111,7 @@ pub(super) fn paint_well(painter: &Painter, eye: &Eye) {
         [half, NOTCH_FRONT, bed],
         [-half, NOTCH_FRONT, bed],
     ];
-    eye.fill(painter, &floor, |[_, y, _]| {
+    eye.fill(canvas, &floor, |[_, y, _]| {
         KEY_BED.lerp_to_gamma(KEY_BED_FRONT, (y - y0) / (NOTCH_FRONT - y0))
     });
     // The machine's insides under the panel's edge.
@@ -121,12 +122,12 @@ pub(super) fn paint_well(painter: &Painter, eye: &Eye) {
         [half, y0, bed],
         [-half, y0, bed],
     ];
-    eye.fill(painter, &inside, |_| KEY_BED);
-    paint_well_shade(painter, eye);
+    eye.fill(canvas, &inside, |_| KEY_BED);
+    paint_well_shade(canvas, eye);
 }
 
 /// Shade on the key bed at the foot of the walls and under the panel.
-fn paint_well_shade(painter: &Painter, eye: &Eye) {
+fn paint_well_shade(canvas: &Canvas, eye: &Eye) {
     let (y0, _) = PANEL_BOTTOM;
     let (half, reach, bed) = (OPENING_HALF, 0.5, KEY_BED_Z);
     let dark = Color32::from_black_alpha(170);
@@ -140,12 +141,12 @@ fn paint_well_shade(painter: &Painter, eye: &Eye) {
         let inside = |(x, y): (f32, f32)| at((x + inward.0, y + inward.1));
         add_fade(&mut mesh, [at(a), at(b)], [inside(a), inside(b)], dark);
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.painter().add(Shape::mesh(mesh));
 }
 
 /// The walls' inner faces, down to the bed along the well and to the shelf
 /// beside it; the notch's sides down to the bed.
-pub(super) fn paint_inner_walls(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
     let (y0, _) = PANEL_BOTTOM;
     let half = OPENING_HALF;
     let bed = KEY_BED_Z;
@@ -195,11 +196,11 @@ pub(super) fn paint_inner_walls(painter: &Painter, eye: &Eye) {
             }
         }
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.painter().add(Shape::mesh(mesh));
 }
 
 /// The panel's edge over the well: the levers go in under it.
-pub(super) fn paint_panel_edge(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_panel_edge(canvas: &Canvas, eye: &Eye) {
     let (y0, z0) = PANEL_BOTTOM;
     let (half, under) = (OPENING_HALF, z0 - PANEL_EDGE_INCHES);
     let edge = [
@@ -208,25 +209,25 @@ pub(super) fn paint_panel_edge(painter: &Painter, eye: &Eye) {
         [half, y0, under],
         [-half, y0, under],
     ];
-    eye.fill(painter, &edge, |_| IVORY_SHADE);
+    eye.fill(canvas, &edge, |_| IVORY_SHADE);
 }
 
 /// The case round the keys, over all in its well: the walls' tops, the
 /// shelf, the rounded front and the plinth, and the walls' outer edges.
-pub(super) fn paint_frame(painter: &Painter, eye: &Eye) {
+pub(super) fn paint_frame(canvas: &Canvas, eye: &Eye) {
     let outline = case_side();
-    paint_wall_tops(painter, eye, &outline);
-    paint_shelf(painter, eye);
-    paint_case_front(painter, eye);
+    paint_wall_tops(canvas, eye, &outline);
+    paint_shelf(canvas, eye);
+    paint_case_front(canvas, eye);
     for side in [-1.0, 1.0] {
         let edge: Vec<[f32; 3]> = outline.iter().map(|&[x, y, z]| [side * x, y, z]).collect();
-        eye.line(painter, &edge, 0.012, EDGE);
+        eye.line(canvas, &edge, 0.012, EDGE);
     }
 }
 
 /// The walls' tops, lit as they swoop down to the case's front corners:
 /// across from each point of the case's outer edge `outline` to the well.
-fn paint_wall_tops(painter: &Painter, eye: &Eye, outline: &[[f32; 3]]) {
+fn paint_wall_tops(canvas: &Canvas, eye: &Eye, outline: &[[f32; 3]]) {
     let half = OPENING_HALF;
     let mut mesh = Mesh::default();
     for side in [-1.0, 1.0] {
@@ -245,12 +246,12 @@ fn paint_wall_tops(painter: &Painter, eye: &Eye, outline: &[[f32; 3]]) {
             );
         }
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.painter().add(Shape::mesh(mesh));
 }
 
 /// The shelf between the walls: a block each side, rounding off into the
 /// well beside the notch, and the strip in front of the notch.
-fn paint_shelf(painter: &Painter, eye: &Eye) {
+fn paint_shelf(canvas: &Canvas, eye: &Eye) {
     let (half, notch) = (OPENING_HALF, NOTCH_HALF);
     let shelf_colour = matte(IVORY, [0.0, 0.0, 1.0]);
     let at = |x: f32, y: f32| [x, y, SHELF_Z];
@@ -261,7 +262,7 @@ fn paint_shelf(painter: &Painter, eye: &Eye) {
             (at(side * notch, CASE_FRONT), 0.0),
             (at(side * half, CASE_FRONT), 0.0),
         ]);
-        eye.fill(painter, &block, |_| shelf_colour);
+        eye.fill(canvas, &block, |_| shelf_colour);
         let corner = at(side * notch, NOTCH_FRONT);
         let fill: Vec<[f32; 3]> = std::iter::once(corner)
             .chain(fillet(
@@ -271,7 +272,7 @@ fn paint_shelf(painter: &Painter, eye: &Eye) {
                 NOTCH_ROUNDING,
             ))
             .collect();
-        eye.fill(painter, &fill, |_| shelf_colour);
+        eye.fill(canvas, &fill, |_| shelf_colour);
     }
     let strip = [
         at(-notch, NOTCH_FRONT),
@@ -279,12 +280,12 @@ fn paint_shelf(painter: &Painter, eye: &Eye) {
         at(notch, CASE_FRONT),
         at(-notch, CASE_FRONT),
     ];
-    eye.fill(painter, &strip, |_| shelf_colour);
+    eye.fill(canvas, &strip, |_| shelf_colour);
 }
 
 /// The case's rounded front, its face turning with the corners, and the
 /// plinth under it.
-fn paint_case_front(painter: &Painter, eye: &Eye) {
+fn paint_case_front(canvas: &Canvas, eye: &Eye) {
     let front = case_front_edge();
     // Each point faces between its two neighbours: the shading blends round
     // the corners instead of stepping.
@@ -327,7 +328,7 @@ fn paint_case_front(painter: &Painter, eye: &Eye) {
             ],
         );
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.painter().add(Shape::mesh(mesh));
 }
 
 #[cfg(test)]

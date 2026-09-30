@@ -11,6 +11,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use eframe::egui::{Painter, Rect, Stroke};
 
+use super::canvas::Canvas;
 use super::carriage::platen_axis;
 use super::eye::Eye;
 use super::geometry::{add, cross, normalized, scaled, sub};
@@ -115,15 +116,16 @@ pub fn paint_lever_base(
     let eye = Eye::new(view, metrics, typing_y).about(platen_axis());
     // It meets the side plate: nothing of it over the plate.
     let clip = painter.clip_rect();
-    let painter = &painter.with_clip_rect(Rect::from_min_max(
+    let painter = painter.with_clip_rect(Rect::from_min_max(
         clip.min,
         eframe::egui::pos2(left.min(clip.right()), clip.bottom()),
     ));
+    let canvas = &Canvas::flat(&painter);
     let left = end_at(&eye, left);
-    paint_bracket(painter, &eye, left);
+    paint_bracket(canvas, &eye, left);
     let strap = Strap::new(left, amount);
-    paint_strap(painter, &eye, &strap.frames[..=strap.behind_knob], false);
-    paint_screw(painter, &eye, strap.screw);
+    paint_strap(canvas, &eye, &strap.frames[..=strap.behind_knob], false);
+    paint_screw(canvas, &eye, strap.screw);
 }
 
 /// In front of the left knob, after it: the lever out of its bracket on the
@@ -138,19 +140,19 @@ pub fn paint_lever(
 ) {
     let eye = Eye::new(view, metrics, typing_y).about(platen_axis());
     let strap = Strap::new(end_at(&eye, left), amount);
-    paint_strap(painter, &eye, &strap.frames[strap.behind_knob..], true);
+    let canvas = &Canvas::flat(painter);
+    paint_strap(canvas, &eye, &strap.frames[strap.behind_knob..], true);
 }
 
-/// The carriage's left end, at `left` on screen, in inches: where the
-/// bracket meets it. The carriage is drawn flat, the lever in depth.
+/// The carriage's left end, at `left` on screen on the platen's axis, in
+/// inches: where the bracket meets it.
 fn end_at(eye: &Eye, left: f32) -> f32 {
-    let bracket = [0.0, BRACKET_Y.1, BRACKET_Z.1];
-    (left - eye.origin.x) / eye.scale(bracket)
+    (left - eye.origin.x) / eye.scale([0.0; 3])
 }
 
 /// The bracket's faces toward the eye, for the carriage's left end at
 /// `left` inches.
-fn paint_bracket(painter: &Painter, eye: &Eye, left: f32) {
+fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
     let ((x0, x1), (back, front), (bottom, top)) = (BRACKET_X, BRACKET_Y, BRACKET_Z);
     let (x0, x1) = (x0 + left, x1 + left);
     let inner = [
@@ -160,22 +162,22 @@ fn paint_bracket(painter: &Painter, eye: &Eye, left: f32) {
         [x1, back, bottom],
     ];
     if eye.faces(inner[0], [1.0, 0.0, 0.0]) {
-        eye.fill(painter, &inner, |_| METAL);
+        eye.fill(canvas, &inner, |_| METAL);
     }
-    paint_chrome(painter, eye, [x0, x1], front, top, top - bottom);
+    paint_chrome(canvas, eye, [x0, x1], front, top, top - bottom);
     let lid = [
         [x0, back, top],
         [x1, back, top],
         [x1, front, top],
         [x0, front, top],
     ];
-    eye.fill(painter, &lid, |_| brighten(METAL_SHINE, 0.9));
-    eye.outline(painter, &lid);
+    eye.fill(canvas, &lid, |_| brighten(METAL_SHINE, 0.9));
+    eye.outline(canvas, &lid);
 }
 
 /// The slotless screw's head, standing proud at `at`: its rim toward the
 /// eye, then its face, brightest toward the light.
-fn paint_screw(painter: &Painter, eye: &Eye, at: [f32; 3]) {
+fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
     let round = |z: f32| -> Vec<[f32; 3]> {
         (0..SCREW_STEPS)
             .map(|step| {
@@ -191,16 +193,16 @@ fn paint_screw(painter: &Painter, eye: &Eye, at: [f32; 3]) {
         let j = (i + 1) % n;
         let outward = sub(add(base[i], base[j]), scaled(at, 2.0));
         if eye.faces(base[i], outward) {
-            eye.fill(painter, &[face[i], face[j], base[j], base[i]], |_| METAL);
+            eye.fill(canvas, &[face[i], face[j], base[j], base[i]], |_| METAL);
         }
     }
     let light = toward_light();
-    eye.fill(painter, &face, |p| {
+    eye.fill(canvas, &face, |p| {
         let toward = normalized(sub(p, at));
         let lit = 0.5 + 0.5 * (toward[0] * light[0] + toward[1] * light[1]);
         brighten(METAL, 0.9).lerp_to_gamma(METAL_SHINE, lit)
     });
-    eye.outline(painter, &face);
+    eye.outline(canvas, &face);
 }
 
 /// The lever through `frames`, back to front. Each length's strips across
@@ -208,9 +210,11 @@ fn paint_screw(painter: &Painter, eye: &Eye, at: [f32; 3]) {
 /// each is chrome for the way its seen side faces. Then its two edges, as
 /// single strokes no join can spike. `tip`: its end is in `frames`, and its
 /// cut shows the fold and curl.
-fn paint_strap(painter: &Painter, eye: &Eye, frames: &[Frame], tip: bool) {
+fn paint_strap(canvas: &Canvas, eye: &Eye, frames: &[Frame], tip: bool) {
     let stroke = |a: [f32; 3], b: [f32; 3]| {
-        painter.line_segment([eye.at(a), eye.at(b)], Stroke::new(1.0, EDGE));
+        canvas
+            .painter()
+            .line_segment([eye.at(a), eye.at(b)], Stroke::new(1.0, EDGE));
     };
     for pair in frames.windows(2) {
         let (a, b) = (&pair[0], &pair[1]);
@@ -229,7 +233,7 @@ fn paint_strap(painter: &Painter, eye: &Eye, frames: &[Frame], tip: bool) {
             };
             // Up to the sky bright, sideways to the light's band, down dark.
             let colour = brighten(chrome_at((1.0 - normalized(seen)[2]) / 2.0), shine);
-            eye.fill(painter, &strip, |_| colour);
+            eye.fill(canvas, &strip, |_| colour);
         }
         stroke(a.across[0], b.across[0]);
         stroke(a.across[1], b.across[1]);
@@ -367,6 +371,7 @@ mod tests {
     use eframe::egui::{Pos2, vec2};
     use typewriter_core::{Profile, Side};
 
+    use super::super::carriage::platen_ends;
     use super::super::geometry::dot;
     use super::*;
     use typewriter_app::draw::Knob;
@@ -419,13 +424,13 @@ mod tests {
         let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
         let typing_y = 600.0;
         let eye = Eye::new(view, &metrics, typing_y).about(platen_axis());
-        let left = eye.origin.x - 5.9 * 96.0;
+        let [left, _] = platen_ends(view, &metrics, typing_y, view.center().x);
         let axis_y = eye.at([0.0; 3]).y;
         let knob = Knob::on_axis(&metrics, Side::Left, left, axis_y).grip();
+        // Its inner end meets the side plate, at the carriage's end; the
+        // knob hides its outer front.
         let end = end_at(&eye, left);
-        // Its inner end meets the side plate; the knob hides its outer front.
-        let inner = eye.at([end, BRACKET_Y.1, BRACKET_Z.1]);
-        assert!((inner.x - left).abs() < 0.01, "{inner:?} at {left}");
+        assert!((end + 5.9).abs() < 1e-3, "{end}");
         for z in [BRACKET_Z.0, BRACKET_Z.1] {
             let corner = eye.at([end + BRACKET_X.0, BRACKET_Y.1, z]);
             assert!(knob.contains(corner), "{corner:?} outside {knob:?}");

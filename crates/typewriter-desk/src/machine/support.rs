@@ -3,25 +3,24 @@
 //! wound round leans on it. Its scale counts single lines to the page's
 //! end, 1 at the top: the last mark above the sheet's top edge in front.
 //!
-//! Drawn across at the sheet's scale, as the carriage is: it travels with
-//! the sheet.
-//!
 //! The sheet's way behind the platen is a line across the machine, `(y, z)`
 //! inches, measured `along` it from where the paper leaves the platen.
 
 use std::f32::consts::PI;
 
-use eframe::egui::{Align2, Color32, Painter, Rect};
+use eframe::egui::{Align2, Color32, Rect};
 
+use super::canvas::Canvas;
 use super::carriage::{PLATEN_DIAMETER_INCHES, STRIKE_DEGREES, platen_axis};
 use super::eye::{Eye, paint_flat_text};
 use super::geometry::dot;
 use super::light::{matte, toward_light};
+use super::sheet::front_at;
 use super::{CHROME, EDGE, ENGRAVED, IVORY_LIT, METAL};
 use typewriter_app::draw::{Metrics, PaperTable, smoothstep};
 
 /// Back from upright.
-const LEAN_DEGREES: f32 = 15.0;
+pub(super) const LEAN_DEGREES: f32 = 15.0;
 /// Across: the sleeve, the strip sliding in it, the scale's white panel.
 const SLEEVE_HALF: f32 = 0.26;
 const STRIP_HALF: f32 = 0.21;
@@ -61,20 +60,20 @@ const SEARCH_STEPS: u16 = 30;
 
 /// Paper round the platen from where it leaves for the support, down
 /// behind, under and up its front to the printing point.
-fn wrap_inches() -> f32 {
+pub(super) fn wrap_inches() -> f32 {
     let turn = PI - LEAN_DEGREES.to_radians() + STRIKE_DEGREES.to_radians();
     PLATEN_DIAMETER_INCHES / 2.0 * turn
 }
 
 /// The paper's front's normal behind the platen, `(y, z)`.
-fn facing() -> [f32; 2] {
+pub(super) fn facing() -> [f32; 2] {
     let (sin, cos) = LEAN_DEGREES.to_radians().sin_cos();
     [cos, sin]
 }
 
 /// The point `along` the way, `(y, z)`: it leaves the platen where a line
 /// leaning back touches it.
-fn way(along: f32) -> [f32; 2] {
+pub(super) fn way(along: f32) -> [f32; 2] {
     let (sin, cos) = LEAN_DEGREES.to_radians().sin_cos();
     let radius = PLATEN_DIAMETER_INCHES / 2.0;
     let normal = facing();
@@ -106,7 +105,7 @@ fn along_at(eye: &Eye, y: f32) -> f32 {
 
 /// Where sheets go in, for the typing line at `typing_y` in `view`.
 pub fn paper_table(view: Rect, metrics: &Metrics, typing_y: f32) -> PaperTable {
-    let eye = Eye::new(view, metrics, typing_y).flat_across();
+    let eye = Eye::new(view, metrics, typing_y);
     let radius = PLATEN_DIAMETER_INCHES / 2.0 * metrics.points_per_inch;
     let [ny, nz] = facing();
     let lit = dot([0.0, ny, nz], toward_light()).max(0.0);
@@ -131,8 +130,7 @@ pub fn paper_table(view: Rect, metrics: &Metrics, typing_y: f32) -> PaperTable {
 
 /// The support centred `middle` inches across, its scale for a sheet
 /// `metrics` long: the sleeve, the strip out of it, the scale and the tab.
-pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, middle: f32) {
-    let eye = &eye.flat_across();
+pub(super) fn paint(canvas: &Canvas, eye: &Eye, metrics: &Metrics, middle: f32) {
     let [ny, nz] = facing();
     let normal = [0.0, ny, nz];
     let ppi = metrics.points_per_inch;
@@ -142,7 +140,7 @@ pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, middle: f32
     // left, seen past it.
     let mark = |n: u16| {
         let front = length - f32::from(n) * line;
-        along_at(eye, eye.origin.y - front * ppi)
+        along_at(eye, front_at(eye, front))
     };
     let (first, last) = (mark(1), mark(MARKS));
     let sleeve_top = last - line;
@@ -156,17 +154,17 @@ pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, middle: f32
     };
     // The strip, then the sleeve round it, in front.
     let strip = quad(STRIP_HALF, sleeve_top, first + TAB_OVER, STRIP_BEHIND);
-    eye.fill(painter, &strip, |_| matte(CHROME, normal));
-    eye.outline(painter, &strip);
+    eye.fill(canvas, &strip, |_| matte(CHROME, normal));
+    eye.outline(canvas, &strip);
     let panel = quad(PANEL_HALF, sleeve_top, first + PANEL_OVER, STRIP_BEHIND);
-    eye.fill(painter, &panel, |_| matte(IVORY_LIT, normal));
+    eye.fill_lying(canvas, &panel, |_| matte(IVORY_LIT, normal));
     let hole = quad(
         TAB_HOLE / 2.0,
         first + TAB_OVER - 1.5 * TAB_HOLE,
         first + TAB_OVER - 0.5 * TAB_HOLE,
         STRIP_BEHIND,
     );
-    eye.fill(painter, &hole, |_| Color32::from_black_alpha(160));
+    eye.fill(canvas, &hole, |_| Color32::from_black_alpha(160));
     for n in 1..=MARKS {
         let along = mark(n);
         let numbered = n == 1 || n % NUMBERED == 0;
@@ -177,16 +175,16 @@ pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, middle: f32
         };
         if !numbered {
             let tick = [-half, half].map(|a| on_way(middle, a, along, STRIP_BEHIND));
-            eye.line(painter, &tick, TICK_WIDTH, ENGRAVED);
+            eye.line(canvas, &tick, TICK_WIDTH, ENGRAVED);
             continue;
         }
         // The number stands in a gap in its tick.
         for side in [-1.0, 1.0] {
             let piece = [half, NUMBER_GAP].map(|a| on_way(middle, side * a, along, STRIP_BEHIND));
-            eye.line(painter, &piece, TICK_WIDTH, ENGRAVED);
+            eye.line(canvas, &piece, TICK_WIDTH, ENGRAVED);
         }
         paint_flat_text(
-            painter,
+            canvas,
             eye,
             &n.to_string(),
             NUMBER_HEIGHT,
@@ -197,13 +195,13 @@ pub(super) fn paint(painter: &Painter, eye: &Eye, metrics: &Metrics, middle: f32
     }
     let sleeve = quad(SLEEVE_HALF, FOOT, sleeve_top, SLEEVE_BEHIND);
     let brushed = matte(METAL.lerp_to_gamma(CHROME, 0.5), normal);
-    eye.fill(painter, &sleeve, |_| brushed);
-    eye.outline(painter, &sleeve);
+    eye.fill(canvas, &sleeve, |_| brushed);
+    eye.outline(canvas, &sleeve);
     let lip = [
         on_way(middle, -SLEEVE_HALF, sleeve_top, SLEEVE_BEHIND),
         on_way(middle, SLEEVE_HALF, sleeve_top, SLEEVE_BEHIND),
     ];
-    eye.line(painter, &lip, 0.02, EDGE);
+    eye.line(canvas, &lip, 0.02, EDGE);
 }
 
 #[cfg(test)]
