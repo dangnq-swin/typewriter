@@ -1,7 +1,14 @@
 //! Keyboard events → actions. The full key map.
 //!
-//! No Ctrl bindings (a typewriter has none), except Ctrl+S. Keys don't repeat
-//! unless a real machine would: only letters, arrows and Enter do.
+//! No Ctrl bindings (a typewriter has none), except Ctrl+S, kept for muscle
+//! memory. Keys don't repeat unless a real machine would: only letters,
+//! arrows and Enter do.
+//!
+//! A compact (60 %) keyboard lacks Insert and F1–F12, so an action bound to
+//! one needs another way in: the last line's Enter feeds a sheet as Insert
+//! does, the Spacing and Correct plates do what F1–F4 do, the plain wheel
+//! zooms with a percentage plate that resets on double-click. F11
+//! (fullscreen) is the exception: the desktop does it.
 //!
 //! - printable keys: type, except 1 and ! (no such keys) and characters the
 //!   typeface lacks (`app/desk/typing.rs` checks). Accented letters need the

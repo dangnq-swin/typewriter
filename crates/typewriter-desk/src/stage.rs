@@ -1,5 +1,14 @@
 //! The desk edition's hooks into the app: the room behind, the SM9 around
 //! the sheet, its knobs and front panel for controls, the scale on its bail.
+//!
+//! The desk keeps no state: the app's desk holds what it draws from (the
+//! last return), and clicks on its controls come back as rects. It reaches
+//! the app's drawing only through `draw.rs`: share a helper there by
+//! re-exporting it, not by making an app module public.
+//!
+//! Drawing is in depth — one wgpu callback a frame, a depth buffer,
+//! positions projected on the CPU (`depth.rs`, `machine/canvas.rs`). A part
+//! moved into depth needs its real shape, not the order it was drawn in.
 
 use eframe::egui::{Context, Painter, Rect, Ui};
 use eframe::egui_wgpu::RenderState;

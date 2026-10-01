@@ -1,5 +1,24 @@
 //! The sheets typed so far (filed ones and the one in the machine) and the
 //! folder file that saves them.
+//!
+//! `*.typr` projects are RON inside, MIME `application/x-typewriter-folder`,
+//! versioned major.minor as `version: "1.0"`. Changing what they hold needs
+//! the maintainer's yes.
+//!
+//! - **Minor** (1.1, …): only what older files lack and can be read with
+//!   defaults. The app opens every older minor of its major and writes only
+//!   its own. Bump the minor in [`FORMAT_VERSION`], read the new field with
+//!   `#[serde(default)]`, test opening a file of the previous minor. A
+//!   retired field: `#[serde(default, skip_serializing)]`, folded into its
+//!   replacement.
+//! - **Major** (2.0): anything older files can't default into. Refuse older
+//!   majors and say so, and ship the conversion beside them, as
+//!   `scripts/convert-format-8.sh` does for the pre-1.0 format.
+//! - Newer files, minor or major, are refused with the reason: opening one
+//!   would drop on the next save what this build doesn't know.
+//! - Parse straight into the real types, never in a pass that ignores
+//!   fields: ron skips ignored values in quadratic time, hours for a novel.
+//!   The reopening-time test in the app's `simulate.rs` guards this.
 
 use std::fmt;
 use std::str::FromStr;
