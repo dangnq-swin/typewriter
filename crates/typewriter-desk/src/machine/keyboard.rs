@@ -282,18 +282,24 @@ fn paint_key_shadow(
     let cast = KEY_SHADOW_DROP / light[2];
     let (dx, dy) = (-light[0] * cast, -light[1] * cast);
     let z = z - KEY_SHADOW_DROP;
-    let outline: Vec<Pos2> =
-        rounded_rect([left + dx, right + dx], [back + dy, front + dy], z, 0.15)
-            .into_iter()
-            .map(|[x, y, _]| pos2(x, y))
-            .collect();
+    // The foot's own shape, grown and rounded as the cap's is.
+    let outline: Vec<Pos2> = rounded_rect(
+        [left + dx - KEY_FLARE, right + dx + KEY_FLARE],
+        [back + dy - KEY_FLARE, front + dy + KEY_FLARE],
+        z,
+        0.12 + 2.0 * KEY_FLARE,
+    )
+    .into_iter()
+    .map(|[x, y, _]| pos2(x, y))
+    .collect();
     let mesh = soft(&outline, 0.1, Color32::from_black_alpha(150));
-    // As deep as under the foot casting it: over the rod and walls it falls
-    // on, behind every cap, its own too.
+    // Each vertex as deep as the plane it lies drawn on, where it shows:
+    // whatever stands through that plane, the walls and the caps' own feet,
+    // hides the shadow there.
     let depths = mesh
         .vertices
         .iter()
-        .map(|v| eye.depth([v.pos.x - dx, v.pos.y - dy, z]))
+        .map(|v| eye.depth([v.pos.x, v.pos.y, z]))
         .collect();
     let mut solid = Solid::unlit(mesh, depths);
     for vertex in &mut solid.mesh.vertices {
