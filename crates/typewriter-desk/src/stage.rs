@@ -4,7 +4,9 @@
 use eframe::egui::{Context, Painter, Rect, Ui};
 use eframe::egui_wgpu::RenderState;
 use typewriter_app::Stage;
+use typewriter_app::draw::ruler::Scale;
 use typewriter_app::draw::{Controls, FlatSheet, Metrics, PaperTable, Return, Scene};
+use typewriter_core::carriage::Carriage;
 
 use crate::depth;
 use crate::machine::{self, Control, Panel, Throw};
@@ -128,9 +130,19 @@ impl Stage for Desk {
         Some(rects)
     }
 
-    /// On the paper bail above the typing line, as on the SM9.
-    fn scale_top(&self, scene: &Scene) -> Option<f32> {
-        Some(machine::bail_scale_top(scene.metrics, scene.typing_y))
+    /// On the paper bail above the typing line, as on the SM9, in depth with
+    /// the machine.
+    fn scale(
+        &self,
+        painter: &Painter,
+        scene: &Scene,
+        scale: &Scale,
+        carriage: &Carriage,
+    ) -> Option<Scale> {
+        let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
+        Some(machine::print_scale(
+            painter, view, metrics, typing_y, scale, carriage,
+        ))
     }
 
     /// The lever, springing back after a return.
@@ -206,6 +218,15 @@ mod tests {
         };
         let image = render(Box::new(Desk), &line_end).unwrap();
         image.save(folder.join("line-end.png")).unwrap();
+        // The plain app's scale, its middle marked.
+        let plain = Shot {
+            size: vec2(1600.0, 1000.0),
+            zoom_percent: 200,
+            text: &"x".repeat(45),
+            after_seconds: 5.0,
+        };
+        let image = render(Box::new(typewriter_app::Plain), &plain).unwrap();
+        image.save(folder.join("plain.png")).unwrap();
         // A page well begun: its lines over the platen and up the sheet.
         let page = "Call me Ishmael. Some years ago - never mind how long precisely -\n\
                     having little or no money in my purse, and nothing particular to\n\

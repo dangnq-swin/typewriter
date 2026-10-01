@@ -102,7 +102,9 @@ mod tests {
     use crate::draw::{Controls, Metrics, Scene};
     use crate::input::Action;
     use crate::render::folder::FolderAction;
+    use crate::render::ruler::Scale;
     use crate::stage::Stage;
+    use typewriter_core::carriage::Carriage;
 
     /// One frame at `now`: what the user asked.
     fn frame(app: &mut TypewriterApp, ctx: &egui::Context, now: f64) -> Vec<Intent> {
@@ -203,6 +205,11 @@ mod tests {
             None
         }
 
+        fn scale(&self, _: &Painter, _: &Scene, _: &Scale, _: &Carriage) -> Option<Scale> {
+            self.note("scale");
+            None
+        }
+
         fn paint_over_sheets(&self, _: &Painter, _: &Scene) {
             self.note("over the sheets");
         }
@@ -215,11 +222,6 @@ mod tests {
             _: &Controls,
         ) -> Option<[Rect; 5]> {
             self.note("controls");
-            None
-        }
-
-        fn scale_top(&self, _: &Scene) -> Option<f32> {
-            self.note("scale");
             None
         }
     }
@@ -239,9 +241,9 @@ mod tests {
                 "behind the sheets",
                 "sheet lift",
                 "knobs",
+                "scale",
                 "over the sheets",
                 "controls",
-                "scale",
             ]
         );
     }

@@ -9,10 +9,10 @@ pub use crate::render::platen::glide_seconds;
 pub use crate::render::{HIGHLIGHT, Metrics, points_per_inch, smoothstep, splitmix64, unit};
 pub use crate::stage::{Controls, FlatSheet, PaperTable, Return, Scene};
 
-/// The scale's height, and the plates' readings, which the desk's panel
-/// shows too.
+/// The scale, which the desk's bail prints, and the plates' readings, which
+/// its panel shows too.
 pub mod ruler {
     pub use crate::render::ruler::{
-        HEIGHT, SAVED, autosave_state, correction_method, goal_reading,
+        HEIGHT, SAVED, Scale, autosave_state, correction_method, goal_reading, scale_marks,
     };
 }

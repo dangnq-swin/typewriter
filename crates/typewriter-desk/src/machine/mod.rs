@@ -11,6 +11,7 @@
 //! [`paint_behind`] and [`paint_front`] call them: the shadow before the
 //! parts in depth, the keyboard after them.
 
+mod bail;
 mod body;
 mod canvas;
 mod carriage;
@@ -28,7 +29,6 @@ mod sheet;
 mod side_controls;
 mod support;
 
-pub use carriage::bail_scale_top;
 pub use lever::Throw;
 pub use panel::{Control, Panel};
 pub use sheet::paint_sheets;
@@ -41,6 +41,8 @@ use canvas::Canvas;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
 use typewriter_app::draw::Metrics;
+use typewriter_app::draw::ruler::Scale;
+use typewriter_core::carriage::Carriage;
 
 /// The typing line's height in the view: leaning over the page at 100 %
 /// zoom and above, sitting back to see the whole machine at 50 %, and far
@@ -108,10 +110,28 @@ pub fn paint_behind(
     let middle = (carriage_x - eye.origin.x) / eye.ppi;
     support::paint(&canvas, &eye, metrics, middle);
     carriage::paint(&canvas, &eye, middle);
-    carriage::paint_bail(&canvas, &eye, metrics, typing_y, middle);
+    bail::paint(&canvas, &eye, middle);
     let [left, _] = carriage::ends(middle);
     lever::paint(&canvas, &eye.about(carriage::platen_axis()), left, throw);
     canvas.finish();
+}
+
+/// `scale`, laid out on screen at the sheet's scale, and `carriage`'s stops
+/// printed on the paper bail: where it shows, for its stops. Into the
+/// frame's depth pass.
+pub fn print_scale(
+    painter: &Painter,
+    view: Rect,
+    metrics: &Metrics,
+    typing_y: f32,
+    scale: &Scale,
+    carriage: &Carriage,
+) -> Scale {
+    let eye = Eye::new(view, metrics, typing_y);
+    let canvas = Canvas::depth(painter);
+    let printed = bail::print_scale(&canvas, &eye, scale, carriage);
+    canvas.finish();
+    printed
 }
 
 /// The platen knobs at the carriage's ends, for the sheet centred at

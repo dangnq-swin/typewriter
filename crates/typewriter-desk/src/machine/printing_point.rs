@@ -19,20 +19,20 @@ use typewriter_app::draw::Metrics;
 
 /// The alignment guide's plates, pressed on the paper either side of the
 /// printing point, following it: their foot's and top's `z`, their foot
-/// down behind the ribbon, their top leaning back with the platen; how far
+/// down behind the ribbon, their top a line above the typing line's; how far
 /// off the paper. Their inner and outer `x`. The line being typed shows
 /// through them.
-const GUIDE_Z: (f32, f32) = (-0.5, 0.27);
+const GUIDE_Z: (f32, f32) = (-0.615, 0.155);
 const GUIDE_OFF_PAPER: f32 = 0.018;
 const GUIDE_X: (f32, f32) = (0.7, 3.8);
 /// The plates' top corners, rounded: outside and in.
 const OUTER_TOP_ROUNDING: f32 = 0.25;
 const INNER_TOP_ROUNDING: f32 = 0.08;
-/// The scale stuck along each plate's foot, white marks on black: its top at
-/// the typing line's foot, `z`, and its depth down the plate, the cover's
-/// back edge hiding its foot; its marks, on the columns' edges out from the
-/// notch, and their length.
-const SCALE_Z: f32 = -0.15;
+/// The tape stuck along each plate's foot, white marks on black: its top
+/// `z`, just down behind the cover's back edge, and its depth down the
+/// plate; its marks, on the columns' edges out from the notch, and their
+/// length.
+const SCALE_Z: f32 = -0.265;
 const SCALE_DEPTH: f32 = 0.2;
 const SCALE_MARKS: i32 = 12;
 const MARK_LENGTH: f32 = 0.07;
@@ -76,6 +76,13 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
 /// `points` round again to the first.
 fn closed(points: &[[f32; 3]]) -> Vec<[f32; 3]> {
     points.iter().chain(points.first()).copied().collect()
+}
+
+/// The top of the guide's face, in its middle: what the bail's rollers
+/// clear.
+#[cfg(test)]
+pub(super) fn guide_top() -> [f32; 3] {
+    on_guide(0.0, 1.0)
 }
 
 /// A point on the guide's face, `t` from its foot (0) to its top (1).
@@ -273,7 +280,7 @@ fn paint_vibrator(canvas: &Canvas, eye: &Eye) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::carriage::{PLATEN_DIAMETER_INCHES, SIDE_PLATE_Y, platen_axis};
+    use super::super::carriage::{PLATEN_DIAMETER_INCHES, platen_axis};
     use super::super::cover::{COVER_BACK, on_cover};
     use super::super::eye::{LYING_INCHES, toward_eye};
     use super::*;
@@ -282,15 +289,13 @@ mod tests {
     const LINE_FOOT: f32 = 96.0 / 6.0;
 
     #[test]
-    fn the_guide_stands_over_the_line_and_the_ribbon_below_it() {
+    fn the_guide_stands_a_line_over_the_typing_line_the_ribbon_below_it() {
         let eye = Eye::testing(0.0, 96.0);
-        let foot = eye.at(on_guide(0.0, scale_t())).y;
-        assert!((LINE_FOOT..LINE_FOOT + 3.0).contains(&foot), "{foot}");
-        assert!(eye.at(on_guide(0.0, 1.0)).y < -20.0);
+        assert!(eye.at(guide_top()).y < -LINE_FOOT + 1.0);
         // The descenders show above the ribbon and the vibrator.
         let (y, top, _) = RIBBON;
         let (vy, vtop, _) = VIBRATOR;
-        assert!(eye.at([0.0, y, top]).y > foot);
+        assert!(eye.at([0.0, y, top]).y > LINE_FOOT);
         assert!(eye.at([0.0, vy, vtop]).y > LINE_FOOT + 1.0);
     }
 
@@ -305,21 +310,14 @@ mod tests {
     }
 
     #[test]
-    fn the_carriage_runs_behind_the_guide() {
-        // Its top, leaning back with the paper, is nearest the side plates.
-        let front = platen_axis()[1] + SIDE_PLATE_Y.1;
-        assert!(on_guide(0.0, 1.0)[1] > front);
-    }
-
-    #[test]
-    fn the_cover_hides_the_ribbon_but_not_the_scale() {
+    fn the_tape_s_top_meets_the_cover_s_back_edge_the_ribbon_under_it() {
         let eye = Eye::testing(0.0, 96.0);
         let (back_y, back_z) = COVER_BACK;
         let edge = eye.at([2.0, back_y, back_z]).y;
         let (y, top, _) = RIBBON;
         assert!(edge < eye.at([2.0, y, top]).y);
-        let scale = eye.at(on_guide(2.0, scale_t())).y;
-        assert!(edge > scale + MARK_LENGTH * 96.0, "{edge} {scale}");
+        let tape = eye.at(on_guide(2.0, scale_t())).y;
+        assert!((edge - tape).abs() < 1.5, "{edge} {tape}");
     }
 
     #[test]

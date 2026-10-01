@@ -84,7 +84,7 @@ The roadmap's "rest of the machine in real 3D". What each part needs:
       - `case::paint_well`: `KEY_BED` → `KEY_BED_FRONT`.
       - `case::paint_inner_walls`: the `[top, foot]` brightness factors.
       - `cover::paint_plate_wall`: `brighten(colour, 0.7)` at the foot.
-      - `carriage::paint_bail_bar`: `BAIL_TOP` → `BAIL_MID` → `BAIL_LOW` down the bar.
+      - `bail::paint_bar`: `BAR_TOP` → `BAR_MID` → `BAR_LOW` down the bar.
       - the caps' dished top.
 
       Give depth vertices a normal (and a material: matte, chrome, paper), pass the light as a
@@ -97,10 +97,10 @@ The roadmap's "rest of the machine in real 3D". What each part needs:
       `eye::LYING_INCHES` with `lying_depth`, `carriage::UNDER_PAPER_INCHES`,
       `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.002` on the wall marks in
       `side_controls::paint_marks`. The guide's offset has a narrow window: in front of the
-      print, its glass behind the ribbon (its test says so). Try a slope-scaled `DepthBiasState` on the decal pipeline.
-      Depth is `1 - near / distance`, not linear, so a fixed inch offset is a varying bias:
-      check the platen's edges against the paper at 25 % and 200 %. The snapshot rasterizer
-      needs the same bias.
+      print, its glass behind the ribbon (its test says so). Try a slope-scaled
+      `DepthBiasState` on the decal pipeline. Depth is `1 - near / distance`, not linear, so a
+      fixed inch offset is a varying bias: check the platen's edges against the paper at 25 %
+      and 200 %. The snapshot rasterizer needs the same bias.
 - [ ] **Backface checks the depth buffer makes redundant.** These only skip hidden faces:
       - `case.rs`: `Eye::sees` for the inner walls and the case's front.
       - `carriage::paint_side_plate`: `eye.faces`, and its outlines.

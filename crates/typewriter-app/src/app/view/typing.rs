@@ -102,10 +102,11 @@ struct Sheets {
 }
 
 /// What the stage draws over the sheets, calm or not: whether it has its
-/// own controls, and its knobs' grips.
+/// own controls, its knobs' grips, and where it printed the scale.
 struct Over {
     own_controls: bool,
     knobs: Option<[Rect; 2]>,
+    scale: Option<ruler::Scale>,
 }
 
 /// What fades in calm, as drawn: for its clicks and drags.
@@ -141,7 +142,9 @@ impl TypewriterApp {
         let sheet_painter = self.paint_behind_sheets(&painter, &scene);
         let sheets = self.paint_sheets(ui, &sheet_painter, &scene, &layout, calm);
         let active = chrome >= 1.0 && !self.desk.is_busy(now);
-        let over = self.show_over_sheets(ui, &painter, &scene, &sheets, active, intents);
+        let scale = self.lay_out_scale(&layout);
+        let on = (&sheets, &scale, active);
+        let over = self.show_over_sheets(ui, &painter, &scene, on, intents);
         self.paint_platen_marks(&painter, &layout, sheets.pointer_opacity, now);
         self.show_desk_icons(ui, view, &sheets, chrome, now, intents);
         if chrome <= 0.0 {
@@ -149,7 +152,15 @@ impl TypewriterApp {
         }
         let mut painter = painter;
         painter.multiply_opacity(chrome);
-        let drawn = self.paint_chrome(ui, &painter, &scene, &layout, chrome, &sheets, &over);
+        let drawn = self.paint_chrome(
+            ui,
+            &painter,
+            &scene,
+            &layout,
+            chrome,
+            &sheets,
+            (scale, &over),
+        );
         // React only when fully shown, not mid-fade.
         if chrome < 1.0 {
             return;
@@ -330,21 +341,30 @@ impl TypewriterApp {
         }
     }
 
+    /// The scale on its plate, hanging from the typing line, travelling with
+    /// the paper.
+    fn lay_out_scale(&self, layout: &Layout) -> ruler::Scale {
+        let top = ruler::top(&self.metrics, layout.strike_point);
+        let columns = self.desk.project.machine.page().columns();
+        ruler::Scale::new(&self.metrics, columns, layout.paper_origin.x, top)
+    }
+
     /// Over the sheets, calm or not: the stage's knobs, lit under the pointer
-    /// if `active`; what it has in front of the sheets; its own controls,
-    /// which answer at once.
+    /// if `active`; its printing of `scale`; what it has in front of the
+    /// sheets; its own controls, which answer at once.
     fn show_over_sheets(
         &self,
         ui: &egui::Ui,
         painter: &Painter,
         scene: &Scene,
-        sheets: &Sheets,
-        active: bool,
+        (sheets, scale, active): (&Sheets, &ruler::Scale, bool),
         intents: &mut Vec<Intent>,
     ) -> Over {
         let knobs = self
             .stage
             .knobs(ui, painter, scene, sheets.knob_rolled, active);
+        let carriage = self.desk.project.machine.carriage();
+        let printed = self.stage.scale(painter, scene, scale, carriage);
         self.stage.paint_over_sheets(painter, scene);
         let (desk, project) = (&self.desk, &self.desk.project);
         let keeping = project
@@ -369,6 +389,7 @@ impl TypewriterApp {
         Over {
             own_controls: own_controls.is_some(),
             knobs,
+            scale: printed,
         }
     }
 
@@ -429,9 +450,8 @@ impl TypewriterApp {
         }
     }
 
-    /// What fades in calm: the scale, on its plate or printed on the stage's
-    /// machine; the knobs and the plates, unless the stage has its own
-    /// (`over`).
+    /// What fades in calm: the scale on its plate, the knobs and the plates,
+    /// each unless the stage has its own (`over`): `scale` as laid out.
     #[allow(clippy::too_many_arguments)]
     fn paint_chrome(
         &self,
@@ -441,22 +461,18 @@ impl TypewriterApp {
         layout: &Layout,
         chrome: f32,
         sheets: &Sheets,
-        over: &Over,
+        (scale, over): (ruler::Scale, &Over),
     ) -> Chrome {
         let project = &self.desk.project;
         let machine = &project.machine;
         let carriage = machine.carriage();
         // The plates hang below the typing line, the scale's plate above them.
-        let plates_top = ruler::top(&self.metrics, layout.strike_point) + ruler::HEIGHT;
-        let printed = self.stage.scale_top(scene);
-        let scale_top = printed.unwrap_or(plates_top - ruler::HEIGHT);
-        let columns = machine.page().columns();
-        let scale = ruler::Scale::new(&self.metrics, columns, layout.paper_origin.x, scale_top);
-        if printed.is_some() {
-            ruler::paint_scale_marks(painter, &scale, carriage);
-        } else {
+        let scale_top = ruler::top(&self.metrics, layout.strike_point);
+        let plates_top = scale_top + ruler::HEIGHT;
+        let scale = over.scale.unwrap_or_else(|| {
             ruler::paint_scale(painter, &scale, carriage);
-        }
+            scale
+        });
         let knobs = over.knobs.unwrap_or_else(|| {
             let paper_left = layout.paper_origin.x;
             let busy = self.desk.is_busy(scene.now);

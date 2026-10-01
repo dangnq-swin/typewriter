@@ -30,6 +30,13 @@ pub(super) fn toward_eye() -> [f32; 3] {
     [0.0, cos, sin]
 }
 
+/// How high `p` shows above the printing point, in inches at its scale:
+/// what stands above what on screen, whatever the view.
+#[cfg(test)]
+pub(super) fn screen_up(p: [f32; 3]) -> f32 {
+    -Eye::at_origin(Pos2::ZERO, 1.0).at(p).y
+}
+
 /// The seated eye, anchored at the printing point.
 #[derive(Clone, Copy)]
 pub(super) struct Eye {

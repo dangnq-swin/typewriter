@@ -1,19 +1,16 @@
 //! The carriage, travelling with the sheet: the platen, the carriage's back
-//! and side plates, and the paper bail above the printing point, its scale
-//! printed on it by the app.
+//! and side plates. Its paper bail is `bail.rs`.
 
-use std::f32::consts::TAU;
+use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use eframe::egui::Color32;
 
+use super::bail;
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{add, normalized, scaled};
 use super::light::{matte, polished};
-use super::sheet::face_y;
 use super::{CHROME, METAL, METAL_SHINE};
 use crate::depth::{Layer, Solid};
-use typewriter_app::draw::{Metrics, ruler};
 
 /// Centre to the carriage's ends, where the knobs are.
 const PLATEN_HALF_INCHES: f32 = 5.9;
@@ -24,7 +21,7 @@ pub(super) const STRIKE_DEGREES: f32 = 35.0;
 /// The metal rings at the platen's ends.
 const PLATEN_END_INCHES: f32 = 0.08;
 /// Bands of shading round a roller: enough for a smooth curve.
-const ROLLER_BANDS: u16 = 28;
+pub(super) const ROLLER_BANDS: u16 = 28;
 /// Round the platen, in depth: fine enough that its flats stay under the
 /// paper wound on it.
 const PLATEN_BANDS: u16 = 64;
@@ -33,36 +30,27 @@ const UNDER_PAPER_INCHES: f32 = 0.01;
 /// How tight the highlight on a roller or the platen is.
 const ROLLER_SHARPNESS: i32 = 4;
 /// The carriage's side plates, inside its ends: their thickness, and from
-/// the platen's axis their back and front `y`, their top and foot `z`. Their
-/// front behind the alignment guide, which the carriage runs past.
-const SIDE_PLATE_INCHES: f32 = 0.2;
-pub(super) const SIDE_PLATE_Y: (f32, f32) = (-1.05, 0.4);
-const SIDE_PLATE_Z: (f32, f32) = (0.8, -0.75);
+/// the platen's axis their back and front `y` and their foot's `z`. Their
+/// front, straight, just ahead of the platen, hiding its ends; their top
+/// level with the paper bail's discs, a pocket beside each.
+pub(super) const SIDE_PLATE_INCHES: f32 = 0.2;
+pub(super) const SIDE_PLATE_BACK: f32 = -1.05;
+const SIDE_PLATE_FRONT: f32 = 0.66;
+const _: () = assert!(SIDE_PLATE_FRONT > PLATEN_DIAMETER_INCHES / 2.0);
+const SIDE_PLATE_FOOT: f32 = -0.75;
+/// The pocket: the plate's skin left outside it, and its lower corners'
+/// radius.
+const POCKET_SKIN: f32 = 0.04;
+const POCKET_ROUNDING: f32 = 0.08;
+const _: () = assert!(POCKET_SKIN < SIDE_PLATE_INCHES);
+/// Round each of its corners.
+const POCKET_STEPS: u16 = 6;
 /// The rod across the carriage's back, from the platen's axis `(y, z)`, and
 /// its radius.
 const CARRIAGE_BACK: (f32, f32) = (-0.75, 0.45);
 const CARRIAGE_BACK_RADIUS: f32 = 0.22;
-/// The paper bail above the typing line: its scale's centre, the bar's
-/// height past the scale's and its depth, its rollers either side of the
-/// sheet's centre, their length and how much larger round than the scale is
-/// high; the arms holding it to the side plates, pivoting at `(y, z)` clear
-/// of the platen, behind the alignment guide.
-const BAIL_ABOVE_INCHES: f32 = 0.6;
-const BAIL_EXTRA_INCHES: f32 = 0.08;
-const BAIL_DEPTH: f32 = 0.06;
-const BAIL_ROLLER_INCHES: f32 = 1.65;
-const BAIL_ROLLER_HALF: f32 = 0.25;
-const BAIL_ROLLER_EXTRA: f32 = 0.07;
-const BAIL_ARM_INCHES: f32 = 0.14;
-const BAIL_PIVOT: (f32, f32) = (-0.15, 0.3);
-/// Searching for where the bail shows: how high at most, and how finely.
-const BAIL_HIGHEST: f32 = 3.0;
-const SEARCH_STEPS: u16 = 30;
-const RUBBER: Color32 = Color32::from_rgb(0x16, 0x15, 0x14);
-const RUBBER_SHINE: Color32 = Color32::from_rgb(0x55, 0x53, 0x50);
-const BAIL_TOP: Color32 = Color32::from_rgb(0xD4, 0xD6, 0xD2);
-const BAIL_MID: Color32 = Color32::from_rgb(0xEE, 0xEF, 0xEC);
-const BAIL_LOW: Color32 = Color32::from_rgb(0xAE, 0xB0, 0xAC);
+pub(super) const RUBBER: Color32 = Color32::from_rgb(0x16, 0x15, 0x14);
+pub(super) const RUBBER_SHINE: Color32 = Color32::from_rgb(0x55, 0x53, 0x50);
 
 /// The carriage's ends, inches across, for the sheet centred `middle`
 /// inches across.
@@ -113,9 +101,8 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
         );
     }
     canvas.mesh(Layer::Opaque, solid);
-    for x in [[left, inner_left], [inner_right, right]] {
-        paint_side_plate(canvas, eye, x);
-    }
+    paint_side_plate(canvas, eye, left, 1.0);
+    paint_side_plate(canvas, eye, right, -1.0);
 }
 
 /// A cylinder across `x` round `(y, z)` of `radius`, in `bands` round it,
@@ -142,237 +129,157 @@ pub(super) fn cylinder(
     }
 }
 
-/// A side plate across `x`: chrome, each face lit as it turns.
-fn paint_side_plate(canvas: &Canvas, eye: &Eye, [x0, x1]: [f32; 2]) {
+/// The side plates' fronts' `y`.
+pub(super) fn plate_front() -> f32 {
+    platen_axis()[1] + SIDE_PLATE_FRONT
+}
+
+/// The side plate with its outer face at `outer`, its inner face `inward`
+/// (1 or -1) toward the middle: chrome, each face lit as it turns. A pocket
+/// in its top beside the bail's disc, open at the top, rounded below, its
+/// outer skin left whole.
+fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
     let [_, axis_y, axis_z] = platen_axis();
-    let (back, front) = (axis_y + SIDE_PLATE_Y.0, axis_y + SIDE_PLATE_Y.1);
-    let (top, foot) = (axis_z + SIDE_PLATE_Z.0, axis_z + SIDE_PLATE_Z.1);
-    let faces = [
-        (
-            [0.0, 1.0, 0.0],
-            [
-                [x0, front, top],
-                [x1, front, top],
-                [x1, front, foot],
-                [x0, front, foot],
-            ],
-        ),
-        (
-            [0.0, 0.0, 1.0],
-            [
-                [x0, back, top],
-                [x1, back, top],
-                [x1, front, top],
-                [x0, front, top],
-            ],
-        ),
-        (
-            [-1.0, 0.0, 0.0],
-            [
-                [x0, back, top],
-                [x0, front, top],
-                [x0, front, foot],
-                [x0, back, foot],
-            ],
-        ),
-        (
-            [1.0, 0.0, 0.0],
-            [
-                [x1, back, top],
-                [x1, front, top],
-                [x1, front, foot],
-                [x1, back, foot],
-            ],
-        ),
-    ];
-    for (normal, face) in faces {
-        if !eye.faces(face[0], normal) {
-            continue;
-        }
-        let lit = matte(CHROME, normal);
-        eye.fill(canvas, &face, |_| lit);
-        eye.outline(canvas, &face);
-    }
-}
-
-/// The top of the bail's scale for the typing line at `typing_y`.
-pub fn bail_scale_top(metrics: &Metrics, typing_y: f32) -> f32 {
-    typing_y - BAIL_ABOVE_INCHES * metrics.points_per_inch - ruler::HEIGHT / 2.0
-}
-
-/// The `z` whose point at depth `y(z)` shows at screen height `target`:
-/// higher on screen further up.
-fn z_showing_at(eye: &Eye, y: impl Fn(f32) -> f32, target: f32) -> f32 {
-    let (mut low, mut high) = (0.0, BAIL_HIGHEST);
-    for _ in 0..SEARCH_STEPS {
-        let mid = (low + high) / 2.0;
-        if eye.at([0.0, y(mid), mid]).y > target {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    high
-}
-
-/// The paper bail across the carriage for the sheet centred `middle` inches
-/// across: its rollers pressing the paper, the bar's front where the app
-/// prints its scale, and the arms holding it to the side plates.
-pub(super) fn paint_bail(
-    canvas: &Canvas,
-    eye: &Eye,
-    metrics: &Metrics,
-    typing_y: f32,
-    middle: f32,
-) {
-    let ppi = metrics.points_per_inch;
-    let scale_top = bail_scale_top(metrics, typing_y);
-    let extra = BAIL_EXTRA_INCHES * ppi;
-    let roller = ruler::HEIGHT / 2.0 / ppi + BAIL_ROLLER_EXTRA;
-    // The rollers on the paper, the bar's front a little before their axis.
-    let front_at = |z: f32| face_y(z) + roller + BAIL_DEPTH / 2.0;
-    let middle_z = z_showing_at(eye, front_at, scale_top + ruler::HEIGHT / 2.0);
-    let front = front_at(middle_z);
-    let axis = (front - BAIL_DEPTH / 2.0, middle_z);
-    let [top, foot] = [scale_top - extra, scale_top + ruler::HEIGHT + extra]
-        .map(|target| z_showing_at(eye, |_| front, target));
-    let [left, right] = ends(middle);
-    let (inner_left, inner_right) = (left + SIDE_PLATE_INCHES, right - SIDE_PLATE_INCHES);
-    let arm = BAIL_ARM_INCHES;
-    paint_bail_bar(
-        canvas,
-        eye,
-        [inner_left + arm, inner_right - arm],
-        front,
-        [top, foot],
+    let (back, front) = (axis_y + SIDE_PLATE_BACK, plate_front());
+    let foot = axis_z + SIDE_PLATE_FOOT;
+    let bail::Pocket {
+        back: pocket_back,
+        front: pocket_front,
+        floor,
+        top,
+    } = bail::pocket();
+    let (x_o, x_i, x_n) = (
+        outer,
+        outer + inward * SIDE_PLATE_INCHES,
+        outer + inward * POCKET_SKIN,
     );
-    let mut solid = Solid::default();
-    for side in [-1.0, 1.0] {
-        let x = middle + side * BAIL_ROLLER_INCHES;
-        let across = [x - BAIL_ROLLER_HALF, x + BAIL_ROLLER_HALF];
-        cylinder(
-            eye,
-            &mut solid,
-            (across, axis, roller),
-            ROLLER_BANDS,
-            [RUBBER, RUBBER_SHINE],
-        );
-    }
-    canvas.mesh(Layer::Opaque, solid);
-    for x in [
-        [inner_left, inner_left + arm],
-        [inner_right - arm, inner_right],
-    ] {
-        paint_bail_arm(canvas, eye, x, (axis.0, top), BAIL_PIVOT);
-    }
-}
-
-/// The bail's bar over `x`, its front at depth `front` from `top` to `foot`:
-/// brushed metal, brightest just above the middle.
-fn paint_bail_bar(
-    canvas: &Canvas,
-    eye: &Eye,
-    [x0, x1]: [f32; 2],
-    front: f32,
-    [top, foot]: [f32; 2],
-) {
-    let back = front - BAIL_DEPTH;
-    let stops = [
-        (top, BAIL_TOP),
-        (top + 0.35 * (foot - top), BAIL_MID),
-        (foot, BAIL_LOW),
-    ];
-    let mut solid = Solid::default();
-    for pair in stops.windows(2) {
-        let [(upper, upper_colour), (lower, lower_colour)] = [pair[0], pair[1]];
-        eye.quad(
-            &mut solid,
-            [
-                ([x0, front, upper], upper_colour),
-                ([x1, front, upper], upper_colour),
-                ([x1, front, lower], lower_colour),
-                ([x0, front, lower], lower_colour),
-            ],
-        );
-    }
-    let lid = matte(BAIL_TOP, [0.0, 0.0, 1.0]);
-    eye.quad(
-        &mut solid,
-        [
-            ([x0, back, top], lid),
-            ([x1, back, top], lid),
-            ([x1, front, top], lid),
-            ([x0, front, top], lid),
-        ],
-    );
-    canvas.mesh(Layer::Opaque, solid);
-    let outline = [
-        [x0, front, top],
-        [x1, front, top],
-        [x1, front, foot],
-        [x0, front, foot],
-    ];
-    eye.outline(canvas, &outline);
-}
-
-/// A bail arm over `x`, from the bar's end at `from` down to its rivet on
-/// the side plate at `pivot`, each `(y, z)`: chrome, its front and inner
-/// side lit as they face.
-fn paint_bail_arm(
-    canvas: &Canvas,
-    eye: &Eye,
-    [x0, x1]: [f32; 2],
-    from: (f32, f32),
-    pivot: (f32, f32),
-) {
-    let down = normalized([0.0, pivot.0 - from.0, pivot.1 - from.1]);
-    // Square to the arm, toward the writer.
-    let forward = [0.0, -down[2], down[1]];
-    let forward = if forward[1] < 0.0 {
-        scaled(forward, -1.0)
-    } else {
-        forward
+    let r = POCKET_ROUNDING;
+    // The pocket's rounded corners, `(y, z)`: its back's, from its back down
+    // to its floor; its front's, from its floor up to its front.
+    let corner = |centre: (f32, f32), from: f32| -> Vec<(f32, f32)> {
+        (0..=POCKET_STEPS)
+            .map(|i| {
+                let angle = from + FRAC_PI_2 * f32::from(i) / f32::from(POCKET_STEPS);
+                let (sin, cos) = angle.sin_cos();
+                (centre.0 + r * cos, centre.1 + r * sin)
+            })
+            .collect()
     };
-    let half = scaled(forward, BAIL_DEPTH / 2.0);
-    let [start, end] = [from, pivot].map(|(y, z)| [0.0, y, z]);
-    // Past the rivet by half the arm's width: its rounded foot.
-    let end = add(end, scaled(down, BAIL_ARM_INCHES / 2.0));
-    let at = |x: f32, p: [f32; 3], side: [f32; 3]| add([x, 0.0, 0.0], add(p, side));
-    let front_face = [
-        at(x0, start, half),
-        at(x1, start, half),
-        at(x1, end, half),
-        at(x0, end, half),
-    ];
-    let back = scaled(half, -1.0);
-    // The side toward the carriage's middle.
-    let inner = if x0 + x1 < 0.0 { x1 } else { x0 };
-    let inner_face = [
-        at(inner, start, half),
-        at(inner, end, half),
-        at(inner, end, back),
-        at(inner, start, back),
-    ];
-    let toward_middle = [if inner == x1 { 1.0 } else { -1.0 }, 0.0, 0.0];
-    for (face, normal) in [(front_face, forward), (inner_face, toward_middle)] {
-        let lit = matte(CHROME, normal);
-        eye.fill(canvas, &face, |_| lit);
-        eye.outline(canvas, &face);
+    let (back_centre, front_centre) = ((pocket_back + r, floor + r), (pocket_front - r, floor + r));
+    let back_corner = corner(back_centre, PI);
+    let front_corner = corner(front_centre, 3.0 * FRAC_PI_2);
+    let at_x = |x: f32| move |(y, z): (f32, f32)| [x, y, z];
+    let face = |points: &[[f32; 3]], normal: [f32; 3]| {
+        // Faces turned away only cost: the depth buffer hides them anyway.
+        if eye.faces(points[0], normal) {
+            let lit = matte(CHROME, normal);
+            eye.fill(canvas, points, |_| lit);
+        }
+    };
+    let outline = |points: &[[f32; 3]], normal: [f32; 3]| {
+        if eye.faces(points[0], normal) {
+            eye.outline(canvas, points);
+        }
+    };
+    let in_plane = |x: f32, [y0, y1]: [f32; 2], [z0, z1]: [f32; 2]| {
+        [(y0, z1), (y1, z1), (y1, z0), (y0, z0)].map(at_x(x))
+    };
+    let (out, inn) = ([-inward, 0.0, 0.0], [inward, 0.0, 0.0]);
+    let whole = in_plane(x_o, [back, front], [foot, top]);
+    face(&whole, out);
+    outline(&whole, out);
+    // The inner face, round the pocket: behind it, before it, under it, and
+    // filling its corners.
+    face(&in_plane(x_i, [back, pocket_back], [foot, top]), inn);
+    face(&in_plane(x_i, [pocket_front, front], [foot, top]), inn);
+    face(
+        &in_plane(x_i, [pocket_back, pocket_front], [foot, floor]),
+        inn,
+    );
+    for (arc, solid) in [
+        (&back_corner, (pocket_back, floor)),
+        (&front_corner, (pocket_front, floor)),
+    ] {
+        for pair in arc.windows(2) {
+            face(&[solid, pair[0], pair[1]].map(at_x(x_i)), inn);
+        }
     }
-    let rivet_at = at((x0 + x1) / 2.0, [0.0, pivot.0, pivot.1], half);
-    let radius = BAIL_ARM_INCHES * 0.28;
-    let (side_way, up_way) = ([1.0, 0.0, 0.0], [0.0, down[1], down[2]].map(|c| -c));
-    let rivet: Vec<[f32; 3]> = (0..16u8)
-        .map(|i| {
-            let (sin, cos) = (TAU * f32::from(i) / 16.0).sin_cos();
-            add(
-                rivet_at,
-                add(scaled(side_way, radius * cos), scaled(up_way, radius * sin)),
-            )
-        })
+    let rim: Vec<(f32, f32)> = [(pocket_back, top)]
+        .into_iter()
+        .chain(back_corner.iter().copied())
+        .chain(front_corner.iter().copied())
+        .chain([(pocket_front, top)])
         .collect();
-    eye.fill_lying(canvas, &rivet, |_| matte(METAL, forward));
-    eye.outline(canvas, &rivet);
+    let inner_outline: Vec<[f32; 3]> = [(back, top), (back, foot), (front, foot), (front, top)]
+        .into_iter()
+        .chain(rim.iter().rev().copied())
+        .map(at_x(x_i))
+        .collect();
+    outline(&inner_outline, inn);
+    // The pocket: its skin, its back, floor and front, and its corners.
+    let skin: Vec<[f32; 3]> = rim.iter().copied().map(at_x(x_n)).collect();
+    face(&skin, inn);
+    outline(&skin, inn);
+    let across = |(y, z): (f32, f32), (y1, z1): (f32, f32)| {
+        [[x_n, y, z], [x_i, y, z], [x_i, y1, z1], [x_n, y1, z1]]
+    };
+    let walls = [
+        (
+            (pocket_back, top),
+            (pocket_back, floor + r),
+            [0.0, 1.0, 0.0],
+        ),
+        (
+            (pocket_back + r, floor),
+            (pocket_front - r, floor),
+            [0.0, 0.0, 1.0],
+        ),
+        (
+            (pocket_front, floor + r),
+            (pocket_front, top),
+            [0.0, -1.0, 0.0],
+        ),
+    ];
+    for (from, to, normal) in walls {
+        face(&across(from, to), normal);
+    }
+    for (arc, centre) in [(&back_corner, back_centre), (&front_corner, front_centre)] {
+        for pair in arc.windows(2) {
+            let mid = ((pair[0].0 + pair[1].0) / 2.0, (pair[0].1 + pair[1].1) / 2.0);
+            face(
+                &across(pair[0], pair[1]),
+                [0.0, centre.0 - mid.0, centre.1 - mid.1],
+            );
+        }
+    }
+    // The top round the pocket, and the front.
+    let up = [0.0, 0.0, 1.0];
+    let on_top = |[x0, x1]: [f32; 2], [y0, y1]: [f32; 2]| {
+        [[x0, y0, top], [x1, y0, top], [x1, y1, top], [x0, y1, top]]
+    };
+    face(&on_top([x_o, x_i], [back, pocket_back]), up);
+    face(&on_top([x_o, x_n], [pocket_back, pocket_front]), up);
+    face(&on_top([x_o, x_i], [pocket_front, front]), up);
+    let top_outline = [
+        [x_o, back, top],
+        [x_i, back, top],
+        [x_i, pocket_back, top],
+        [x_n, pocket_back, top],
+        [x_n, pocket_front, top],
+        [x_i, pocket_front, top],
+        [x_i, front, top],
+        [x_o, front, top],
+    ];
+    outline(&top_outline, up);
+    let forward = [0.0, 1.0, 0.0];
+    let before = [
+        [x_o, front, top],
+        [x_i, front, top],
+        [x_i, front, foot],
+        [x_o, front, foot],
+    ];
+    face(&before, forward);
+    outline(&before, forward);
 }
 
 #[cfg(test)]
@@ -380,13 +287,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_bail_s_arms_pivot_on_the_side_plates_clear_of_the_platen() {
+    fn the_side_plates_hold_the_pocket() {
         let [_, axis_y, axis_z] = platen_axis();
-        let (y, z) = BAIL_PIVOT;
-        assert!(y < axis_y + SIDE_PLATE_Y.1 && z < axis_z + SIDE_PLATE_Z.0);
-        // The arm's rounded foot past the rivet, and its back.
-        let reach = BAIL_ARM_INCHES / 2.0 + BAIL_DEPTH / 2.0;
-        let off = ((y - axis_y).powi(2) + (z - axis_z).powi(2)).sqrt();
-        assert!(off - reach > PLATEN_DIAMETER_INCHES / 2.0, "{off}");
+        let bail::Pocket {
+            back,
+            front,
+            floor,
+            top,
+        } = bail::pocket();
+        assert!(front - back > 2.0 * POCKET_ROUNDING && top - floor > POCKET_ROUNDING);
+        assert!(back > axis_y + SIDE_PLATE_BACK && front < plate_front());
+        assert!(floor > axis_z + SIDE_PLATE_FOOT);
     }
 }

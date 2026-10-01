@@ -119,7 +119,7 @@ than keep a listing here.
 - Where the desk needs the app, the app offers a hook on `Stage` whose default is the plain
   app's, and hands the desk plain data (shapes, meshes, rects, the sheet's marks, window
   options); the desk does the 3D with it. The typing view calls the hooks in its steps (behind
-  the sheets, the knobs, over the sheets).
+  the sheets, the knobs and the scale, over the sheets).
 - The desk edition keeps no state: the app's desk keeps what it draws from (e.g. the last
   return), and clicks on its controls come back to the app as rects.
 - It reaches the app's drawing only through `draw.rs`: share a helper by re-exporting it there,

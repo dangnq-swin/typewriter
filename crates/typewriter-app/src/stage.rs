@@ -4,11 +4,13 @@
 
 use eframe::egui::{Context, Mesh, Painter, Pos2, Rect, Shape, Ui};
 use eframe::egui_wgpu::RenderState;
+use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
 use typewriter_core::{EraseMode, Goal, LineSpacing};
 
 use crate::filing::Keeping;
 use crate::render::Metrics;
+use crate::render::ruler::Scale;
 
 /// The plain app's furthest out: the page still reads.
 const PLAIN_ZOOM_MIN: u16 = 50;
@@ -81,8 +83,8 @@ pub struct Controls<'a> {
 }
 
 /// An edition: its name, and what it draws around the sheet. The typing
-/// view calls the hooks in its order: behind the sheets, the knobs, over the
-/// sheets, then, fading in calm, the scale.
+/// view calls the hooks in its order: behind the sheets, the knobs and the
+/// scale, then over the sheets.
 pub trait Stage {
     /// The command that opens it, also its app id.
     fn command(&self) -> &'static str;
@@ -186,9 +188,17 @@ pub trait Stage {
         None
     }
 
-    /// The scale's top, printed on the machine, which drew its plate.
-    /// `None`: on its own plate, hanging from the typing line.
-    fn scale_top(&self, _scene: &Scene) -> Option<f32> {
+    /// Prints `scale`, laid out at the sheet's scale, and `carriage`'s stops
+    /// on the machine itself, calm or not: where it shows, for its stops.
+    /// `None`: the plain app's plate, hanging from the typing line, which
+    /// fades in calm.
+    fn scale(
+        &self,
+        _painter: &Painter,
+        _scene: &Scene,
+        _scale: &Scale,
+        _carriage: &Carriage,
+    ) -> Option<Scale> {
         None
     }
 
