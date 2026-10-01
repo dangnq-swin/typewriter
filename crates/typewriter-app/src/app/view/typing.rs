@@ -629,7 +629,8 @@ impl TypewriterApp {
         }
         if response.dragged() {
             let per_notch = knob::DRAG_POINTS_PER_NOTCH * self.metrics.points_per_inch / 96.0;
-            let points = response.drag_delta().y;
+            // The front face up rolls on, as on a platen.
+            let points = -response.drag_delta().y;
             intents.push(Intent::DragKnob { points, per_notch });
         } else if response.drag_stopped() {
             intents.push(Intent::ReleaseKnob);
