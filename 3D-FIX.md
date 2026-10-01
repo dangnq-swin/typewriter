@@ -6,8 +6,9 @@ Worked through gradually, across sessions, on the `desk-viewpoint` branch.
 
 Work top to bottom: the GPU's lighting first, then the larger moves. Each item should leave
 the desk working and pass fmt, clippy and tests. Check drawing changes with the snapshots (see
-`AGENTS.md`) before calling them done. Finished items leave this file; delete the file once it
-is empty.
+`AGENTS.md`) before calling them done. A finished item is checked (`- [x]`), not deleted, while
+its section still has open items; once a whole section is done it leaves the file. Delete the
+file once it is empty.
 
 ---
 
@@ -48,9 +49,10 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
 
 ## 1. Hand-made shading and offsets the GPU could do
 
-- [ ] **Light in the shader.** Depth vertices carry a `Shade` (a material and a normal), the
-      light is a uniform, and `depth.wgsl` lights matte plastic per pixel; `Shade::apply` is
-      its Rust twin, for the snapshot rasterizer and flat canvases. Left:
+- [ ] **Light in the shader.**
+      - [x] **Matte in the shader.** Depth vertices carry a `Shade` (a material and a
+            normal), the light is a uniform, and `depth.wgsl` lights matte plastic per pixel;
+            `Shade::apply` is its Rust twin, for the snapshot rasterizer and flat canvases.
       - [ ] **Polished, streak and chrome.** `polished` (the platen, knobs, bail, rod),
             `streak` (levers, cover trim, side controls) and `paint_chrome`'s bands are still
             lit on the CPU, per vertex. Add them as materials: polished needs its shine colour

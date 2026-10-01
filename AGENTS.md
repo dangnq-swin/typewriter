@@ -19,7 +19,7 @@ portable). Other machines come later as profiles.
 is checked (`- [x]`), not deleted, while its section still has open items; once a whole section
 is done it leaves the file, as the git history and release notes keep it.
 [`3D-FIX.md`](3D-FIX.md) lists the desk edition's clean-up after moving to the depth pass,
-worked through across sessions.
+worked through across sessions, checked off the same way.
 
 ## Design principles
 
