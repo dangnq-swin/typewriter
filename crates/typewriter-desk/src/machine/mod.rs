@@ -31,7 +31,7 @@ mod support;
 pub use carriage::{bail_scale_top, paint_bail, platen_axis_y, platen_ends};
 pub use lever::{Throw, paint_lever, paint_lever_base};
 pub use panel::{Control, Panel};
-pub use sheet::sheet_way;
+pub use sheet::paint_sheets;
 pub use support::paper_table;
 
 use eframe::egui::{Color32, Painter, Rect};

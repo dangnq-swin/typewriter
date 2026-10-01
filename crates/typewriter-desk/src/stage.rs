@@ -2,11 +2,13 @@
 //! the sheet, its front panel for controls, the scale on its bail, the knobs
 //! and return lever on its carriage.
 
-use eframe::egui::{Painter, Rect, Ui};
+use eframe::egui::{Context, Painter, Rect, Ui};
+use eframe::egui_wgpu::RenderState;
 use typewriter_app::Stage;
-use typewriter_app::draw::{Controls, Knob, Metrics, PaperTable, Platen, Return, Scene, SheetWay};
+use typewriter_app::draw::{Controls, FlatSheet, Knob, Metrics, PaperTable, Platen, Return, Scene};
 use typewriter_core::Side;
 
+use crate::depth;
 use crate::machine::{self, Control, Panel, Throw};
 use crate::room;
 
@@ -26,9 +28,15 @@ impl Stage for Desk {
         "the typewriter on a desk"
     }
 
-    /// The body and the sheets.
-    fn depth(&self) -> bool {
-        true
+    /// The body and the sheets are drawn in depth.
+    fn depth_buffer(&self) -> u8 {
+        depth::DEPTH_BITS
+    }
+
+    fn start(&self, ctx: &Context, render_state: Option<&RenderState>) {
+        if let Some(render_state) = render_state {
+            depth::install(ctx, render_state);
+        }
     }
 
     /// Sitting far back, the paper support's scale in view.
@@ -58,14 +66,15 @@ impl Stage for Desk {
         None
     }
 
-    /// Round the platen from the printing point: up its front, and back
-    /// round under it and up the paper support.
-    fn sheet_way(&self, scene: &Scene) -> Option<SheetWay> {
-        Some(machine::sheet_way(
-            scene.view,
-            scene.metrics,
-            scene.typing_y,
-        ))
+    /// Round the platen from the printing point, in depth: up its front,
+    /// and back round under it and up the paper support.
+    fn draws_sheets(&self) -> bool {
+        true
+    }
+
+    fn paint_sheets(&self, painter: &Painter, scene: &Scene, sheets: Vec<FlatSheet>) {
+        let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
+        machine::paint_sheets(painter, view, metrics, typing_y, sheets);
     }
 
     /// Behind the platen: sheets go in over it.
@@ -152,6 +161,17 @@ impl Stage for Desk {
     fn is_animating(&self, last_return: Return, now: f64) -> bool {
         Throw::new(last_return.at, last_return.inches).is_moving(now)
     }
+
+    /// What it draws in depth.
+    #[cfg(test)]
+    fn snapshot_callback(
+        &self,
+        callback: &eframe::egui::PaintCallback,
+        clip: Rect,
+        raster: &mut typewriter_app::snapshot::Raster,
+    ) {
+        depth::rasterize(callback, clip, raster);
+    }
 }
 
 /// The carriage's ends on screen, where the knobs turn.
@@ -176,7 +196,7 @@ fn lever(scene: &Scene) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use eframe::egui::vec2;
-    use typewriter_app::snapshot::{Shot, render};
+    use typewriter_app::snapshot::{BACKSPACE, ERASE, Shot, render};
 
     use super::Desk;
 
@@ -236,6 +256,16 @@ mod tests {
             let image = render(Box::new(Desk), &shot).unwrap();
             image.save(folder.join(format!("{name}.png"))).unwrap();
         }
+        // A slip over a wrong letter, then the right one: the chalk hides it.
+        let corrected = format!("Typewritet{BACKSPACE}{ERASE}t{BACKSPACE}{ERASE}r");
+        let shot = Shot {
+            size: vec2(1600.0, 1000.0),
+            zoom_percent: 200,
+            text: &corrected,
+            after_seconds: 5.0,
+        };
+        let image = render(Box::new(Desk), &shot).unwrap();
+        image.save(folder.join("corrected.png")).unwrap();
         // A new sheet halfway round the platen, the last one filed.
         let feeding = Shot {
             size: vec2(1600.0, 1000.0),

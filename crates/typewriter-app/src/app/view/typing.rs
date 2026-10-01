@@ -4,8 +4,6 @@
 //! and what they answer. The [`Stage`](crate::Stage) draws its own at each
 //! step. And the copy holder beside it.
 
-use std::cell::RefCell;
-
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, pos2, vec2};
 use typewriter_core::Side;
@@ -15,11 +13,10 @@ use crate::app::TypewriterApp;
 use crate::app::intent::Intent;
 use crate::filing::{Keeping, WriteStatus};
 use crate::render::calm::{self, Dimming};
-use crate::render::depth::{self, Layer, Solids};
 use crate::render::folder::{Answer, Flight};
 use crate::render::platen::Layout;
 use crate::render::{self, feed, folder, holder, knob, notebook, paper, platen, ruler};
-use crate::stage::{Controls, PaperTable, Platen, Scene, SheetWay};
+use crate::stage::{Controls, FlatSheet, PaperTable, Platen, Scene};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
@@ -28,16 +25,6 @@ const ROLL_RIM: f32 = 170.0;
 /// Along the paper table between the rows of a bent sheet's mesh: enough
 /// that its roll over the top shows no corner.
 const TABLE_STEP_INCHES: f32 = 0.1;
-/// A sheet on its way in depth: between its mesh's rows, enough to bend
-/// round the platen; and its columns, few enough skewing its texture.
-const WAY_STEP_INCHES: f32 = 0.05;
-const WAY_COLUMNS: u32 = 8;
-
-/// Sheets on the stage's way, gathered to draw in depth.
-struct OnWay {
-    way: SheetWay,
-    solids: RefCell<Solids>,
-}
 
 /// A new sheet's way in, as its top edge's height on screen: put in by hand
 /// from `hand_from`, then wound by the knob from `knob_from` to `placed`.
@@ -217,11 +204,8 @@ impl TypewriterApp {
         let mut printed_from = view.top();
         let table = self.stage.paper_table(scene);
         let table = table.as_ref();
-        let way = self.stage.sheet_way(scene).map(|way| OnWay {
-            way,
-            solids: RefCell::new(Solids::default()),
-        });
-        let way = way.as_ref();
+        // The stage draws them: handed over as they come.
+        let mut handed = self.stage.draws_sheets().then(Vec::new);
         let flight = self.desk.feed.flight.filter(|f| !f.is_over(now));
         let answer = flight.map_or(folder::Answer::STILL, |f| f.answer(now));
         if let Some(feeding) = &self.desk.feed.feeding {
@@ -249,7 +233,7 @@ impl TypewriterApp {
                         Some(pose) if pose.mouth.is_none() => {
                             let origin = old_origin + (pose.centre - route.from);
                             let sheet = (old_page, dimming);
-                            let (on, lift) = ((table, way), pose.lift);
+                            let (on, lift) = ((table, handed.as_mut()), pose.lift);
                             self.paint_going_out(painter, on, scene, origin, lift, sheet);
                         }
                         Some(pose) => {
@@ -264,7 +248,8 @@ impl TypewriterApp {
                     if let Some(rolled) = rolled {
                         let old_origin = old_origin - vec2(0.0, rolled * exit);
                         let sheet = (old_page, dimming);
-                        self.paint_going_out(painter, (table, way), scene, old_origin, 1.0, sheet);
+                        let on = (table, handed.as_mut());
+                        self.paint_going_out(painter, on, scene, old_origin, 1.0, sheet);
                     }
                 }
             }
@@ -299,13 +284,13 @@ impl TypewriterApp {
             );
             let curl = motion.curl(t).max(self.stage.sheet_curl());
             let lift = motion.lift(t);
-            if way.is_none() {
+            if handed.is_none() {
                 self.paint_on_table(painter, table, paper_origin, scene.typing_y);
                 printed_from =
                     self.paint_in_machine(painter, view, paper_origin, curl, lift, table);
             }
             pointer_opacity = motion.pointer_opacity(t);
-        } else if way.is_none() {
+        } else if handed.is_none() {
             self.paint_on_table(painter, table, paper_origin, scene.typing_y);
             if let Some(lift) = self.stage.sheet_lift() {
                 let curl = self.stage.sheet_curl();
@@ -315,10 +300,10 @@ impl TypewriterApp {
         }
         let dimming = self.dimming(carriage.half_line, calm);
         let wetness = |half_line, column| self.desk.project.wetness(now, half_line, column);
-        if let Some(way) = way {
+        if let Some(mut handed) = handed {
             let sheet = (machine.page(), dimming, &wetness as paper::Wetness);
-            self.paint_on_way(painter, way, paper_origin, scene.typing_y, sheet);
-            depth::paint(painter, way.solids.take());
+            handed.push(self.flat_sheet(painter, paper_origin, sheet));
+            self.stage.paint_sheets(painter, scene, handed);
         } else {
             // Nothing printed shows over the roll.
             let clip = painter.clip_rect();
@@ -828,19 +813,19 @@ impl TypewriterApp {
     }
 
     /// A finished sheet at `origin`, on its way out as if in the machine:
-    /// on the stage's way, else flat on the `table` and `lift`ed.
+    /// `handed` to the stage, else flat on the `table` and `lift`ed.
     fn paint_going_out(
         &self,
         painter: &Painter,
-        (table, way): (Option<&PaperTable>, Option<&OnWay>),
+        (table, handed): (Option<&PaperTable>, Option<&mut Vec<FlatSheet>>),
         scene: &Scene,
         origin: Pos2,
         lift: f32,
         (page, dimming): (&Page, Dimming),
     ) {
-        if let Some(way) = way {
+        if let Some(handed) = handed {
             let sheet = (page, dimming, &paper::dry as paper::Wetness);
-            self.paint_on_way(painter, way, origin, scene.typing_y, sheet);
+            handed.push(self.flat_sheet(painter, origin, sheet));
             return;
         }
         self.paint_on_table(painter, table, origin, scene.typing_y);
@@ -848,59 +833,37 @@ impl TypewriterApp {
         self.paint_page(painter, page, origin, dimming, &paper::dry);
     }
 
-    /// A sheet at `origin`, placed as if flat, on the stage's way through the
-    /// machine, in depth: the paper lit as it turns, and its page printed on
-    /// the side turned toward the eye.
-    fn paint_on_way(
+    /// The sheet at `origin`, for a stage that draws the sheets itself: all
+    /// its marks, as it may show more of the sheet than the window's clip.
+    fn flat_sheet(
         &self,
         painter: &Painter,
-        on_way: &OnWay,
         origin: Pos2,
-        typing_y: f32,
         (page, dimming, wetness): (&Page, Dimming, paper::Wetness<'_>),
-    ) {
-        let (ppi, size) = (self.metrics.points_per_inch, self.metrics.paper_size);
-        let place = |p: Pos2| (on_way.way.place)(p.x, (typing_y - p.y) / ppi);
-        // Safe cast: a sheet's length in twentieths of an inch.
-        let rows = (size.y / ppi / WAY_STEP_INCHES).ceil().max(1.0) as u32;
-        let mut mesh = egui::Mesh::default();
-        for row in 0..=rows {
-            let down = row as f32 / rows as f32;
-            for column in 0..=WAY_COLUMNS {
-                let across = column as f32 / WAY_COLUMNS as f32;
-                mesh.vertices.push(Vertex {
-                    pos: origin + vec2(across, down) * size,
-                    uv: pos2(across, down),
-                    color: Color32::WHITE,
-                });
-            }
-            if row > 0 {
-                let width = WAY_COLUMNS + 1;
-                for column in 0..WAY_COLUMNS {
-                    let (below, above) = (row * width + column, (row - 1) * width + column);
-                    mesh.add_triangle(above, above + 1, below + 1);
-                    mesh.add_triangle(above, below + 1, below);
-                }
-            }
+    ) -> FlatSheet {
+        let size = self.metrics.paper_size;
+        let mut quad = egui::Mesh::default();
+        for corner in [
+            pos2(0.0, 0.0),
+            pos2(1.0, 0.0),
+            pos2(1.0, 1.0),
+            pos2(0.0, 1.0),
+        ] {
+            quad.vertices.push(Vertex {
+                pos: origin + corner.to_vec2() * size,
+                uv: corner,
+                color: Color32::WHITE,
+            });
         }
-        let mut solids = on_way.solids.borrow_mut();
-        let paper = self.background.bent_sheet(size, mesh);
-        solids.add(Layer::Opaque, paper, |vertex| {
-            let placed = place(vertex.pos);
-            vertex.pos = placed.pos;
-            // Safe cast: `lit` is 0..=1.
-            vertex.color = vertex.color * Color32::from_gray((255.0 * placed.lit) as u8);
-            Some(placed.depth)
-        });
+        quad.add_triangle(0, 1, 2);
+        quad.add_triangle(0, 2, 3);
         let machine = &self.desk.project.machine;
         let top_lines = machine.profile().margins.top_lines;
-        let mut shapes = paper::margin_frame(&self.metrics, machine.carriage(), top_lines, origin);
+        let mut print = paper::margin_frame(&self.metrics, machine.carriage(), top_lines, origin);
         let ink_realism = self.desk.settings.look.ink_realism;
-        let metrics = &self.metrics;
-        // All of it: the way shows more of it than the flat sheet's clip.
         let everywhere = |_| true;
         let marks = paper::sheet_marks(
-            metrics,
+            &self.metrics,
             page,
             origin,
             ink_realism,
@@ -908,14 +871,11 @@ impl TypewriterApp {
             wetness,
             everywhere,
         );
-        shapes.extend(paper::shapes(painter, metrics, marks));
-        // Long marks (the frame's sides) bend with the sheet.
-        let longest = WAY_STEP_INCHES * 2.0 * ppi;
-        solids.add_shapes(painter, Layer::Decal, shapes, longest, |vertex| {
-            let placed = place(vertex.pos);
-            vertex.pos = placed.pos;
-            placed.facing.then_some(placed.print_depth)
-        });
+        print.extend(paper::shapes(painter, &self.metrics, marks));
+        FlatSheet {
+            paper: self.background.bent_sheet(size, quad),
+            print,
+        }
     }
 
     fn paint_lifted(&self, painter: &Painter, view: Rect, origin: Pos2, curl: f32, lift: f32) {

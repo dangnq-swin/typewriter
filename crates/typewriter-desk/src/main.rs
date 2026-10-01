@@ -6,6 +6,7 @@
 // printed shows there.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod depth;
 mod machine;
 mod room;
 mod stage;

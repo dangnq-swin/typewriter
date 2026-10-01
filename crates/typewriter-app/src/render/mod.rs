@@ -4,7 +4,6 @@
 pub mod background;
 pub mod calendar;
 pub mod calm;
-pub mod depth;
 pub mod feed;
 pub mod folder;
 pub mod holder;

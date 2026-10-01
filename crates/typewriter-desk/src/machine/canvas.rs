@@ -5,8 +5,8 @@
 
 use std::cell::RefCell;
 
+use crate::depth::{self, Layer, Solid, Solids};
 use eframe::egui::{Mesh, Painter, Pos2, Shape};
-use typewriter_app::draw::depth::{self, Layer, Solid, Solids};
 use typewriter_app::draw::warp;
 
 pub(super) struct Canvas<'a> {

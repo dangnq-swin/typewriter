@@ -2,7 +2,8 @@
 //! default is the plain app's: the chosen background behind, the sheet flat
 //! on it, the scale and knobs hanging from the typing line, the plates below.
 
-use eframe::egui::{Painter, Pos2, Rect, Ui};
+use eframe::egui::{Context, Mesh, Painter, Pos2, Rect, Shape, Ui};
+use eframe::egui_wgpu::RenderState;
 use typewriter_core::session::Progress;
 use typewriter_core::{EraseMode, Goal, LineSpacing};
 
@@ -63,28 +64,14 @@ pub struct PaperTable {
     pub place: Box<dyn Fn(f32, f32) -> (Pos2, f32)>,
 }
 
-/// A sheet's way through the machine, drawn in depth: up the platen's front
-/// from the printing point to the sheet's top edge, and down round the
-/// platen and up behind it to its bottom edge.
-pub struct SheetWay {
-    /// Where a point of the sheet is: `x` its place across on screen at the
-    /// sheet's scale, `along` its inches from the printing point, up the
-    /// front above zero, round the platen and up behind it below.
-    pub place: Box<dyn Fn(f32, f32) -> Placed>,
-}
-
-/// A point of a sheet on its way.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Placed {
-    pub pos: Pos2,
-    /// Its depth, 0 at the eye to 1 far off; and a hair nearer, for what is
-    /// printed on it.
-    pub depth: f32,
-    pub print_depth: f32,
-    /// How lit it is, 0..=1.
-    pub lit: f32,
-    /// Its printed side is turned toward the eye.
-    pub facing: bool,
+/// A sheet as the plain app lays it flat on screen, for a stage that draws
+/// the sheets itself ([`Stage::paint_sheets`]).
+pub struct FlatSheet {
+    /// The paper in its fill (the texture, or a flat colour): a quad, its
+    /// corners clockwise from the top left.
+    pub paper: Mesh,
+    /// What is on it: the margin frame and every mark of its page.
+    pub print: Vec<Shape>,
 }
 
 /// What the spacing, zoom, correction, goal and save controls read.
@@ -116,11 +103,14 @@ pub trait Stage {
         PLAIN_ZOOM_MIN
     }
 
-    /// Draws in depth ([`crate::draw::depth`]): the window keeps a depth
-    /// buffer.
-    fn depth(&self) -> bool {
-        false
+    /// The window's depth buffer, in bits: none for a flat stage.
+    fn depth_buffer(&self) -> u8 {
+        0
     }
+
+    /// Once the window is open: readies what it draws with, e.g. its own
+    /// pipelines on eframe's wgpu renderer (`None` without one).
+    fn start(&self, _ctx: &Context, _render_state: Option<&RenderState>) {}
 
     /// Behind everything, in place of the chosen background, which then
     /// shows on the sheets only. `None`: the chosen background.
@@ -151,11 +141,15 @@ pub trait Stage {
         None
     }
 
-    /// The sheets' way through the machine, drawing them in depth. `None`:
-    /// they are drawn flat, in their order.
-    fn sheet_way(&self, _scene: &Scene) -> Option<SheetWay> {
-        None
+    /// Draws the sheets itself, in [`Stage::paint_sheets`]. False: the
+    /// typing view draws them flat, in their order.
+    fn draws_sheets(&self) -> bool {
+        false
     }
+
+    /// The sheets of this frame, the outgoing one first, if it
+    /// [`draws_sheets`](Stage::draws_sheets).
+    fn paint_sheets(&self, _painter: &Painter, _scene: &Scene, _sheets: Vec<FlatSheet>) {}
 
     /// A resting sheet's shadow strength, standing off what is behind it.
     /// `None`: it lies flat.
@@ -206,6 +200,16 @@ pub trait Stage {
     /// Still moving at `now` since `last_return`: draw again soon.
     fn is_animating(&self, _last_return: Return, _now: f64) -> bool {
         false
+    }
+
+    /// Fills a paint callback of its own, inside `clip`, in a snapshot.
+    #[cfg(feature = "snapshot")]
+    fn snapshot_callback(
+        &self,
+        _callback: &eframe::egui::PaintCallback,
+        _clip: Rect,
+        _raster: &mut crate::snapshot::Raster,
+    ) {
     }
 }
 

@@ -2,8 +2,8 @@
 
 use std::f32::consts::PI;
 
+use crate::depth::{Layer, Solid};
 use eframe::egui::{Color32, Shape};
-use typewriter_app::draw::depth::{Layer, Solid};
 
 use super::canvas::Canvas;
 use super::eye::Eye;

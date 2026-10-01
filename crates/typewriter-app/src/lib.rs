@@ -52,15 +52,10 @@ pub fn is_option(arg: &OsStr) -> bool {
     arg.as_encoded_bytes().starts_with(b"-")
 }
 
-/// A depth buffer for a stage drawing in depth.
+/// The window `stage` asks for.
 fn window_options(stage: &impl Stage) -> eframe::NativeOptions {
-    let depth_buffer = if stage.depth() {
-        render::depth::DEPTH_BITS
-    } else {
-        0
-    };
     eframe::NativeOptions {
-        depth_buffer,
+        depth_buffer: stage.depth_buffer(),
         ..Default::default()
     }
 }

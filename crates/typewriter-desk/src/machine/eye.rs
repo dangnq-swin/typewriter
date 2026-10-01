@@ -6,8 +6,8 @@ use eframe::egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, pos
 
 use super::EDGE;
 use super::canvas::Canvas;
-use super::geometry::{add, dot, sub};
-use typewriter_app::draw::depth::{Layer, Solid, subdivided};
+use super::geometry::{add, convex_grid, dot, sub};
+use crate::depth::{Layer, Solid};
 use typewriter_app::draw::{Metrics, convex_mesh};
 
 /// The eye from the printing point, and how far it looks down.
@@ -154,12 +154,7 @@ impl Eye {
         place: impl Fn(Pos2) -> [f32; 3],
         colour: impl Fn([f32; 3]) -> Color32,
     ) {
-        let flat = convex_mesh(outline, |pos| Vertex {
-            pos,
-            uv: WHITE_UV,
-            color: Color32::WHITE,
-        });
-        let mut mesh = subdivided(flat, BENT_INCHES);
+        let mut mesh = convex_grid(outline, BENT_INCHES);
         let on: Vec<_> = mesh.vertices.iter().map(|v| place(v.pos)).collect();
         for (vertex, &p) in mesh.vertices.iter_mut().zip(&on) {
             vertex.pos = self.at(p);

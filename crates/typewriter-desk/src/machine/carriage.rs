@@ -12,7 +12,7 @@ use super::eye::Eye;
 use super::geometry::add_quad;
 use super::light::matte;
 use super::{CHROME, EDGE, METAL, METAL_SHINE};
-use typewriter_app::draw::depth::{Layer, Solid};
+use crate::depth::{Layer, Solid};
 use typewriter_app::draw::{Metrics, ruler};
 
 /// Centre to the carriage's ends, where the knobs are.

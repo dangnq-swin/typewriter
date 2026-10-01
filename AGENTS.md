@@ -16,7 +16,8 @@ The first and default machine profile is the **Olympia SM9** (1960s–70s West G
 portable). Other machines come later as profiles.
 
 [`ROADMAP.md`](ROADMAP.md) lists what comes next, in order and without numbers; finished items
-leave it, as the git history and release notes keep them.
+leave it, as the git history and release notes keep them. [`3D-FIX.md`](3D-FIX.md) lists the
+desk edition's clean-up after moving to the depth pass, worked through across sessions.
 
 ## Design principles
 
@@ -78,7 +79,7 @@ than keep a listing here.
   (`render/`), input, audio, settings, filing, the command line and `typewriter --import`.
   `simulate.rs` is test-only: a writer's months of work, seeded.
 - `crates/typewriter-desk`: the desk edition, `run(stage::Desk)` on the app's library: its room
-  (`room.rs`) and machine (`machine/`). Not packaged or released yet.
+  (`room.rs`), machine (`machine/`) and everything in 3D. Not packaged or released yet.
 - `profiles/`: machine profiles as data; `docs/profiles.md` has the schema.
 - `assets/`: fonts, sounds, the paper texture and the icon, all built into the binary.
 - `packaging/linux/`: the desktop entry and the project file type, for `install.sh` and the
@@ -110,15 +111,21 @@ than keep a listing here.
 
 ### The two editions
 
-- What only the desk edition draws lives in `typewriter-desk`, never in the app. Where it needs
-  to draw, the app offers a hook on `Stage` whose default is the plain app's, and the typing
-  view calls the hooks in its steps (behind the sheets, over them, around the knobs).
+- **The game lives in `typewriter-desk`.** Everything video-game-like is code in
+  `typewriter-desk`, never in `typewriter-app`: anything in 3D (the depth pass, its shaders and
+  rasterizing it for snapshots, the eye, models, lighting), the room and the machine around the
+  sheet, and whatever else only the desk edition uses. `typewriter-app` holds the plain app and
+  what both editions share, all of it flat.
+- Where the desk needs the app, the app offers a hook on `Stage` whose default is the plain
+  app's, and hands the desk plain data (shapes, meshes, rects, the sheet's marks, window
+  options); the desk does the 3D with it. The typing view calls the hooks in its steps (behind
+  the sheets, over them, around the knobs).
 - The desk edition keeps no state: the app's desk keeps what it draws from (e.g. the last
   return), and clicks on its controls come back to the app as rects.
 - It reaches the app's drawing only through `draw.rs`: share a helper by re-exporting it there,
   not by making a module public.
-- The desk draws its body and sheets in depth (`draw::depth`, `render/depth.rs`): a wgpu paint
-  callback with a depth buffer, positions still projected on the CPU by the desk's eye. Its
+- The desk draws its body and sheets in depth (its `depth.rs`): a wgpu paint callback with a
+  depth buffer, positions still projected on the CPU by the desk's eye. Its
   parts draw on a `Canvas` (`machine/canvas.rs`), flat or in depth: a face hides what is
   behind; what lies on one (edges, marks, print, glass) is set a hair nearer and hides nothing.
   A part moved into depth needs its real shape, not the order it was drawn in.
@@ -181,10 +188,10 @@ cargo test -p typewriter-app --release -- --ignored --nocapture novel
 ```
 
 Snapshots, to look at a drawing change where no display is: the typing view drawn to PNGs
-without a window, the depth pass on the CPU (typewriter-app's `snapshot` feature,
-`app/snapshot.rs`). The shots are in the
-desk edition's `stage.rs` test; add one there to look at something new. Check a change to the
-drawing this way before calling it done.
+without a window (typewriter-app's `snapshot` feature, `app/snapshot.rs`), the desk's depth
+pass filled on the CPU by its `depth::rasterize` through the `snapshot_callback` hook. The shots
+are in the desk edition's `stage.rs` test; add one there to look at something new. Check a
+change to the drawing this way before calling it done.
 
 ```sh
 TYPEWRITER_SNAPSHOT=<folder> cargo test -p typewriter-desk --release -- --ignored snapshot

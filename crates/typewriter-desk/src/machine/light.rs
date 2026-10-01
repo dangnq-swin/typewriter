@@ -7,7 +7,7 @@ use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
 use super::geometry::{dot, normalized};
 use super::{METAL, METAL_SHINE};
-use typewriter_app::draw::depth::{Layer, Solid};
+use crate::depth::{Layer, Solid};
 
 /// Toward the light from the machine: to the writer's left, above, a little
 /// in front.
