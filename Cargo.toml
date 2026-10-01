@@ -5,7 +5,7 @@ members = ["crates/typewriter-core", "crates/typewriter-app"]
 default-members = ["crates/typewriter-app"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "GPL-3.0-or-later"
 publish = false
