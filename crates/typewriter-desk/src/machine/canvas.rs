@@ -42,10 +42,14 @@ impl<'a> Canvas<'a> {
         match &self.solids {
             None => {
                 let Solid {
-                    mut mesh, shades, ..
+                    mut mesh,
+                    places,
+                    shades,
+                    ..
                 } = solid;
-                for (vertex, shade) in mesh.vertices.iter_mut().zip(shades) {
-                    vertex.color = shade.colour(vertex.color, &frame());
+                let painted = mesh.vertices.iter_mut().zip(shades.into_iter().zip(places));
+                for (vertex, (shade, at)) in painted {
+                    vertex.color = shade.colour(vertex.color, &frame(), at);
                 }
                 self.painter.add(Shape::mesh(mesh));
             }
@@ -71,7 +75,7 @@ impl<'a> Canvas<'a> {
                     |vertex| {
                         let (pos, depth) = place(vertex.pos);
                         vertex.pos = pos;
-                        Some(depth)
+                        Some(depth.into())
                     },
                 );
             }

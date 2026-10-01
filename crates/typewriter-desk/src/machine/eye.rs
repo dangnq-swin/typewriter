@@ -193,11 +193,13 @@ impl Eye {
             (Layer::Opaque, Self::depth)
         };
         let depths = points.iter().map(|&p| depth(self, p)).collect();
+        let places = points.iter().map(|&p| add(p, self.anchor)).collect();
         canvas.mesh(
             layer,
             Solid {
                 mesh,
                 depths,
+                places,
                 shades,
             },
         );
@@ -229,6 +231,7 @@ impl Eye {
             let paint = paint.into();
             solid.mesh.colored_vertex(self.at(p), paint.colour);
             solid.depths.push(depth(self, p));
+            solid.places.push(add(p, self.anchor));
             solid.shades.push(paint.shade);
         }
         solid.mesh.add_triangle(first, first + 1, first + 2);

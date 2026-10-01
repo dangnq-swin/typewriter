@@ -1,5 +1,7 @@
 // egui's shading (egui-wgpu's egui.wgsl), with depth and light: positions
-// come already in normalized device coordinates, depth and all.
+// come already in normalized device coordinates, depth and all, and each
+// vertex brings the machine inches it stands at, so a lamp rather than a
+// direction can light each fragment.
 
 struct VertexOutput {
     @location(0) tex_coord: vec2<f32>,
@@ -16,11 +18,15 @@ struct VertexOutput {
     // The material's highlight, packed like `color`. Flat: a part shines one
     // colour all over.
     @location(5) @interpolate(flat) shine: u32,
+    // Where the vertex stands, in machine inches from the printing point:
+    // blended across the triangle like `vector`.
+    @location(6) inches: vec3<f32>,
     @builtin(position) position: vec4<f32>,
 };
 
-// [0] toward the light, [1] toward the eye, unit length and `w` unused; then
-// [2..] chrome's bands, `x` how far down and `yzw` its colour in gamma.
+// [0] the lamp, in machine inches; [1] toward the eye, unit length and `w`
+// unused; then [2..] chrome's bands, `x` how far down and `yzw` its colour
+// in gamma.
 @group(1) @binding(0) var<uniform> r_lighting: array<vec4<f32>, 7>;
 
 // [u8; 4] sRGB as u32 to [r, g, b, a] in 0..=1.
@@ -56,11 +62,12 @@ fn chrome(t: f32) -> vec3<f32> {
     return r_lighting[6u].yzw;
 }
 
-// How bright a thin metal part running along `tangent` catches the light:
-// brushed and milled metal streaks along its grain (Heidrich–Seidel).
-fn streak_along(tangent: vec3<f32>, sharpness: f32) -> f32 {
+// How bright a thin metal part running along `tangent` catches light from
+// `light`: brushed and milled metal streaks along its grain
+// (Heidrich–Seidel).
+fn streak_along(tangent: vec3<f32>, light: vec3<f32>, sharpness: f32) -> f32 {
     let t = normalize(tangent);
-    let lt = dot(t, r_lighting[0].xyz);
+    let lt = dot(t, light);
     let vt = dot(t, r_lighting[1].xyz);
     let across = sqrt(max(1.0 - lt * lt, 0.0)) * sqrt(max(1.0 - vt * vt, 0.0));
     return pow(max(across - lt * vt, 0.0), sharpness);
@@ -75,6 +82,7 @@ fn vs_main(
     @location(4) a_spec: f32,
     @location(5) a_material: u32,
     @location(6) a_shine: u32,
+    @location(7) a_inches: vec3<f32>,
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coord = a_tex_coord;
@@ -83,13 +91,18 @@ fn vs_main(
     out.shine = a_shine;
     out.spec = a_spec;
     out.material = a_material;
+    out.inches = a_inches;
     out.position = vec4<f32>(a_pos, 1.0);
     return out;
 }
 
-// `gamma` (premultiplied sRGB gamma) as its material takes the light.
+// `gamma` (premultiplied sRGB gamma), standing `inches` away, as its material
+// takes the lamp's light.
 fn lit(gamma: vec4<f32>, in: VertexOutput) -> vec4<f32> {
-    let light = r_lighting[0].xyz;
+    // From this fragment toward the lamp: affine in screen space, as every
+    // other blend is until the GPU projects (3D-FIX section 2).
+    let to_lamp = r_lighting[0].xyz - in.inches;
+    let light = to_lamp / max(length(to_lamp), 1e-3);
     let eye = r_lighting[1].xyz;
     let shine = unpack_color(in.shine).rgb;
     switch in.material {
@@ -109,7 +122,7 @@ fn lit(gamma: vec4<f32>, in: VertexOutput) -> vec4<f32> {
         }
         // Brushed metal: `shine` streaked along its grain.
         case 3u: {
-            let streak = streak_along(in.vector, in.spec);
+            let streak = streak_along(in.vector, light, in.spec);
             return vec4<f32>(mix(gamma.rgb, shine, streak), gamma.a);
         }
         // Chrome: the room, by how far down the plate it lies.

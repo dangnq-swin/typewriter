@@ -4,11 +4,12 @@
 //! sets its place, parts [`gather`] into it, [`end`] draws it.
 //!
 //! Each vertex is egui's, on screen in points, with a depth added: 0 at the
-//! eye to 1 far off, and how it takes the frame's light ([`Shade`]). Opaque
-//! triangles hide what is behind them; decals lie
-//! on them (print, edges, glass), hide nothing and are drawn after. Where no
-//! renderer is installed, as in the snapshot tool, the triangles go out as
-//! data for [`rasterize`] to fill.
+//! eye to 1 far off, where it stands in machine inches, and how it takes the
+//! frame's light ([`Shade`]). The shader lights each fragment from those
+//! inches toward the lamp, so a flat face is not lit evenly. Opaque triangles
+//! hide what is behind them; decals lie on them (print, edges, glass), hide
+//! nothing and are drawn after. Where no renderer is installed, as in the
+//! snapshot tool, the triangles go out as data for [`rasterize`] to fill.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -29,10 +30,10 @@ const SHADER: &str = include_str!("depth.wgsl");
 /// egui's font atlas, which text and plain fills (`WHITE_UV`) draw from.
 const FONTS: TextureId = TextureId::Managed(0);
 /// Position (3 floats), uv (2), colour (4 bytes), the way it faces (3
-/// floats), its material's parameter (1 float), material (4 bytes) and
-/// highlight (4 bytes).
-const VERTEX_BYTES: u64 = 48;
-/// The light and the eye as `vec4`s, then chrome's bands as `vec4`s: as many
+/// floats), its material's parameter (1 float), material (4 bytes),
+/// highlight (4 bytes) and the inches it stands at (3 floats).
+const VERTEX_BYTES: u64 = 60;
+/// The lamp and the eye as `vec4`s, then chrome's bands as `vec4`s: as many
 /// as the shader's `r_lighting`.
 const LIGHTING_BYTES: u64 = 7 * 16;
 /// How many bands chrome's room has.
@@ -46,12 +47,14 @@ pub enum Layer {
     Decal,
 }
 
-/// A frame's lighting: the directions its materials need and the room chrome
-/// mirrors. Kept in step with `r_lighting` in `depth.wgsl`.
+/// A frame's lighting: where its lamp stands, the directions its materials
+/// need and the room chrome mirrors. Kept in step with `r_lighting` in
+/// `depth.wgsl`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Lighting {
-    /// Toward the light, unit length.
-    pub toward: [f32; 3],
+    /// Where the lamp stands, in machine inches from the printing point:
+    /// each fragment is lit from there toward its own inches.
+    pub lamp: [f32; 3],
     /// Toward the eye, unit length: a highlight is where a surface turns them
     /// both.
     pub eye: [f32; 3],
@@ -61,7 +64,7 @@ pub struct Lighting {
 }
 
 impl Lighting {
-    /// The uniform the shader reads: the two directions, then the bands.
+    /// The uniform the shader reads: the lamp, the eye, then the bands.
     fn uniform(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(LIGHTING_BYTES as usize);
         let mut word = |value: [f32; 4]| {
@@ -69,7 +72,7 @@ impl Lighting {
                 out.extend_from_slice(&part.to_le_bytes());
             }
         };
-        word([self.toward[0], self.toward[1], self.toward[2], 0.0]);
+        word([self.lamp[0], self.lamp[1], self.lamp[2], 0.0]);
         word([self.eye[0], self.eye[1], self.eye[2], 0.0]);
         for &(down, colour) in &self.chrome {
             let [r, g, b] = gamma_rgb(colour);
@@ -108,12 +111,15 @@ pub enum Shade {
 }
 
 impl Shade {
-    /// `rgba` (premultiplied sRGB gamma, 0..=1) as `lighting` lights it. Keep
-    /// in step with `depth.wgsl`.
-    pub fn apply(self, rgba: [f32; 4], lighting: &Lighting) -> [f32; 4] {
+    /// `rgba` (premultiplied sRGB gamma, 0..=1) standing at `at`, in machine
+    /// inches, as `lighting`'s lamp lights it. Keep in step with `depth.wgsl`.
+    pub fn apply(self, rgba: [f32; 4], lighting: &Lighting, at: [f32; 3]) -> [f32; 4] {
         let [r, g, b, a] = rgba;
         let gamma = [r, g, b];
-        let (light, eye) = (lighting.toward, lighting.eye);
+        // From these inches toward the lamp: what a fragment sees, the
+        // direction from it to the light.
+        let light = unit(sub(lighting.lamp, at));
+        let eye = lighting.eye;
         // Brightened `by`, then turned toward `shine` by `toward`: as the
         // shader mixes a lit colour with its highlight.
         let lit = |by: f32, shine: [f32; 3], toward: f32| {
@@ -155,15 +161,15 @@ impl Shade {
         [r, g, b, a]
     }
 
-    /// `colour` as [`Shade::apply`] lights it.
-    pub fn colour(self, colour: Color32, lighting: &Lighting) -> Color32 {
+    /// `colour` as [`Shade::apply`] lights it at `at`, in machine inches.
+    pub fn colour(self, colour: Color32, lighting: &Lighting, at: [f32; 3]) -> Color32 {
         if self == Self::Unlit {
             return colour;
         }
         let rgba = colour.to_array().map(|c| f32::from(c) / 255.0);
         // Safe cast: clamped to a byte.
         let [r, g, b, a] = self
-            .apply(rgba, lighting)
+            .apply(rgba, lighting, at)
             .map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
         Color32::from_rgba_premultiplied(r, g, b, a)
     }
@@ -220,13 +226,17 @@ fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
 fn unit(v: [f32; 3]) -> [f32; 3] {
     let length = dot(v, v).sqrt().max(1e-6);
     v.map(|c| c / length)
 }
 
-/// Triangles in depth, in one texture: egui's mesh, and each vertex's depth
-/// and shade.
+/// Triangles in depth, in one texture: egui's mesh, and each vertex's depth,
+/// the inches it stands at, and shade.
 #[derive(Debug, Clone, Default)]
 pub struct Solid {
     /// In egui's font atlas ([`FONTS`]), uvs are in texels: the atlas may
@@ -234,6 +244,10 @@ pub struct Solid {
     pub mesh: Mesh,
     /// 0 at the eye to 1 far off, one for each of `mesh`'s vertices.
     pub depths: Vec<f32>,
+    /// Where each of `mesh`'s vertices stands, in machine inches from the
+    /// printing point: the lamp lights a fragment from these. What takes no
+    /// shade says `[0.0; 3]`.
+    pub places: Vec<[f32; 3]>,
     /// One for each of `mesh`'s vertices.
     pub shades: Vec<Shade>,
 }
@@ -242,10 +256,32 @@ impl Solid {
     /// `mesh` at `depths`, each vertex its colour as it is.
     pub fn unlit(mesh: Mesh, depths: Vec<f32>) -> Self {
         let shades = vec![Shade::Unlit; depths.len()];
+        let places = vec![[0.0; 3]; depths.len()];
         Self {
             mesh,
             depths,
+            places,
             shades,
+        }
+    }
+}
+
+/// Where a vertex shows in a [`Solid`]: its depth, the inches it stands at,
+/// and its take of the light.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Placing {
+    pub depth: f32,
+    pub at: [f32; 3],
+    pub shade: Shade,
+}
+
+impl From<f32> for Placing {
+    /// Unlit, needing no inches.
+    fn from(depth: f32) -> Self {
+        Self {
+            depth,
+            at: [0.0; 3],
+            shade: Shade::Unlit,
         }
     }
 }
@@ -267,14 +303,14 @@ impl Solids {
         [(Layer::Opaque, &self.opaque), (Layer::Decal, &self.decals)]
     }
 
-    /// Adds `mesh`, unlit, `place` moving each vertex where it shows, maybe
-    /// tinting it, and giving its depth. `None` hides a vertex, and the
-    /// triangles touching it.
+    /// Adds `mesh`, `place` moving each vertex where it shows, maybe tinting
+    /// it, and saying its [`Placing`]: depth, inches and shade. `None` hides
+    /// a vertex, and the triangles touching it.
     pub fn add(
         &mut self,
         layer: Layer,
         mut mesh: Mesh,
-        mut place: impl FnMut(&mut Vertex) -> Option<f32>,
+        mut place: impl FnMut(&mut Vertex) -> Option<Placing>,
     ) {
         let placed: Vec<_> = mesh.vertices.iter_mut().map(&mut place).collect();
         let mut solid = Solid::unlit(Mesh::with_texture(mesh.texture_id), Vec::new());
@@ -288,8 +324,10 @@ impl Solids {
                 let i = i as usize;
                 let new = *kept[i].get_or_insert_with(|| {
                     solid.mesh.vertices.push(mesh.vertices[i]);
-                    solid.depths.push(placed[i].unwrap_or_default());
-                    solid.shades.push(Shade::Unlit);
+                    let Placing { depth, at, shade } = placed[i].unwrap_or_default();
+                    solid.depths.push(depth);
+                    solid.places.push(at);
+                    solid.shades.push(shade);
                     // Safe cast: a frame's vertices fit egui's own u32 indices.
                     solid.mesh.vertices.len() as u32 - 1
                 });
@@ -341,6 +379,7 @@ impl Solids {
                 let into = &mut solids[at];
                 into.mesh.append(solid.mesh);
                 into.depths.extend(solid.depths);
+                into.places.extend(solid.places);
                 into.shades.extend(solid.shades);
             }
             None => solids.push(solid),
@@ -348,7 +387,7 @@ impl Solids {
     }
 
     /// `shapes` drawn flat, cut to no side `longest` long to bend with what
-    /// they are placed on, then each vertex placed as by [`Solids::add`].
+    /// they are placed on, then each placed as by [`Solids::add`].
     /// An opaque shape's edges aren't feathered: a feather's clear fringe
     /// would hide what is behind it.
     pub fn add_shapes(
@@ -357,7 +396,7 @@ impl Solids {
         layer: Layer,
         shapes: Vec<Shape>,
         longest: f32,
-        mut place: impl FnMut(&mut Vertex) -> Option<f32>,
+        mut place: impl FnMut(&mut Vertex) -> Option<Placing>,
     ) {
         let options = TessellationOptions {
             feathering: layer == Layer::Decal,
@@ -681,6 +720,7 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
                         4 => Float32,
                         5 => Uint32,
                         6 => Uint32,
+                        7 => Float32x3,
                     ],
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -817,8 +857,8 @@ fn pack(
     let (mut first, mut base) = (0, 0);
     for (layer, solid) in all() {
         let texels = texel_scale(solid.mesh.texture_id, fonts);
-        let placed = solid.depths.iter().zip(&solid.shades);
-        for (vertex, (depth, shade)) in solid.mesh.vertices.iter().zip(placed) {
+        let placed = solid.depths.iter().zip(&solid.places).zip(&solid.shades);
+        for (vertex, ((depth, &at), shade)) in solid.mesh.vertices.iter().zip(placed) {
             let x = 2.0 * vertex.pos.x / width - 1.0;
             let y = 1.0 - 2.0 * vertex.pos.y / height;
             let uv = vertex.uv.to_vec2() * texels;
@@ -832,6 +872,9 @@ fn pack(
             }
             vertices.extend_from_slice(&material.to_le_bytes());
             vertices.extend_from_slice(&shine.to_array());
+            for value in at {
+                vertices.extend_from_slice(&value.to_le_bytes());
+            }
         }
         for index in &solid.mesh.indices {
             indices.extend_from_slice(&index.to_le_bytes());
@@ -978,7 +1021,15 @@ pub fn rasterize(
                 }
             };
             let shade = |triangle: [u32; 3], weights: [f32; 3], rgba| {
-                pixel_shade(&solid.shades, triangle, weights).apply(rgba, lighting)
+                // The shader blends each vertex's inches across the triangle
+                // affine, in screen space: this blends them the same way, to
+                // find the fragment's place on the lamp.
+                let at = [0, 1, 2].map(|k| {
+                    (0..3)
+                        .map(|c| weights[c] * solid.places[triangle[c] as usize][k])
+                        .sum()
+                });
+                pixel_shade(&solid.shades, triangle, weights).apply(rgba, lighting, at)
             };
             raster.fill(&mesh, clip, keep, shade);
         }
@@ -1105,8 +1156,9 @@ mod tests {
         };
         let mut lit = Solid::unlit(triangle(Color32::RED), vec![0.25; 3]);
         lit.shades = vec![Shade::Matte([0.0, 0.0, 1.0]); 3];
+        lit.places = vec![[1.0, 2.0, 3.5]; 3];
         solids.push(Layer::Opaque, lit);
-        solids.add(Layer::Decal, triangle(Color32::BLUE), |_| Some(0.5));
+        solids.add(Layer::Decal, triangle(Color32::BLUE), |_| Some(0.5.into()));
         let (vertices, indices, draws) = pack(&solids, [1600.0, 1000.0], [64, 32]);
         assert_eq!(vertices.len(), 6 * VERTEX_BYTES as usize);
         assert_eq!(indices.len(), 6 * 4);
@@ -1130,8 +1182,14 @@ mod tests {
         assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
         assert_eq!(float(36), 0.0);
         assert_eq!(vertices[40..44], 1u32.to_le_bytes());
+        // And where it stands, in inches, for the lamp.
+        assert_eq!([float(48), float(52), float(56)], [1.0, 2.0, 3.5]);
         let next = 3 * VERTEX_BYTES as usize;
         assert_eq!(vertices[next + 40..next + 44], 0u32.to_le_bytes());
+        assert_eq!(
+            [float(next + 48), float(next + 52), float(next + 56)],
+            [0.0, 0.0, 0.0]
+        );
     }
 
     #[test]
@@ -1168,12 +1226,12 @@ mod tests {
         assert_eq!(vertices[next + 44..next + 48], Color32::WHITE.to_array());
     }
 
-    /// A frame lit from straight above, the eye above too, chrome from white
-    /// at its top to black at its foot.
+    /// A frame with its lamp straight above, the eye above too, chrome from
+    /// white at its top to black at its foot.
     fn above() -> Lighting {
         let band = |grey: u8| Color32::from_rgb(grey, grey, grey);
         Lighting {
-            toward: [0.0, 0.0, 1.0],
+            lamp: [0.0, 0.0, 10.0],
             eye: [0.0, 0.0, 1.0],
             chrome: [
                 (0.0, band(0xFF)),
@@ -1195,7 +1253,7 @@ mod tests {
                 shine,
                 sharpness,
             }
-            .apply(grey, &above())
+            .apply(grey, &above(), [0.0; 3])
         };
         // Side-on to both: the ambient floor alone, half as bright.
         assert_eq!(polished([1.0, 0.0, 0.0], 4.0), [0.25, 0.25, 0.25, 1.0]);
@@ -1216,7 +1274,7 @@ mod tests {
                 shine,
                 sharpness: 6.0,
             }
-            .apply(grey, &above())[0]
+            .apply(grey, &above(), [0.0; 3])[0]
         };
         // Across the light: the whole highlight. Along it: none at all.
         assert!(streak([1.0, 0.0, 0.0]) > 0.99);
@@ -1226,7 +1284,7 @@ mod tests {
     #[test]
     fn chrome_reads_the_room_down_its_plate() {
         let light = above();
-        let chrome = |t| Shade::Chrome(t).apply([0.0, 0.0, 0.0, 1.0], &light)[0] * 255.0;
+        let chrome = |t| Shade::Chrome(t).apply([0.0, 0.0, 0.0, 1.0], &light, [0.0; 3])[0] * 255.0;
         assert_eq!(chrome(0.0), 255.0);
         assert_eq!(chrome(0.5), 255.0);
         assert_eq!(chrome(1.0), 0.0);
@@ -1260,7 +1318,7 @@ mod tests {
             (Layer::Decal, 2),
             (Layer::Decal, 1),
         ] {
-            solids.add(layer, quad(texture), |v| Some(v.pos.x));
+            solids.add(layer, quad(texture), |v| Some(v.pos.x.into()));
         }
         let [(_, opaque), (_, decals)] = solids.layers();
         let textures = |solids: &[Solid]| -> Vec<TextureId> {
@@ -1349,7 +1407,7 @@ mod tests {
             }
             mesh.add_triangle(0, 1, 2);
             let mut solids = Solids::default();
-            solids.add(Layer::Opaque, mesh, |_| Some(depth));
+            solids.add(Layer::Opaque, mesh, |_| Some(depth.into()));
             solids
         };
         let mut output = ctx.run_ui(Default::default(), |ui| {
@@ -1398,7 +1456,7 @@ mod tests {
         let mut solids = Solids::default();
         solids.add(Layer::Opaque, mesh, |v| {
             v.pos.y += 1.0;
-            (v.pos.x < 2.5).then_some(v.pos.x / 10.0)
+            (v.pos.x < 2.5).then(|| (v.pos.x / 10.0).into())
         });
         let [(_, opaque), (_, decals)] = solids.layers();
         assert!(decals.is_empty());

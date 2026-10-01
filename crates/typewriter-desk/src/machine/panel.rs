@@ -8,8 +8,8 @@ use super::canvas::Canvas;
 use super::cover::{COVER_FRONT, COVER_HALF};
 use super::eye::{Eye, paint_flat_text};
 use super::geometry::{add, dot};
-use super::light::toward_light;
-use super::{CHROME, ENGRAVED, IVORY, IVORY_LIT, SHIFT_CAP, SHIFT_FRONT};
+use super::light::{matte, toward_light};
+use super::{CHROME, ENGRAVED, IVORY, SHIFT_CAP, SHIFT_FRONT};
 use typewriter_app::draw::{Controls, HIGHLIGHT, Metrics, ruler};
 use typewriter_app::settings::{ZOOM_NOTCHES, zoom_notch};
 
@@ -53,9 +53,8 @@ pub(super) fn paint_face(canvas: &Canvas, eye: &Eye) {
         [bottom, y1, z1],
         [-bottom, y1, z1],
     ];
-    eye.fill(canvas, &outline, |[_, y, _]| {
-        IVORY_LIT.lerp_to_gamma(IVORY, (y - y0) / (y1 - y0))
-    });
+    // One slope, one normal: the lamp washes it the way the gradient faked.
+    eye.fill(canvas, &outline, |_| matte(IVORY, panel_normal()));
 }
 
 /// A point on the front panel's slope.

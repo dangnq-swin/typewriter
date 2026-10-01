@@ -7,9 +7,9 @@ use eframe::egui::{Color32, Shape};
 
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{add, fillet, sub};
+use super::geometry::{add, fillet, normalized, sub};
 use super::light::{Paint, brighten, brushed, matte, streak};
-use super::{IVORY_LIT, IVORY_SHADE, METAL, METAL_SHINE};
+use super::{IVORY, IVORY_SHADE, METAL, METAL_SHINE};
 use typewriter_app::draw::{splitmix64, unit};
 
 /// The ribbon cover, sloping toward the writer from just in front of the
@@ -48,6 +48,13 @@ const PALE_RING: Color32 = Color32::from_rgb(0xCC, 0xC6, 0xB2);
 pub(super) fn on_cover(x: f32, y: f32) -> [f32; 3] {
     let t = (y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
     [x, y, COVER_BACK.1 + t * (COVER_FRONT.1 - COVER_BACK.1)]
+}
+
+/// Out of the cover's slope, square to it, unit length.
+fn cover_normal() -> [f32; 3] {
+    let dy = COVER_FRONT.0 - COVER_BACK.0;
+    let dz = COVER_FRONT.1 - COVER_BACK.1;
+    normalized([0.0, -dz, dy])
 }
 
 /// The opening's corners: the plates' tips at the back, left and right,
@@ -135,10 +142,8 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     for (edge, facing) in [(&left_wall, 1.0), (&right_wall, -1.0)] {
         paint_plate_wall(canvas, eye, edge, facing);
     }
-    let lit = |[_, y, _]: [f32; 3]| {
-        let t = (y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
-        IVORY_SHADE.lerp_to_gamma(IVORY_LIT, t)
-    };
+    // One slope, one normal: the lamp washes it the way the gradient faked.
+    let lit = |_| matte(IVORY, cover_normal());
     let left: Vec<[f32; 3]> = fillet(fl, bl, tip_l, 0.25)
         .into_iter()
         .chain(left_edge.iter().copied())

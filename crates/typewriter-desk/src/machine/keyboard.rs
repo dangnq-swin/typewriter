@@ -443,11 +443,11 @@ pub(super) fn paint_cap(
     }
     canvas.mesh(Layer::Opaque, sides);
     eye.outline_in(canvas, &foot, brighten(front_colour, 0.8));
-    // Dished: its back slope in the cap's own shade, its front catching light.
+    // Dished: its normals turn from the back's to the front's, so the lamp
+    // strikes the front and leaves the back its own shade.
     eye.fill(canvas, &top, |[_, py, _]| {
-        let dished =
-            brighten(top_colour, 0.9).lerp_to_gamma(top_colour, (py - back) / (front - back));
-        matte(dished, [0.0, 0.2, 1.0])
+        let tilt = -0.15 + 0.65 * (py - back) / (front - back);
+        matte(top_colour, [0.0, tilt, 1.0])
     });
     eye.outline_in(canvas, &top, brighten(front_colour, 0.85));
 }

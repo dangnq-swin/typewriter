@@ -5,15 +5,13 @@
 //! writer. Across, a point keeps its inches from the printing point.
 
 use eframe::egui::epaint::Vertex;
-use eframe::egui::{Color32, Mesh, Painter, Pos2, Rect};
+use eframe::egui::{Mesh, Painter, Pos2, Rect};
 use typewriter_app::draw::{FlatSheet, Metrics};
 
 use super::carriage::{PLATEN_DIAMETER_INCHES, STRIKE_DEGREES, platen_axis};
-use super::eye::{Eye, toward_eye};
-use super::geometry::dot;
-use super::light::toward_light;
+use super::eye::Eye;
 use super::support;
-use crate::depth::{self, Layer, Solids};
+use crate::depth::{self, Layer, Placing, Shade, Solids};
 
 /// Leaving the printing point, the sheet bends from the platen's slope to
 /// the support's lean round this radius.
@@ -22,14 +20,6 @@ const BEND_INCHES: f32 = 1.0;
 /// columns: few enough skewing its texture.
 const WAY_STEP_INCHES: f32 = 0.05;
 const WAY_COLUMNS: u16 = 8;
-/// Paper: lit over an ambient floor, never past white.
-const PAPER_AMBIENT: f32 = 0.74;
-const PAPER_LIT: f32 = 0.3;
-
-/// How lit paper facing `normal` is.
-fn paper_shade(normal: [f32; 3]) -> f32 {
-    (PAPER_AMBIENT + PAPER_LIT * dot(normal, toward_light()).max(0.0)).min(1.0)
-}
 
 /// The point `along` the way, `(y, z)`, and its printed side's normal.
 fn way(along: f32) -> ([f32; 2], [f32; 2]) {
@@ -88,23 +78,19 @@ struct Placed {
     /// 0 at the eye to 1 far off; and a hair nearer, for what is printed.
     depth: f32,
     print_depth: f32,
-    /// How lit, 0..=1.
-    lit: f32,
+    /// Where it stands, machine inches: the lamp lights it from there.
+    at: [f32; 3],
+    /// Its seen side's normal: paper as a matte material, its take of the
+    /// light the shader's, not a tint.
+    normal: [f32; 3],
     /// Its printed side is turned toward the eye.
     facing: bool,
 }
 
-impl Placed {
-    /// Its light, to tint what is there by.
-    fn light(&self) -> Color32 {
-        // Safe cast: `lit` is 0..=1.
-        Color32::from_gray((255.0 * self.lit) as u8)
-    }
-}
-
 /// `sheets`, laid flat as the typing view would, on their way through the
-/// machine for the typing line at `typing_y`: the paper lit as it turns,
-/// the print on the side turned toward the eye.
+/// machine for the typing line at `typing_y`: the paper and its print matte
+/// faces the lamp lights per fragment, the print on the side turned toward
+/// the eye.
 pub fn paint_sheets(
     painter: &Painter,
     view: Rect,
@@ -114,8 +100,6 @@ pub fn paint_sheets(
 ) {
     let eye = Eye::new(view, metrics, typing_y);
     let ppi = metrics.points_per_inch;
-    // The line being typed as bright as a sheet flat on screen.
-    let typing = paper_shade(toward_eye());
     let place = |at: Pos2| {
         let ([y, z], [ny, nz]) = way((typing_y - at.y) / ppi);
         let p = [(at.x - eye.origin.x) / ppi, y, z];
@@ -126,7 +110,8 @@ pub fn paint_sheets(
             pos: eye.at(p),
             depth: eye.depth(p),
             print_depth: eye.lying_depth(p),
-            lit: (paper_shade(seen) / typing).min(1.0),
+            at: p,
+            normal: seen,
             facing,
         }
     };
@@ -136,21 +121,29 @@ pub fn paint_sheets(
         .max(1.0) as u16;
     let mut solids = Solids::default();
     for sheet in sheets {
-        solids.add(Layer::Opaque, grid(&sheet.paper, rows), |vertex| {
+        let paper = |vertex: &mut Vertex| {
             let placed = place(vertex.pos);
             vertex.pos = placed.pos;
-            vertex.color = vertex.color * placed.light();
-            Some(placed.depth)
-        });
-        // Long marks (the frame's sides) bend with the sheet. Lit as the
-        // paper: correction chalk then matches it.
+            Some(Placing {
+                depth: placed.depth,
+                at: placed.at,
+                shade: Shade::Matte(placed.normal),
+            })
+        };
+        solids.add(Layer::Opaque, grid(&sheet.paper, rows), paper);
+        // Long marks (the frame's sides) bend with the sheet. Matte as the
+        // paper it lies on: correction chalk then matches it, lit and all.
         let longest = WAY_STEP_INCHES * 2.0 * ppi;
-        solids.add_shapes(painter, Layer::Decal, sheet.print, longest, |vertex| {
+        let print = |vertex: &mut Vertex| {
             let placed = place(vertex.pos);
             vertex.pos = placed.pos;
-            vertex.color = vertex.color * placed.light();
-            placed.facing.then_some(placed.print_depth)
-        });
+            placed.facing.then_some(Placing {
+                depth: placed.print_depth,
+                at: placed.at,
+                shade: Shade::Matte(placed.normal),
+            })
+        };
+        solids.add_shapes(painter, Layer::Decal, sheet.print, longest, print);
     }
     depth::gather(painter.ctx(), solids);
 }
@@ -192,7 +185,9 @@ fn grid(paper: &Mesh, rows: u16) -> Mesh {
 
 #[cfg(test)]
 mod tests {
+    use super::super::eye::toward_eye;
     use super::*;
+    use eframe::egui::Color32;
 
     #[test]
     fn the_way_runs_on_without_a_break() {

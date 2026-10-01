@@ -64,22 +64,27 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
             desk), and a vertex is 48 bytes where it was 40 for about the same count (~51 k a
             frame, 72 fewer since the plates stopped banding). The light moved to the shader;
             the time did not.
-      - [ ] **A lamp, and the gradients it replaces.** The light is a direction, so a flat
-            face is lit evenly. The maintainer chose a lamp instead: a point light to the
-            writer's left, above and in front. The shader then needs each fragment's place in
-            inches (a vertex attribute, until section 2 projects on the GPU). Then drop the
-            gradients that are lighting:
-            - `cover::paint`: `IVORY_SHADE` → `IVORY_LIT` down the cover.
-            - `panel::paint_face`: `IVORY_LIT` → `IVORY` down the panel.
-            - `bail::paint_bar`: `BAR_TOP` → `BAR_MID` → `BAR_LOW` down the bar (give it
-              normals).
-            - the caps' dished top (`keyboard`: give it normals).
-
-            Fake occlusion stays until there are real shadows: `body::paint_deck` (the
-            carriage's shade), `case::paint_well`, `case::paint_inner_walls`' `[top, foot]`,
-            `cover::paint_plate_wall`'s foot, the cover's shadow in its opening and the keys'
-            shadows. Then the paper's shade (`sheet::paper_shade`) as a material. Retune
-            against the snapshots.
+      - [x] **A lamp, and the gradients it replaces.** The light is a point now:
+            the lamp stands 10 inches to the writer's left, 6.7 in front of the
+            printing point and 16 above the desk — its head over the front of the
+            keys, where a real desk lamp would be put: lighting the sheet across,
+            crowding nothing. Each depth vertex carries the inches it stands at
+            (a 60-byte vertex, until section 2 projects on the GPU), the shader
+            lights a fragment from its inches toward the lamp, and the CPU twins —
+            `Shade::apply`, the flat canvas, the snapshot rasterizer — blend the
+            same inches. The gradients that were lighting are gone: the cover and
+            the panel are one matte slope each, the bail's front is one quad with
+            a normal (its three stops and `BAR_MID` went with them), the caps'
+            dished tops take normals that turn from back to front, and the paper
+            and its print are a matte material — `sheet::paper_shade` is gone, and
+            correction chalk still matches the paper, being lit alike. The lamp
+            burns the room's own white, by the maintainer's eye: position and
+            falloff register it, a tint would only yellow the page. Retuned
+            against the snapshots; the plain app's pixels are unchanged. Fake
+            occlusion stays until there are real shadows: `body::paint_deck` (the
+            carriage's shade), `case::paint_well`, `case::paint_inner_walls`'
+            `[top, foot]`, `cover::paint_plate_wall`'s foot, the cover's shadow in
+            its opening and the keys' shadows.
 - [ ] **One kind of bar: the key levers and the type bars.** Both draw an elongated steel
       bar the same way — a dark stroke with a bright hair along its lit edge — and each does
       it its own way. `keyboard::paint_steel` (the key levers, the stems the key tops sit

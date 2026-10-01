@@ -1,6 +1,10 @@
-//! One light, to the writer's left, above and a little in front, and how
-//! plastic and metal take it: the shader lights what stands in depth, and
-//! [`Paint::lit`] is its twin for what is drawn flat or as a line.
+//! The desk's lamp, where a writer would place one: to the left, above and a
+//! little in front, its head out over the keys and clear of the work — usual
+//! enough to be believed, far enough never to be in the way. It burns the
+//! room's own white: what it lights is what is there, brighter where it
+//! turns. The shader lights what stands in depth from it, per fragment;
+//! [`Paint::lit`] is its twin at the machine's middle for what is drawn flat
+//! or as a line.
 
 use eframe::egui::Color32;
 
@@ -10,16 +14,25 @@ use super::geometry::{dot, normalized};
 use super::{METAL, METAL_SHINE};
 use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
 
-/// Toward the light from the machine: to the writer's left, above, a little
-/// in front.
-pub(super) fn toward_light() -> [f32; 3] {
-    normalized([-0.6, 0.4, 0.7])
+/// Where the lamp stands, in machine inches from the printing point: over
+/// the desk's left front, its head about sixteen inches above the desk's
+/// top. Seen from the machine's middle it lies where the old direction
+/// pointed, so what the CPU lights keeps its look.
+pub(super) fn lamp() -> [f32; 3] {
+    [-10.0, 6.7, 11.7]
 }
 
-/// The frame's lighting: this light, this eye, and the room chrome mirrors.
+/// Toward the lamp from the machine's middle: for lines and cast shadows,
+/// which stand nowhere of their own. The shader reaches each fragment's own
+/// direction from [`lamp`] instead.
+pub(super) fn toward_light() -> [f32; 3] {
+    normalized(lamp())
+}
+
+/// The frame's lighting: this lamp, this eye, and the room chrome mirrors.
 pub(super) fn frame() -> Lighting {
     Lighting {
-        toward: toward_light(),
+        lamp: lamp(),
         eye: toward_eye(),
         chrome: chrome_bands(),
     }
@@ -42,9 +55,10 @@ impl From<Color32> for Paint {
 }
 
 impl Paint {
-    /// Lit here, for what takes no shade in the shader: lines, and flat drawing.
+    /// Lit at the machine's middle, for what takes no shade in the shader:
+    /// lines, and flat drawing.
     pub(super) fn lit(self) -> Color32 {
-        self.shade.colour(self.colour, &frame())
+        self.shade.colour(self.colour, &frame(), [0.0; 3])
     }
 }
 
@@ -147,7 +161,7 @@ fn chrome_bands() -> [(f32, Color32); CHROME_BANDS] {
 /// lies in no plate of its own, like the return lever, whose colour follows
 /// the way its seen side faces.
 pub(super) fn chrome_at(t: f32) -> Color32 {
-    Shade::Chrome(t).colour(Color32::WHITE, &frame())
+    Shade::Chrome(t).colour(Color32::WHITE, &frame(), [0.0; 3])
 }
 
 /// `colour` lit `by` times as bright, alpha kept.

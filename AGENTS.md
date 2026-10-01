@@ -19,6 +19,7 @@ section current.
   **Delete**, a traceless digital correction, kept at the maintainer's request.
 - **Game-like features go to the desk edition** — a moving camera, walking about an office. The plain app
   stays a focused writing tool.
+- **The desk's light is its lamp**: a point light to the writer's left, above and in front, where a real desk lamp stands, burning the room's own white. New lighting follows this.
 - **The plain app's look is settled.** New parts drawn around the paper (levers, the margin rack) are the
   desk's only.
 

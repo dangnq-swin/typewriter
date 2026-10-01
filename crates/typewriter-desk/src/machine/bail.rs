@@ -56,9 +56,9 @@ const HIGHEST: f32 = 4.0;
 const SEARCH_STEPS: u16 = 30;
 /// Round the disc: enough for a smooth rim.
 const ROUND: u16 = 24;
-/// Brushed metal down the bar's front, brightest just above the middle.
-const BAR_TOP: Color32 = Color32::from_rgb(0xD4, 0xD6, 0xD2);
-const BAR_MID: Color32 = Color32::from_rgb(0xEE, 0xEF, 0xEC);
+/// The bar's metal: its front and lid, unlit. The lamp lights both; what
+/// stays in shade under the bar keeps its own, darker, colour.
+const BAR_FRONT: Color32 = Color32::from_rgb(0xEE, 0xEF, 0xEC);
 const BAR_LOW: Color32 = Color32::from_rgb(0xAE, 0xB0, 0xAC);
 
 /// The bar's axis `(y, z)`: its disc's pocket closed by the plate ahead of
@@ -190,29 +190,23 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
     }
 }
 
-/// The bar over `x`: brushed metal down its front, its lid lit from above.
+/// The bar over `x`: one metal face toward the writer, one toward the lid —
+/// the lamp, not a gradient, does the shading.
 fn paint_bar(canvas: &Canvas, eye: &Eye, [x0, x1]: [f32; 2]) {
     let (front, [top, foot]) = front();
     let back = front - DEPTH;
-    let stops = [
-        (top, BAR_TOP),
-        (top + 0.35 * (foot - top), BAR_MID),
-        (foot, BAR_LOW),
-    ];
     let mut solid = Solid::default();
-    for pair in stops.windows(2) {
-        let [(upper, upper_colour), (lower, lower_colour)] = [pair[0], pair[1]];
-        eye.quad(
-            &mut solid,
-            [
-                ([x0, front, upper], upper_colour),
-                ([x1, front, upper], upper_colour),
-                ([x1, front, lower], lower_colour),
-                ([x0, front, lower], lower_colour),
-            ],
-        );
-    }
-    let lid = matte(BAR_TOP, [0.0, 0.0, 1.0]);
+    let face = matte(BAR_FRONT, [0.0, 1.0, 0.0]);
+    eye.quad(
+        &mut solid,
+        [
+            ([x0, front, top], face),
+            ([x1, front, top], face),
+            ([x1, front, foot], face),
+            ([x0, front, foot], face),
+        ],
+    );
+    let lid = matte(BAR_FRONT, [0.0, 0.0, 1.0]);
     let under = matte(BAR_LOW, [0.0, 0.0, -1.0]);
     for (z, colour) in [(top, lid), (foot, under)] {
         eye.quad(
