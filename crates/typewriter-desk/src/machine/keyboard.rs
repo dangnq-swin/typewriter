@@ -225,13 +225,13 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
     let half = OPENING_HALF;
     // Round the side the eye sees: from behind its top to under its front.
     let bands = 16u8;
-    let around: Vec<([f32; 3], Color32)> = (0..=bands)
+    let around: Vec<([f32; 3], Paint)> = (0..=bands)
         .map(|i| {
             let angle = (-60.0 + 190.0 * f32::from(i) / f32::from(bands)).to_radians();
             let normal = [0.0, angle.sin(), angle.cos()];
-            let colour = polished(ROD, METAL_SHINE, normal, 24);
+            let polish = polished(ROD, METAL_SHINE, normal, 24.0);
             let offset = [0.0, ROD_RADIUS * angle.sin(), ROD_RADIUS * angle.cos()];
-            (add([0.0, y, z], offset), colour)
+            (add([0.0, y, z], offset), polish)
         })
         .collect();
     let mut solid = Solid::default();

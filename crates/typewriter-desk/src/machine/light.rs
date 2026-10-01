@@ -1,18 +1,28 @@
 //! One light, to the writer's left, above and a little in front, and how
-//! plastic and metal take it: matte plastic in the shader, the rest here.
+//! plastic and metal take it: the shader lights what stands in depth, and
+//! [`Paint::lit`] is its twin for what is drawn flat or as a line.
 
 use eframe::egui::Color32;
 
 use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
-use super::geometry::{add, dot, normalized};
+use super::geometry::{dot, normalized};
 use super::{METAL, METAL_SHINE};
-use crate::depth::{Layer, Shade, Solid};
+use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
 
 /// Toward the light from the machine: to the writer's left, above, a little
 /// in front.
 pub(super) fn toward_light() -> [f32; 3] {
     normalized([-0.6, 0.4, 0.7])
+}
+
+/// The frame's lighting: this light, this eye, and the room chrome mirrors.
+pub(super) fn frame() -> Lighting {
+    Lighting {
+        toward: toward_light(),
+        eye: toward_eye(),
+        chrome: chrome_bands(),
+    }
 }
 
 /// A vertex's colour, and how it takes the light.
@@ -32,9 +42,9 @@ impl From<Color32> for Paint {
 }
 
 impl Paint {
-    /// Lit here, for what takes no shade: lines, and flat drawing.
+    /// Lit here, for what takes no shade in the shader: lines, and flat drawing.
     pub(super) fn lit(self) -> Color32 {
-        self.shade.colour(self.colour, toward_light())
+        self.shade.colour(self.colour, &frame())
     }
 }
 
@@ -46,25 +56,36 @@ pub(super) fn matte(colour: Color32, normal: [f32; 3]) -> Paint {
     }
 }
 
-/// A polished round part facing `normal`: `shade` lit over an ambient floor,
-/// turning to `shine` halfway between the light and the eye (Blinn–Phong).
-/// `sharpness` narrows the highlight.
-pub(super) fn polished(
-    shade: Color32,
-    shine: Color32,
-    normal: [f32; 3],
-    sharpness: i32,
-) -> Color32 {
-    let light = toward_light();
-    let lit = dot(normal, light).max(0.0);
-    let halfway = normalized(add(light, toward_eye()));
-    let highlight = dot(normal, halfway).max(0.0).powi(sharpness);
-    brighten(shade, 0.5 + 0.6 * lit).lerp_to_gamma(shine, highlight)
+/// Metal facing `normal`, polished to a `shine` whose highlight `sharpness`
+/// narrows: lit per pixel.
+pub(super) fn polished(colour: Color32, shine: Color32, normal: [f32; 3], sharpness: f32) -> Paint {
+    Paint {
+        colour,
+        shade: Shade::Polished {
+            normal: normalized(normal),
+            shine,
+            sharpness,
+        },
+    }
+}
+
+/// Brushed metal running along `tangent`, streaked with `shine` across its
+/// grain, `sharpness` narrow: lit per pixel.
+pub(super) fn brushed(colour: Color32, shine: Color32, tangent: [f32; 3], sharpness: f32) -> Paint {
+    Paint {
+        colour,
+        shade: Shade::Streak {
+            tangent: normalized(tangent),
+            shine,
+            sharpness,
+        },
+    }
 }
 
 /// How bright a thin metal part running along `tangent` catches the light,
-/// 0..=1: brushed and milled metal streaks along its grain
-/// (Heidrich–Seidel). `sharpness` narrows the streak.
+/// 0..=1: brushed and milled metal streaks along its grain (Heidrich–Seidel).
+/// `sharpness` narrows the streak. For lines, which take no shade: what
+/// stands in depth is [`brushed`] instead.
 pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
     let tangent = normalized(tangent);
     let (lt, vt) = (dot(toward_light(), tangent), dot(toward_eye(), tangent));
@@ -73,8 +94,9 @@ pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
 }
 
 /// An upright chrome plate facing the writer over `x` at depth `y`, from
-/// `top` down `height` inches, outlined. Chrome mirrors the room: bright sky
-/// above, dark room below, a bright band where it turns to the light.
+/// `top` down `height` inches, outlined. Chrome mirrors the room, so the
+/// shader bands the plate: bright sky above, the light's band, the dark room
+/// below.
 pub(super) fn paint_chrome(
     canvas: &Canvas,
     eye: &Eye,
@@ -83,21 +105,11 @@ pub(super) fn paint_chrome(
     top: f32,
     height: f32,
 ) {
-    let mut solid = Solid::default();
-    for pair in chrome_bands().windows(2) {
-        let [(from, upper), (to, lower)] = [pair[0], pair[1]];
-        let at = |x: f32, t: f32| [x, y, top - height * t];
-        eye.quad(
-            &mut solid,
-            [
-                (at(left, from), upper),
-                (at(right, from), upper),
-                (at(right, to), lower),
-                (at(left, to), lower),
-            ],
-        );
-    }
-    canvas.mesh(Layer::Opaque, solid);
+    // Its own colour is the room's, not the plate's: the material reads it.
+    let chrome = |t| Paint {
+        colour: Color32::WHITE,
+        shade: Shade::Chrome(t),
+    };
     let bottom = top - height;
     let outline = [
         [left, y, top],
@@ -105,12 +117,23 @@ pub(super) fn paint_chrome(
         [right, y, bottom],
         [left, y, bottom],
     ];
+    let mut solid = Solid::default();
+    eye.quad(
+        &mut solid,
+        [
+            (outline[0], chrome(0.0)),
+            (outline[1], chrome(0.0)),
+            (outline[2], chrome(1.0)),
+            (outline[3], chrome(1.0)),
+        ],
+    );
+    canvas.mesh(Layer::Opaque, solid);
     eye.outline(canvas, &outline);
 }
 
 /// Chrome from its top (0) to its bottom (1): the sky, a bright band where
 /// it turns to the light, the dark room.
-fn chrome_bands() -> [(f32, Color32); 5] {
+fn chrome_bands() -> [(f32, Color32); CHROME_BANDS] {
     [
         (0.0, METAL_SHINE),
         (0.3, brighten(METAL, 0.8)),
@@ -120,17 +143,11 @@ fn chrome_bands() -> [(f32, Color32); 5] {
     ]
 }
 
-/// Chrome `t` of the way across a part, as [`paint_chrome`] shades it.
+/// Chrome `t` of the way down a plate, as the material bands it: for what
+/// lies in no plate of its own, like the return lever, whose colour follows
+/// the way its seen side faces.
 pub(super) fn chrome_at(t: f32) -> Color32 {
-    let bands = chrome_bands();
-    let t = t.clamp(0.0, 1.0);
-    bands
-        .windows(2)
-        .find(|pair| t <= pair[1].0)
-        .map_or(bands[4].1, |pair| {
-            let [(from, upper), (to, lower)] = [pair[0], pair[1]];
-            upper.lerp_to_gamma(lower, (t - from) / (to - from))
-        })
+    Shade::Chrome(t).colour(Color32::WHITE, &frame())
 }
 
 /// `colour` lit `by` times as bright, alpha kept.
@@ -148,6 +165,7 @@ pub(super) fn brighten(colour: Color32, by: f32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::super::IVORY;
+    use super::super::geometry::{add, cross};
     use super::*;
 
     #[test]
@@ -161,5 +179,41 @@ mod tests {
             let shine = streak([turn.cos(), turn.sin(), 0.0], 6);
             assert!((0.0..=1.0).contains(&shine));
         }
+    }
+
+    #[test]
+    fn polished_metal_shines_turned_between_the_light_and_the_eye() {
+        let between = normalized(add(toward_light(), toward_eye()));
+        let aside = [-between[1], between[0], 0.0];
+        let at = |normal, sharpness| polished(METAL, METAL_SHINE, normal, sharpness).lit();
+        // Wholly the shine where it turns the light to the eye, and dimmer
+        // turned aside.
+        assert_eq!(at(between, 4.0), METAL_SHINE);
+        assert!(at(aside, 4.0).r() < METAL_SHINE.r());
+        // A narrow highlight only reaches the faces turned nearest: the same
+        // face, half turned, shines broad or not at all.
+        let half = normalized(add(between, aside));
+        assert!(at(half, 30.0).r() < at(half, 2.0).r());
+    }
+
+    #[test]
+    fn brushed_metal_streaks_across_its_grain() {
+        let at = |tangent| brushed(METAL, METAL_SHINE, tangent, 6.0).lit();
+        // The grain at right angles to both the light and the eye: the whole
+        // streak. Along the light: none of it.
+        let across = cross(toward_light(), toward_eye());
+        assert_eq!(at(across), METAL_SHINE);
+        assert_eq!(at(toward_light()), METAL);
+    }
+
+    #[test]
+    fn chrome_bands_from_the_sky_down_to_the_room() {
+        let (top, bottom) = (chrome_at(0.0), chrome_at(1.0));
+        assert_eq!(top, METAL_SHINE);
+        assert_eq!(bottom, brighten(METAL, 0.6));
+        // The light's band brighter than either side of it.
+        assert!(chrome_at(0.55).r() > chrome_at(0.4).r());
+        assert!(chrome_at(0.55).r() > chrome_at(0.7).r());
+        assert_eq!(chrome_at(2.0), bottom, "past its foot it stays the room");
     }
 }

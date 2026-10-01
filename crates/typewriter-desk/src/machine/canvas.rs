@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 
-use super::light::toward_light;
+use super::light::frame;
 use crate::depth::{self, Layer, Solid, Solids};
 use eframe::egui::{Mesh, Painter, Pos2, Shape};
 use typewriter_app::draw::warp;
@@ -45,7 +45,7 @@ impl<'a> Canvas<'a> {
                     mut mesh, shades, ..
                 } = solid;
                 for (vertex, shade) in mesh.vertices.iter_mut().zip(shades) {
-                    vertex.color = shade.colour(vertex.color, toward_light());
+                    vertex.color = shade.colour(vertex.color, &frame());
                 }
                 self.painter.add(Shape::mesh(mesh));
             }

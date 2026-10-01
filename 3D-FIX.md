@@ -53,11 +53,17 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
       - [x] **Matte in the shader.** Depth vertices carry a `Shade` (a material and a
             normal), the light is a uniform, and `depth.wgsl` lights matte plastic per pixel;
             `Shade::apply` is its Rust twin, for the snapshot rasterizer and flat canvases.
-      - [ ] **Polished, streak and chrome.** `polished` (the platen, knobs, bail, rod),
-            `streak` (levers, cover trim, side controls) and `paint_chrome`'s bands are still
-            lit on the CPU, per vertex. Add them as materials: polished needs its shine colour
-            and sharpness, streak a tangent rather than a normal. Lines (`eye.line`) take no
-            shade and stay lit on the CPU (`Paint::lit`).
+      - [x] **Polished, streak and chrome.** `Shade::Polished` carries its shine colour and
+            sharpness, `Shade::Streak` a tangent rather than a normal, and `Shade::Chrome`
+            reads the room's bands from the lighting uniform, so a plate is one quad: the
+            platen, the knobs, the bail's rim, the rod and the segment's rim are lit per
+            pixel now. Lines (`eye.line`) take no shade and stay lit on the CPU
+            (`Paint::lit`), as does each strip of the return lever — one colour to a frame
+            pair, by which side the eye sees it — and the screw's face. Measured again on the
+            typing view: the CPU's frame is as it was (~46 ms debug, ~4.6 ms release, whole
+            desk), and a vertex is 48 bytes where it was 40 for about the same count (~51 k a
+            frame, 72 fewer since the plates stopped banding). The light moved to the shader;
+            the time did not.
       - [ ] **A lamp, and the gradients it replaces.** The light is a direction, so a flat
             face is lit evenly. The maintainer chose a lamp instead: a point light to the
             writer's left, above and in front. The shader then needs each fragment's place in

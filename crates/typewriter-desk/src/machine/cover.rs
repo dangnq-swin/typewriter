@@ -8,7 +8,7 @@ use eframe::egui::{Color32, Shape};
 use super::canvas::Canvas;
 use super::eye::Eye;
 use super::geometry::{add, fillet, sub};
-use super::light::{brighten, matte, streak};
+use super::light::{Paint, brighten, brushed, matte, streak};
 use super::{IVORY_LIT, IVORY_SHADE, METAL, METAL_SHINE};
 use typewriter_app::draw::{splitmix64, unit};
 
@@ -248,10 +248,7 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
         eye,
         centre,
         [SEGMENT_CORE, SEGMENT_RIM],
-        |angle, _| {
-            let along = [angle.cos(), -angle.sin(), 0.0];
-            METAL.lerp_to_gamma(METAL_SHINE, streak(along, 6))
-        },
+        |angle, _| brushed(METAL, METAL_SHINE, [angle.cos(), -angle.sin(), 0.0], 6.0),
     );
     ring(canvas, eye, centre, [0.0, SEGMENT_CORE], |_, radius| {
         TEAL_LIGHT.lerp_to_gamma(TEAL, radius / SEGMENT_CORE)
@@ -273,12 +270,12 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
 
 /// The front half of an annulus round `(0, centre_y)` at the segment's
 /// height, between `radii`; `colour` by angle and radius.
-fn ring(
+fn ring<P: Into<Paint>>(
     canvas: &Canvas,
     eye: &Eye,
     centre_y: f32,
     [inner, outer]: [f32; 2],
-    colour: impl Fn(f32, f32) -> Color32,
+    colour: impl Fn(f32, f32) -> P,
 ) {
     let at = |angle: f32, radius: f32| {
         [

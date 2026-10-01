@@ -103,7 +103,7 @@ pub fn paint_behind(
 ) {
     let eye = Eye::new(view, metrics, typing_y);
     body::paint_shadow(painter, &eye);
-    depth::begin(painter, light::toward_light());
+    depth::begin(painter, light::frame());
     let canvas = Canvas::depth(painter);
     body::paint_deck(&canvas, &eye);
     let middle = (carriage_x - eye.origin.x) / eye.ppi;

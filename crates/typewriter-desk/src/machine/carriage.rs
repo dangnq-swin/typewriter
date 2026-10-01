@@ -28,7 +28,7 @@ const PLATEN_BANDS: u16 = 64;
 /// The platen drawn this far under the paper on it.
 const UNDER_PAPER_INCHES: f32 = 0.01;
 /// How tight the highlight on a roller or the platen is.
-const ROLLER_SHARPNESS: i32 = 4;
+const ROLLER_SHARPNESS: f32 = 4.0;
 /// The carriage's side plates, inside its ends: their thickness, and from
 /// the platen's axis their back and front `y` and their foot's `z`. Their
 /// front, straight, just ahead of the platen, hiding its ends; their top
