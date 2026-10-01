@@ -3,8 +3,9 @@
 What comes next, in order: the desk edition's machine first, as that is the work under way;
 then small, important changes to both editions; then larger features, the biggest last. Each
 step should leave the app in a working, testable state. Items marked ❓ need input from the
-maintainer before implementation starts. Finished work leaves this file: the git history and the
-release notes keep it.
+maintainer before implementation starts. A finished item is checked, not deleted, while its
+section has items still open; a section leaves this file once all of it is done: the git history
+and the release notes keep it.
 
 The desk edition (`typewriter-desk`) is the immersive, game-like side of the project, kept apart
 so that the plain app stays a focused writing tool (see `AGENTS.md`). Items for it say so.
@@ -15,11 +16,12 @@ so that the plain app stays a focused writing tool (see `AGENTS.md`). Items for 
 
 On the `desk-viewpoint` branch.
 
-- [ ] Desk: the rest of the machine in real 3D, on the depth pass the body, carriage and
+- [x] Desk: the rest of the machine in real 3D, on the depth pass the body, carriage and
       sheets now draw on (one wgpu paint callback a frame): the keyboard and its case and the
       side controls, still flat over it. Then the flat sheet's ways leave the desk (its paper
-      table's placing, the curl and lift). Text where the sheet comes nearer the eye than the
-      typing line, toward its top, is laid out larger to stay as sharp
+      table's placing, the curl and lift)
+- [ ] Desk: text where the sheet comes nearer the eye than the typing line, toward its top,
+      is laid out larger to stay as sharp
 - [ ] Desk: the margin rack behind the paper support, its two stops set there rather than
       on the bail's scale. The sheet hides it: drag the sheet's top down to fold it back, let go,
       then set the stops. Dragging it up again, or the next key typed, unfolds it

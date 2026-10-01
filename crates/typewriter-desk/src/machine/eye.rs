@@ -230,9 +230,14 @@ impl Eye {
     }
 
     pub(super) fn outline(&self, canvas: &Canvas, points: &[[f32; 3]]) {
+        self.outline_in(canvas, points, EDGE);
+    }
+
+    /// A point-wide line round `points`, lying on them.
+    pub(super) fn outline_in(&self, canvas: &Canvas, points: &[[f32; 3]], colour: Color32) {
         let mut closed = points.to_vec();
         closed.extend(points.first());
-        let shape = Shape::closed_line(self.polygon(points), Stroke::new(1.0, EDGE));
+        let shape = Shape::closed_line(self.polygon(points), Stroke::new(1.0, colour));
         self.stroke(canvas, &closed, shape);
     }
 

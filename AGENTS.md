@@ -15,9 +15,11 @@ and `typewriter-desk`, the desk edition, the same machine seen from the chair at
 The first and default machine profile is the **Olympia SM9** (1960s–70s West German
 portable). Other machines come later as profiles.
 
-[`ROADMAP.md`](ROADMAP.md) lists what comes next, in order and without numbers; finished items
-leave it, as the git history and release notes keep them. [`3D-FIX.md`](3D-FIX.md) lists the
-desk edition's clean-up after moving to the depth pass, worked through across sessions.
+[`ROADMAP.md`](ROADMAP.md) lists what comes next, in order and without numbers. A finished item
+is checked (`- [x]`), not deleted, while its section still has open items; once a whole section
+is done it leaves the file, as the git history and release notes keep it.
+[`3D-FIX.md`](3D-FIX.md) lists the desk edition's clean-up after moving to the depth pass,
+worked through across sessions.
 
 ## Design principles
 

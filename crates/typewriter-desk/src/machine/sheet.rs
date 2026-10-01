@@ -27,7 +27,7 @@ const PAPER_AMBIENT: f32 = 0.74;
 const PAPER_LIT: f32 = 0.3;
 
 /// How lit paper facing `normal` is.
-pub(super) fn paper_shade(normal: [f32; 3]) -> f32 {
+fn paper_shade(normal: [f32; 3]) -> f32 {
     (PAPER_AMBIENT + PAPER_LIT * dot(normal, toward_light()).max(0.0)).min(1.0)
 }
 

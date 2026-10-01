@@ -2,7 +2,7 @@
 //! default is the plain app's: the chosen background behind, the sheet flat
 //! on it, the scale and knobs hanging from the typing line, the plates below.
 
-use eframe::egui::{Context, Mesh, Painter, Pos2, Rect, Shape, Ui};
+use eframe::egui::{Context, Mesh, Painter, Rect, Shape, Ui};
 use eframe::egui_wgpu::RenderState;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
@@ -42,21 +42,14 @@ impl Return {
     };
 }
 
-/// Behind the platen, where a sheet goes in: the part not yet wound round
-/// lies on it, its blank back to the writer.
+/// Behind the platen, where a sheet goes in: for its timing as it is slid
+/// down the table and wound round.
 pub struct PaperTable {
     /// Paper round the platen from where it goes in to the typing line.
     pub wrap_inches: f32,
     /// How far up the table from there a sheet shows: past that it has gone
     /// over the top, out of sight.
     pub seen_inches: f32,
-    /// The platen's axis and radius on screen: the sheet wraps round it.
-    pub platen_axis_y: f32,
-    pub platen_radius: f32,
-    /// Where a point of the sheet shows, `x` its place across on screen at
-    /// the sheet's scale and `along` its inches up the table from where it
-    /// goes in; and how lit it is there, 0..=1.
-    pub place: Box<dyn Fn(f32, f32) -> (Pos2, f32)>,
 }
 
 /// A sheet as the plain app lays it flat on screen, for a stage that draws
@@ -145,18 +138,6 @@ pub trait Stage {
     /// The sheets of this frame, the outgoing one first, if it
     /// [`draws_sheets`](Stage::draws_sheets).
     fn paint_sheets(&self, _painter: &Painter, _scene: &Scene, _sheets: Vec<FlatSheet>) {}
-
-    /// A resting sheet's shadow strength, standing off what is behind it.
-    /// `None`: it lies flat.
-    fn sheet_lift(&self) -> Option<f32> {
-        None
-    }
-
-    /// How far a resting sheet's top edge stays curled back toward the
-    /// platen, 0..=1.
-    fn sheet_curl(&self) -> f32 {
-        0.0
-    }
 
     /// Its own platen knobs, calm or not, turned by `rolled` points of paper,
     /// the one under the pointer lit if `active`: where each grip is, left

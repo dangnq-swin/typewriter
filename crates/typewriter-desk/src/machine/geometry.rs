@@ -94,55 +94,6 @@ pub(super) fn fillet(
         .collect()
 }
 
-/// A quad of `corners` in order round it, each in its colour.
-pub(super) fn add_quad(mesh: &mut Mesh, corners: [(Pos2, Color32); 4]) {
-    let first = mesh.vertices.len() as u32;
-    for (pos, colour) in corners {
-        mesh.colored_vertex(pos, colour);
-    }
-    mesh.add_triangle(first, first + 1, first + 2);
-    mesh.add_triangle(first, first + 2, first + 3);
-}
-
-/// A strip fading from `colour` along `edge` to nothing along `inside`.
-pub(super) fn add_fade(
-    mesh: &mut Mesh,
-    [a, b]: [Pos2; 2],
-    [a_in, b_in]: [Pos2; 2],
-    colour: Color32,
-) {
-    let clear = Color32::TRANSPARENT;
-    add_quad(
-        mesh,
-        [(a, colour), (b, colour), (b_in, clear), (a_in, clear)],
-    );
-}
-
-/// The convex hull of `points` on screen.
-pub(super) fn hull(mut points: Vec<Pos2>) -> Vec<Pos2> {
-    points.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
-    points.dedup();
-    if points.len() < 3 {
-        return points;
-    }
-    let turns_left =
-        |o: Pos2, a: Pos2, b: Pos2| (a - o).x * (b - o).y - (a - o).y * (b - o).x > 0.0;
-    let chain = |points: &mut dyn Iterator<Item = Pos2>| {
-        let mut half: Vec<Pos2> = Vec::new();
-        for p in points {
-            while half.len() >= 2 && !turns_left(half[half.len() - 2], half[half.len() - 1], p) {
-                half.pop();
-            }
-            half.push(p);
-        }
-        half.pop();
-        half
-    };
-    let mut outline = chain(&mut points.iter().copied());
-    outline.extend(chain(&mut points.iter().rev().copied()));
-    outline
-}
-
 /// Convex `outline` filled white, cut on a grid `step` apart: squares inside,
 /// squares clipped to it along its edge. Bends evenly, unlike a fan's
 /// thin triangles cut smaller.
@@ -290,20 +241,5 @@ mod tests {
         }
         // About a vertex a cell, not thousands.
         assert!(mesh.vertices.len() < 1300, "{}", mesh.vertices.len());
-    }
-
-    #[test]
-    fn a_hull_keeps_only_the_outline() {
-        let square = [
-            (0.0, 0.0),
-            (2.0, 0.0),
-            (2.0, 2.0),
-            (0.0, 2.0),
-            (1.0, 1.0),
-            (1.0, 0.0),
-        ];
-        let outline = hull(square.iter().map(|&(x, y)| pos2(x, y)).collect());
-        assert_eq!(outline.len(), 4);
-        assert!(!outline.contains(&pos2(1.0, 1.0)));
     }
 }

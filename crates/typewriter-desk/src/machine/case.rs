@@ -3,20 +3,21 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use eframe::egui::{Color32, Mesh, Shape};
+use eframe::egui::Color32;
 
 use super::body::DESK_Z;
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{add_fade, add_quad, fillet, rounded, sub};
+use super::geometry::{fillet, rounded, sub};
 use super::light::{brighten, matte};
 use super::panel::{PANEL_BOTTOM, PANEL_HALF_BOTTOM};
 use super::{EDGE, IVORY, IVORY_SHADE};
+use crate::depth::{Layer, Solid};
 
 /// The keyboard's well: the thin side walls either side of it, running the
 /// case's full depth; the panel's thickness over it; the key bed.
 pub(super) const OPENING_HALF: f32 = 5.85;
-const PANEL_EDGE_INCHES: f32 = 0.45;
+pub(super) const PANEL_EDGE_INCHES: f32 = 0.45;
 pub(super) const KEY_BED_Z: f32 = -4.25;
 /// The walls' tops: easing from the panel's foot to `WALL_EASE_Z`, then
 /// swooping down over `WALL_SWOOP` (`y`) to the case's front corners.
@@ -130,18 +131,26 @@ pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
 fn paint_well_shade(canvas: &Canvas, eye: &Eye) {
     let (y0, _) = PANEL_BOTTOM;
     let (half, reach, bed) = (OPENING_HALF, 0.5, KEY_BED_Z);
-    let dark = Color32::from_black_alpha(170);
-    let mut mesh = Mesh::default();
+    let (dark, clear) = (Color32::from_black_alpha(170), Color32::TRANSPARENT);
+    let mut solid = Solid::default();
     for (a, b, inward) in [
         ((-half, y0), (half, y0), (0.0, reach)),
         ((-half, y0), (-half, SHELF_BACK), (reach, 0.0)),
         ((half, y0), (half, SHELF_BACK), (-reach, 0.0)),
     ] {
-        let at = |(x, y): (f32, f32)| eye.at([x, y, bed]);
+        let at = |(x, y): (f32, f32)| [x, y, bed];
         let inside = |(x, y): (f32, f32)| at((x + inward.0, y + inward.1));
-        add_fade(&mut mesh, [at(a), at(b)], [inside(a), inside(b)], dark);
+        eye.lying_quad(
+            &mut solid,
+            [
+                (at(a), dark),
+                (at(b), dark),
+                (inside(b), clear),
+                (inside(a), clear),
+            ],
+        );
     }
-    canvas.painter().add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Decal, solid);
 }
 
 /// The walls' inner faces, down to the bed along the well and to the shelf
@@ -150,7 +159,7 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
     let (y0, _) = PANEL_BOTTOM;
     let half = OPENING_HALF;
     let bed = KEY_BED_Z;
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for side in [-1.0, 1.0] {
         // The notch's side follows the shelf's edge round its rounded lip.
         let at = |x: f32, y: f32| [x, y, SHELF_Z];
@@ -184,19 +193,19 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
                 }
                 let lit = matte(IVORY_SHADE, facing);
                 let (colour, low) = (brighten(lit, top), brighten(lit, foot));
-                add_quad(
-                    &mut mesh,
+                eye.quad(
+                    &mut solid,
                     [
-                        (eye.at(a), colour),
-                        (eye.at(b), colour),
-                        (eye.at([b[0], b[1], bed]), low),
-                        (eye.at([a[0], a[1], bed]), low),
+                        (a, colour),
+                        (b, colour),
+                        ([b[0], b[1], bed], low),
+                        ([a[0], a[1], bed], low),
                     ],
                 );
             }
         }
     }
-    canvas.painter().add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
 }
 
 /// The panel's edge over the well: the levers go in under it.
@@ -229,24 +238,24 @@ pub(super) fn paint_frame(canvas: &Canvas, eye: &Eye) {
 /// across from each point of the case's outer edge `outline` to the well.
 fn paint_wall_tops(canvas: &Canvas, eye: &Eye, outline: &[[f32; 3]]) {
     let half = OPENING_HALF;
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for side in [-1.0, 1.0] {
         for pair in outline.windows(2) {
             let [a, b] = [pair[0], pair[1]];
             let colour = matte(IVORY, [0.0, a[2] - b[2], b[1] - a[1]]);
             let (outer_a, outer_b) = ([side * a[0], a[1], a[2]], [side * b[0], b[1], b[2]]);
-            add_quad(
-                &mut mesh,
+            eye.quad(
+                &mut solid,
                 [
-                    (eye.at([side * half, a[1], a[2]]), colour),
-                    (eye.at(outer_a), colour),
-                    (eye.at(outer_b), colour),
-                    (eye.at([side * half, b[1], b[2]]), colour),
+                    ([side * half, a[1], a[2]], colour),
+                    (outer_a, colour),
+                    (outer_b, colour),
+                    ([side * half, b[1], b[2]], colour),
                 ],
             );
         }
     }
-    canvas.painter().add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
 }
 
 /// The shelf between the walls: a block each side, rounding off into the
@@ -297,7 +306,7 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
             [along[1], -along[0], 0.0]
         })
         .collect();
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for i in 0..front.len() - 1 {
         let (a, b) = (front[i], front[i + 1]);
         // Round the corners it turns away onto the sides: skip that.
@@ -308,18 +317,18 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
         let [top_a, top_b] = [i, i + 1].map(|k| matte(IVORY, facing[k]));
         let [low_a, low_b] = [i, i + 1].map(|k| brighten(matte(IVORY_SHADE, facing[k]), 0.85));
         let [base_a, base_b] = [i, i + 1].map(|k| matte(PLINTH, facing[k]));
-        let at = |p: [f32; 3], z: f32| eye.at([p[0], p[1], z]);
-        add_quad(
-            &mut mesh,
+        let at = |p: [f32; 3], z: f32| [p[0], p[1], z];
+        eye.quad(
+            &mut solid,
             [
-                (eye.at(a), top_a),
-                (eye.at(b), top_b),
+                (a, top_a),
+                (b, top_b),
                 (at(b, PLINTH_TOP), low_b),
                 (at(a, PLINTH_TOP), low_a),
             ],
         );
-        add_quad(
-            &mut mesh,
+        eye.quad(
+            &mut solid,
             [
                 (at(a, PLINTH_TOP), base_a),
                 (at(b, PLINTH_TOP), base_b),
@@ -328,7 +337,7 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
             ],
         );
     }
-    canvas.painter().add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
 }
 
 #[cfg(test)]

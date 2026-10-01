@@ -14,9 +14,9 @@ use super::canvas::Canvas;
 use super::carriage::{PLATEN_DIAMETER_INCHES, STRIKE_DEGREES, platen_axis};
 use super::eye::{Eye, paint_flat_text};
 use super::light::matte;
-use super::sheet::{front_at, paper_shade};
+use super::sheet::front_at;
 use super::{CHROME, EDGE, ENGRAVED, IVORY_LIT, METAL};
-use typewriter_app::draw::{Metrics, PaperTable, smoothstep};
+use typewriter_app::draw::{Metrics, PaperTable};
 
 /// Back from upright.
 pub(super) const LEAN_DEGREES: f32 = 15.0;
@@ -45,9 +45,6 @@ const TICK_WIDTH: f32 = 0.018;
 const NUMBER_HEIGHT: f32 = 0.09;
 /// Half the gap in a numbered tick.
 const NUMBER_GAP: f32 = 0.07;
-/// Where it goes down past the platen: how dark, and from how far above.
-const PLATEN_SHADE: f32 = 0.55;
-const PLATEN_SHADE_INCHES: f32 = 0.4;
 /// Past the window's top, where a sheet slid in by hand starts.
 const OUT_OF_SIGHT: f32 = 30.0;
 /// Searching along the way: how far at most, and how finely.
@@ -102,24 +99,9 @@ fn along_at(eye: &Eye, y: f32) -> f32 {
 /// Where sheets go in, for the typing line at `typing_y` in `view`.
 pub fn paper_table(view: Rect, metrics: &Metrics, typing_y: f32) -> PaperTable {
     let eye = Eye::new(view, metrics, typing_y);
-    let radius = PLATEN_DIAMETER_INCHES / 2.0 * metrics.points_per_inch;
-    let [ny, nz] = facing();
-    let shade = paper_shade([0.0, ny, nz]);
-    let axis_y = eye.at(platen_axis()).y;
-    let platen_top = axis_y - radius;
     PaperTable {
         wrap_inches: wrap_inches(),
         seen_inches: along_at(&eye, view.top() - OUT_OF_SIGHT),
-        platen_axis_y: axis_y,
-        platen_radius: radius,
-        place: Box::new(move |x, along| {
-            let across = (x - eye.origin.x) / eye.ppi;
-            let at = eye.at(on_way(across, 0.0, along, 0.0));
-            // Darker going down past the platen, in its shade.
-            let above = (platen_top - at.y) / (PLATEN_SHADE_INCHES * eye.ppi);
-            let shaded = PLATEN_SHADE + (1.0 - PLATEN_SHADE) * smoothstep(above);
-            (at, shade * shaded)
-        }),
     }
 }
 

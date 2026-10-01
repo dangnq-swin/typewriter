@@ -5,11 +5,10 @@
 //! printing point. There the projection's scale is the sheet's: the line
 //! being typed shows as on a sheet flat on screen.
 //!
-//! The body, the carriage with its knobs, lever and bail, and the sheets are
-//! drawn in depth: what stands in front hides what is behind. The rest is
-//! still drawn flat, each part after what it hides, in the order
-//! [`paint_behind`] and [`paint_front`] call them: the shadow before the
-//! parts in depth, the keyboard after them.
+//! The machine is drawn in depth, in one pass a frame from [`paint_behind`]
+//! to [`paint_front`]: what stands in front hides what is behind, whatever
+//! the order. Flat are only its shadow on the desk, under it all, and the
+//! panel's controls ([`Panel::paint`]), over it.
 
 mod bail;
 mod body;
@@ -168,24 +167,21 @@ pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f
     printing_point::paint(&canvas, &eye, metrics);
     cover::paint(&canvas, &eye);
     panel::paint_face(&canvas, &eye);
-    canvas.finish();
-    // The behind, the sheets and this in one pass, under the flat parts.
-    depth::end(painter);
-    let canvas = &Canvas::flat(painter);
-    // The keyboard, deepest first: the levers run back under the rows behind
-    // and in under the panel's edge, the caps hide them, and the case round
-    // the keys hides the caps' feet.
     let levers = keyboard::key_levers();
-    case::paint_well(canvas, &eye);
-    keyboard::paint_rod(canvas, &eye, &levers);
-    case::paint_inner_walls(canvas, &eye);
-    keyboard::paint_shadows(canvas, &eye);
-    keyboard::paint_levers(canvas, &eye, &levers);
-    side_controls::paint(canvas, &eye);
-    case::paint_panel_edge(canvas, &eye);
-    keyboard::paint_caps(canvas, &eye);
-    case::paint_frame(canvas, &eye);
-    side_controls::paint_marks(canvas, &eye);
+    case::paint_well(&canvas, &eye);
+    keyboard::paint_rod(&canvas, &eye, &levers);
+    case::paint_inner_walls(&canvas, &eye);
+    // Decals blend in order: the levers over the shadows.
+    keyboard::paint_shadows(&canvas, &eye);
+    keyboard::paint_levers(&canvas, &eye, &levers);
+    side_controls::paint(&canvas, &eye);
+    case::paint_panel_edge(&canvas, &eye);
+    keyboard::paint_caps(&canvas, &eye);
+    case::paint_frame(&canvas, &eye);
+    side_controls::paint_marks(&canvas, &eye);
+    canvas.finish();
+    // The behind, the sheets and this in one pass.
+    depth::end(painter);
 }
 
 #[cfg(test)]

@@ -1,13 +1,13 @@
 //! Beside the keys: the carriage lock, the touch control and the ribbon
 //! selector, and their marks on the walls.
 
-use eframe::egui::{Color32, Shape, Stroke};
+use eframe::egui::Color32;
 
 use super::canvas::Canvas;
 use super::case::{OPENING_HALF, wall_top};
 use super::eye::Eye;
 use super::geometry::rounded_rect;
-use super::keyboard::{KEY_FRONT, key_row, paint_cap, paint_steel};
+use super::keyboard::{INTO_MACHINE, KEY_FRONT, key_row, paint_cap, paint_steel};
 use super::light::{brighten, matte, paint_chrome, streak};
 use super::panel::{PANEL_BOTTOM, PANEL_HALF_BOTTOM};
 use super::{ENGRAVED, METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM};
@@ -57,8 +57,7 @@ const MARK_EDGE: Color32 = Color32::from_rgb(0x30, 0x2C, 0x26);
 /// lock by the far row, standing above it, and the touch control's selector
 /// by the third, midway between less and more; on the right, the ribbon
 /// colour selector at its setting. Each selector's paddle stands up level
-/// with its marks on the wall. Before the caps: the nearer keys hide what's
-/// behind them.
+/// with its marks on the wall.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     let (y, z) = key_row(0.0);
     paint_lock(canvas, eye, [-LOCK_X, y - LOCK_BACK, z + LOCK_RISE]);
@@ -104,10 +103,7 @@ pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
         eye.fill(canvas, &front, |_| brighten(colour, 0.6));
         let face = rounded_rect([x - size, x + size], [y - size, y + size], z, round);
         eye.fill(canvas, &face, |_| matte(colour, [0.0, 0.0, 1.0]));
-        canvas.painter().add(Shape::closed_line(
-            eye.polygon(&face),
-            Stroke::new(1.0, MARK_EDGE),
-        ));
+        eye.outline_in(canvas, &face, MARK_EDGE);
     }
 }
 
@@ -160,7 +156,7 @@ fn post_shine() -> f32 {
 
 /// From `foot` straight back, level, into the machine under the panel.
 fn into_machine(foot: [f32; 3]) -> [f32; 3] {
-    [foot[0], PANEL_BOTTOM.0 + 0.02, foot[2]]
+    [foot[0], PANEL_BOTTOM.0 - INTO_MACHINE, foot[2]]
 }
 
 #[cfg(test)]

@@ -53,13 +53,34 @@ pub(super) fn on_cover(x: f32, y: f32) -> [f32; 3] {
 /// The opening's corners: the plates' tips at the back, left and right,
 /// then its front corners, right and left.
 fn opening() -> [[f32; 3]; 4] {
+    inset_opening(0.0, 0.0)
+}
+
+/// The opening with its sides moved in `side` inches across and its front
+/// `front` inches back, corners as [`opening`]'s.
+fn inset_opening(side: f32, front: f32) -> [[f32; 3]; 4] {
     let (ob, of) = (OPENING_BACK, OPENING_FRONT);
+    let front_y = of.0 - front;
+    // The sides slant: their half width where the front now is.
+    let t = (front_y - ob.0) / (of.0 - ob.0);
+    let (back_half, front_half) = (ob.1 - side, ob.1 + (of.1 - ob.1) * t - side);
     [
-        on_cover(-ob.1, ob.0),
-        on_cover(ob.1, ob.0),
-        on_cover(of.1, of.0),
-        on_cover(-of.1, of.0),
+        on_cover(-back_half, ob.0),
+        on_cover(back_half, ob.0),
+        on_cover(front_half, front_y),
+        on_cover(-front_half, front_y),
     ]
+}
+
+/// Along `opening`'s left side, round its front, `rounding` its front
+/// corners, and up its right side.
+fn round_the_front(opening: [[f32; 3]; 4], rounding: f32) -> Vec<[f32; 3]> {
+    let [bl, br, fr, fl] = opening;
+    std::iter::once(bl)
+        .chain(fillet(bl, fl, fr, rounding))
+        .chain(fillet(fl, fr, br, rounding))
+        .chain([br])
+        .collect()
 }
 
 /// Down through the opening: the dark insides, the type bars and segment in
@@ -78,7 +99,7 @@ pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
     ];
     eye.fill(canvas, &insides, |_| INSIDE);
     paint_type_basket(canvas, eye);
-    paint_opening_shade(canvas, eye, opening());
+    paint_opening_shade(canvas, eye);
 }
 
 /// The cover: two plates, their tips rounded thick where the opening runs
@@ -102,7 +123,16 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
         .into_iter()
         .chain([ofr])
         .collect();
-    for (edge, facing) in [(&left_edge, 1.0), (&right_edge, -1.0)] {
+    // Round the opening's front corners, as the cover fills them in.
+    let left_wall: Vec<[f32; 3]> = fillet(bl, tip_l, ofl, PLATE_TIP)
+        .into_iter()
+        .chain(fillet(tip_l, ofl, ofr, OPENING_CORNER))
+        .collect();
+    let right_wall: Vec<[f32; 3]> = fillet(br, tip_r, ofr, PLATE_TIP)
+        .into_iter()
+        .chain(fillet(tip_r, ofr, ofl, OPENING_CORNER))
+        .collect();
+    for (edge, facing) in [(&left_wall, 1.0), (&right_wall, -1.0)] {
         paint_plate_wall(canvas, eye, edge, facing);
     }
     let lit = |[_, y, _]: [f32; 3]| {
@@ -131,7 +161,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
         eye.fill(canvas, &fill, lit);
     }
     // The rounded top of the plates' edges catches the light.
-    for edge in [&left_edge, &right_edge] {
+    for edge in [&left_wall, &right_wall] {
         eye.line(canvas, edge, 0.03, Color32::from_white_alpha(150));
     }
     let outline = [
@@ -150,12 +180,8 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[[f32; 3]], facing: f32) 
     for pair in edge.windows(2) {
         let [a, b] = [pair[0], pair[1]];
         let along = sub(b, a);
-        // Across the edge, the way it faces.
-        let across = if along[1] * facing >= 0.0 {
-            [along[1], -along[0]]
-        } else {
-            [-along[1], along[0]]
-        };
+        // Across the edge, the way it faces: each edge runs back to front.
+        let across = [facing * along[1], -facing * along[0]];
         let colour = matte(IVORY_SHADE, [across[0], across[1], 0.2]);
         let down = |p: [f32; 3]| [p[0], p[1], p[2] - PLATE_THICKNESS];
         eye.quad(
@@ -171,21 +197,26 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[[f32; 3]], facing: f32) 
     canvas.mesh(Layer::Opaque, solid);
 }
 
-/// The cover's shadow just inside the `opening`'s sides and front edge: its
-/// back is open.
-fn paint_opening_shade(canvas: &Canvas, eye: &Eye, opening: [[f32; 3]; 4]) {
-    let [obl, obr, ofr, ofl] = opening;
+/// The cover's shadow just inside the opening, round its sides and front:
+/// its back is open.
+fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
     let reach = OPENING_SHADE_INCHES;
     let (dark, clear) = (Color32::from_black_alpha(190), Color32::TRANSPARENT);
+    let edge = round_the_front(opening(), OPENING_CORNER);
+    // A smaller opening inside it, point for point: offsetting each point
+    // instead would fold back round the tight front corners.
+    let inside = round_the_front(
+        inset_opening(reach, 0.6 * reach),
+        OPENING_CORNER - 0.6 * reach,
+    );
     let mut solid = Solid::default();
-    // Each edge, and which way is inside from it.
-    for (a, b, inward) in [
-        (obl, ofl, [reach, 0.0]),
-        (obr, ofr, [-reach, 0.0]),
-        (ofl, ofr, [0.0, -0.6 * reach]),
-    ] {
-        let inside = |p: [f32; 3]| on_cover(p[0] + inward[0], p[1] + inward[1]);
-        let corners = [(a, dark), (b, dark), (inside(b), clear), (inside(a), clear)];
+    for i in 0..edge.len() - 1 {
+        let corners = [
+            (edge[i], dark),
+            (edge[i + 1], dark),
+            (inside[i + 1], clear),
+            (inside[i], clear),
+        ];
         eye.lying_quad(&mut solid, corners);
     }
     canvas.mesh(Layer::Decal, solid);

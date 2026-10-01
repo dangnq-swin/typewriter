@@ -20,11 +20,6 @@ use crate::stage::{Controls, FlatSheet, PaperTable, Scene};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
-/// A rolled top edge's rim, fully rolled: how bright.
-const ROLL_RIM: f32 = 170.0;
-/// Along the paper table between the rows of a bent sheet's mesh: enough
-/// that its roll over the top shows no corner.
-const TABLE_STEP_INCHES: f32 = 0.1;
 
 /// A new sheet's way in, as its top edge's height on screen: put in by hand
 /// from `hand_from`, then wound by the knob from `knob_from` to `placed`.
@@ -221,7 +216,6 @@ impl TypewriterApp {
         let mut paper_origin = layout.paper_origin;
         let mut pointer_opacity = 1.0;
         let mut knob_rolled = layout.strike_point.y - layout.paper_origin.y;
-        let mut printed_from = view.top();
         let table = self.stage.paper_table(scene);
         let table = table.as_ref();
         // The stage draws them: handed over as they come.
@@ -253,7 +247,7 @@ impl TypewriterApp {
                         Some(pose) if pose.mouth.is_none() => {
                             let origin = old_origin + (pose.centre - route.from);
                             let sheet = (old_page, dimming);
-                            let (on, lift) = ((table, handed.as_mut()), pose.lift);
+                            let (on, lift) = (handed.as_mut(), pose.lift);
                             self.paint_going_out(painter, on, scene, origin, lift, sheet);
                         }
                         Some(pose) => {
@@ -268,7 +262,7 @@ impl TypewriterApp {
                     if let Some(rolled) = rolled {
                         let old_origin = old_origin - vec2(0.0, rolled * exit);
                         let sheet = (old_page, dimming);
-                        let on = (table, handed.as_mut());
+                        let on = handed.as_mut();
                         self.paint_going_out(painter, on, scene, old_origin, 1.0, sheet);
                     }
                 }
@@ -302,21 +296,11 @@ impl TypewriterApp {
                 wound_out.0 + way_in.knob_done(progress),
                 wound_out.1 + way_in.knob_travel(),
             );
-            let curl = motion.curl(t).max(self.stage.sheet_curl());
-            let lift = motion.lift(t);
             if handed.is_none() {
-                self.paint_on_table(painter, table, paper_origin, scene.typing_y);
-                printed_from =
-                    self.paint_in_machine(painter, view, paper_origin, curl, lift, table);
+                let (curl, lift) = (motion.curl(t), motion.lift(t));
+                self.paint_lifted(painter, view, paper_origin, curl, lift);
             }
             pointer_opacity = motion.pointer_opacity(t);
-        } else if handed.is_none() {
-            self.paint_on_table(painter, table, paper_origin, scene.typing_y);
-            if let Some(lift) = self.stage.sheet_lift() {
-                let curl = self.stage.sheet_curl();
-                printed_from =
-                    self.paint_in_machine(painter, view, paper_origin, curl, lift, table);
-            }
         }
         let dimming = self.dimming(carriage.half_line, calm);
         let wetness = |half_line, column| self.desk.project.wetness(now, half_line, column);
@@ -325,13 +309,7 @@ impl TypewriterApp {
             handed.push(self.flat_sheet(painter, paper_origin, sheet));
             self.stage.paint_sheets(painter, scene, handed);
         } else {
-            // Nothing printed shows over the roll.
-            let clip = painter.clip_rect();
-            let printed = painter.with_clip_rect(Rect::from_min_max(
-                pos2(clip.left(), clip.top().max(printed_from)),
-                clip.max,
-            ));
-            self.paint_page(&printed, machine.page(), paper_origin, dimming, &wetness);
+            self.paint_page(painter, machine.page(), paper_origin, dimming, &wetness);
         }
         Sheets {
             knob_rolled,
@@ -757,93 +735,12 @@ impl TypewriterApp {
         );
     }
 
-    /// What of the sheet at `origin` lies on `table`, not yet wound round
-    /// the platen, up to where it goes over the top: its blank back.
-    fn paint_on_table(
-        &self,
-        painter: &Painter,
-        table: Option<&PaperTable>,
-        origin: Pos2,
-        typing_y: f32,
-    ) {
-        let Some(table) = table else {
-            return;
-        };
-        let (ppi, size) = (self.metrics.points_per_inch, self.metrics.paper_size);
-        let length = size.y / ppi;
-        // Up the table, the top edge (below zero: wound round) and the bottom.
-        let top = (origin.y - typing_y) / ppi - table.wrap_inches;
-        let (from, to) = (top.max(0.0), (top + length).min(table.seen_inches));
-        if to <= from {
-            return;
-        }
-        // Safe cast: a sheet's length in tenths of an inch.
-        let rows = ((to - from) / TABLE_STEP_INCHES).ceil().max(1.0) as u32;
-        let mut mesh = egui::Mesh::default();
-        for row in 0..=rows {
-            let along = from + (to - from) * row as f32 / rows as f32;
-            let down = (along - top) / length;
-            for (x, across) in [(origin.x, 0.0), (origin.x + size.x, 1.0)] {
-                let (pos, lit) = (table.place)(x, along);
-                // Safe cast: `lit` is 0..=1.
-                let tint = egui::Color32::from_gray((255.0 * lit.clamp(0.0, 1.0)) as u8);
-                mesh.vertices.push(egui::epaint::Vertex {
-                    pos,
-                    uv: pos2(across, down),
-                    color: tint,
-                });
-            }
-            if row > 0 {
-                let i = 2 * row;
-                mesh.add_triangle(i - 2, i - 1, i + 1);
-                mesh.add_triangle(i - 2, i + 1, i);
-            }
-        }
-        let clip = painter.clip_rect();
-        let platen_top = table.platen_axis_y - table.platen_radius;
-        let behind = Rect::from_min_max(clip.min, pos2(clip.max.x, platen_top));
-        self.background
-            .paint_bent_sheet(&painter.with_clip_rect(behind), size, mesh);
-    }
-
-    /// The sheet in the machine: its top edge rolled back as far as the
-    /// stage keeps it, or `curl`ed while it feeds.
-    /// Returns where what is printed on it may start: below the roll.
-    fn paint_in_machine(
-        &self,
-        painter: &Painter,
-        view: Rect,
-        origin: Pos2,
-        curl: f32,
-        lift: f32,
-        table: Option<&PaperTable>,
-    ) -> f32 {
-        let kept = self.stage.sheet_curl();
-        if kept <= 0.0 {
-            self.paint_lifted(painter, view, origin, curl, lift);
-            return view.top();
-        }
-        let size = self.metrics.paper_size;
-        let sheet = Rect::from_min_size(origin, size);
-        feed::paint_sheet_shadow(painter, sheet, lift);
-        let roll = curl.max(kept);
-        let platen = table.map(|t| (t.platen_axis_y, t.platen_radius));
-        let ppi = self.metrics.points_per_inch;
-        let (mesh, edge) = feed::rolled_sheet(sheet, ppi, roll, platen);
-        self.background.paint_bent_sheet(painter, size, mesh);
-        // Its rim catches the light.
-        let rim = egui::Color32::from_white_alpha((ROLL_RIM * roll) as u8);
-        let below = edge.iter().map(|p| p.y).fold(origin.y, f32::max);
-        painter.add(egui::Shape::line(edge, egui::Stroke::new(1.0, rim)));
-        below
-    }
-
     /// A finished sheet at `origin`, on its way out as if in the machine:
-    /// `handed` to the stage, else flat on the `table` and `lift`ed.
+    /// `handed` to the stage, else `lift`ed.
     fn paint_going_out(
         &self,
         painter: &Painter,
-        (table, handed): (Option<&PaperTable>, Option<&mut Vec<FlatSheet>>),
+        handed: Option<&mut Vec<FlatSheet>>,
         scene: &Scene,
         origin: Pos2,
         lift: f32,
@@ -854,7 +751,6 @@ impl TypewriterApp {
             handed.push(self.flat_sheet(painter, origin, sheet));
             return;
         }
-        self.paint_on_table(painter, table, origin, scene.typing_y);
         self.paint_lifted(painter, scene.view, origin, 0.0, lift);
         self.paint_page(painter, page, origin, dimming, &paper::dry);
     }
@@ -925,9 +821,6 @@ mod tests {
         PaperTable {
             wrap_inches: 2.0,
             seen_inches: 5.0,
-            platen_axis_y: 430.0,
-            platen_radius: 30.0,
-            place: Box::new(|x, along| (pos2(x, 400.0 - along * 96.0), 1.0)),
         }
     }
 

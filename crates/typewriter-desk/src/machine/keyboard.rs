@@ -1,16 +1,15 @@
 //! The keys, their levers, and the rod the levers rest on.
 
-use eframe::egui::epaint::{Vertex, WHITE_UV};
-use eframe::egui::{Align2, Color32, Mesh, Shape, Stroke, pos2};
+use eframe::egui::{Align2, Color32, Pos2, Shape, Stroke, pos2};
 
 use super::canvas::Canvas;
-use super::case::OPENING_HALF;
+use super::case::{OPENING_HALF, PANEL_EDGE_INCHES};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
-use super::geometry::{add, add_quad, hull, lerp3, rounded_rect, soft, sub};
+use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
 use super::light::{brighten, matte, polished, streak, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
-use typewriter_app::draw::{convex_mesh, warp};
+use crate::depth::{Layer, Solid};
 
 /// Keys: the far row's centre `(y, z)` of its tops, one row to the next.
 pub(super) const KEY_ROW: (f32, f32) = (5.45, -2.65);
@@ -32,6 +31,9 @@ const KEYBOARD_MIDDLE: f32 = 5.65;
 const STEM_DROP: f32 = 0.3;
 /// The key levers draw together toward the type basket.
 const LEVER_CONVERGE: f32 = 0.94;
+/// Levers and rods end this far behind the panel's edge, under it: hidden
+/// inside the machine.
+pub(super) const INTO_MACHINE: f32 = 0.1;
 /// The rod the levers rest on: how far behind the far row, its radius, and
 /// the gap between its top and the lowest lever over it.
 const ROD_BEHIND: f32 = 0.35;
@@ -186,7 +188,11 @@ fn lever_path(under_cap: [f32; 3]) -> [[f32; 3]; 2] {
     let (y0, z0) = PANEL_BOTTOM;
     [
         [x, y, z - STEM_DROP],
-        [x * LEVER_CONVERGE, y0 + 0.02, z0 - 0.3],
+        [
+            x * LEVER_CONVERGE,
+            y0 - INTO_MACHINE,
+            z0 - PANEL_EDGE_INCHES - 0.05,
+        ],
     ]
 }
 
@@ -228,12 +234,12 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
             (add([0.0, y, z], offset), colour)
         })
         .collect();
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for pair in around.windows(2) {
         let [(a, colour_a), (b, colour_b)] = [pair[0], pair[1]];
-        let at = |p: [f32; 3], x: f32| eye.at([x, p[1], p[2]]);
-        add_quad(
-            &mut mesh,
+        let at = |p: [f32; 3], x: f32| [x, p[1], p[2]];
+        eye.quad(
+            &mut solid,
             [
                 (at(a, -half), colour_a),
                 (at(a, half), colour_a),
@@ -242,7 +248,7 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
             ],
         );
     }
-    canvas.painter().add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
 }
 
 /// Every cap's shadow on the key bed, the space bar's too.
@@ -276,18 +282,24 @@ fn paint_key_shadow(
     let cast = KEY_SHADOW_DROP / light[2];
     let (dx, dy) = (-light[0] * cast, -light[1] * cast);
     let z = z - KEY_SHADOW_DROP;
-    let outline = eye.polygon(&rounded_rect(
-        [left + dx, right + dx],
-        [back + dy, front + dy],
-        z,
-        0.15,
-    ));
-    let blur = 0.1 * eye.scale([0.0, front, z]);
-    canvas.painter().add(Shape::mesh(soft(
-        &outline,
-        blur,
-        Color32::from_black_alpha(150),
-    )));
+    let outline: Vec<Pos2> =
+        rounded_rect([left + dx, right + dx], [back + dy, front + dy], z, 0.15)
+            .into_iter()
+            .map(|[x, y, _]| pos2(x, y))
+            .collect();
+    let mesh = soft(&outline, 0.1, Color32::from_black_alpha(150));
+    // As deep as under the foot casting it: over the rod and walls it falls
+    // on, behind every cap, its own too.
+    let depths = mesh
+        .vertices
+        .iter()
+        .map(|v| eye.depth([v.pos.x - dx, v.pos.y - dy, z]))
+        .collect();
+    let mut solid = Solid { mesh, depths };
+    for vertex in &mut solid.mesh.vertices {
+        vertex.pos = eye.at([vertex.pos.x, vertex.pos.y, z]);
+    }
+    canvas.mesh(Layer::Decal, solid);
 }
 
 /// Each key's post and its lever, from under its cap in `levers`.
@@ -329,8 +341,8 @@ pub(super) fn paint_steel(canvas: &Canvas, eye: &Eye, path: &[[f32; 3]], shine: 
     eye.line(canvas, &lit, 0.014, STEM_SHINE.gamma_multiply(shine));
 }
 
-/// The caps, far row first: each hides the levers of the rows behind it.
-/// Then the tab clear key, the space bar and the tab set key.
+/// The caps, far row first, then the tab clear key, the space bar and the
+/// tab set key.
 pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
     let (space_y, space_z) = SPACE_ROW;
     for (row, keys) in KEYS.iter().enumerate() {
@@ -386,9 +398,8 @@ fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: [f32; 3]) {
     legend(canvas, eye, top, key.legend, key.shifted, size);
 }
 
-/// A rounded cap over `x` and `y` ranges, its top at `z`: its body the
-/// outline round its rounded top and its flared, rounded foot, darkening
-/// toward the foot and away from the light; its dished top over it.
+/// A rounded cap over `x` and `y` ranges, its top at `z`: its sides down to
+/// its flared, rounded foot, lit as they turn; its dished top over them.
 pub(super) fn paint_cap(
     canvas: &Canvas,
     eye: &Eye,
@@ -404,41 +415,40 @@ pub(super) fn paint_cap(
     };
     let top = outline(z, 0.0);
     let foot = outline(z - KEY_FRONT, KEY_FLARE);
-    let body = hull(
-        eye.polygon(&top)
-            .into_iter()
-            .chain(eye.polygon(&foot))
-            .collect(),
-    );
-    let middle = (left + right) / 2.0;
-    let (rim, base) = (
-        eye.at([middle, front, z]),
-        eye.at([middle, front + KEY_FLARE, z - KEY_FRONT]),
-    );
-    let half_width = (eye.at([right, front, z]).x - rim.x).max(1.0);
-    let lit_front = matte(front_colour, [0.0, 1.0, 0.0]);
-    let edge = Shape::closed_line(body.clone(), Stroke::new(1.0, brighten(front_colour, 0.8)));
-    let mesh = convex_mesh(&body, |pos| {
-        let down = ((pos.y - rim.y) / (base.y - rim.y).max(1.0)).clamp(0.0, 1.0);
-        // Away from the light, to the right, a little darker.
-        let across = ((pos.x - rim.x) / half_width).clamp(-1.0, 1.0);
-        Vertex {
-            pos,
-            uv: WHITE_UV,
-            color: brighten(lit_front, (1.0 - 0.1 * down) * (1.0 - 0.05 * across)),
-        }
-    });
-    canvas.painter().add(Shape::mesh(mesh));
-    canvas.painter().add(edge);
+    // Each point faces between its neighbours, tilted up by the flare: the
+    // shading rounds the corners instead of stepping.
+    let n = top.len();
+    let lit: Vec<Color32> = (0..n)
+        .map(|i| {
+            let along = sub(top[(i + 1) % n], top[(i + n - 1) % n]);
+            let out = normalized([along[1], -along[0], 0.0]);
+            matte(
+                front_colour,
+                [out[0] * KEY_FRONT, out[1] * KEY_FRONT, KEY_FLARE],
+            )
+        })
+        .collect();
+    let mut sides = Solid::default();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        eye.quad(
+            &mut sides,
+            [
+                (top[i], lit[i]),
+                (top[j], lit[j]),
+                (foot[j], lit[j]),
+                (foot[i], lit[i]),
+            ],
+        );
+    }
+    canvas.mesh(Layer::Opaque, sides);
+    eye.outline_in(canvas, &foot, brighten(front_colour, 0.8));
     // Dished: its back slope in the cap's own shade, its front catching light.
     let lit_top = matte(top_colour, [0.0, 0.2, 1.0]);
     eye.fill(canvas, &top, |[_, py, _]| {
         brighten(lit_top, 0.9).lerp_to_gamma(lit_top, (py - back) / (front - back))
     });
-    canvas.painter().add(Shape::closed_line(
-        eye.polygon(&top),
-        Stroke::new(1.0, brighten(front_colour, 0.85)),
-    ));
+    eye.outline_in(canvas, &top, brighten(front_colour, 0.85));
 }
 
 /// `main` printed on a key top at `centre`, `shifted` above it; `size` of a
@@ -464,10 +474,10 @@ fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &st
                 stroke,
             ),
         ];
-        let mesh = warp(canvas.painter(), shapes, |p| {
-            eye.at(on_top(p.x / FLAT_TEXT, p.y / FLAT_TEXT))
+        canvas.lay(shapes, |p| {
+            let on = on_top(p.x / FLAT_TEXT, p.y / FLAT_TEXT);
+            (eye.at(on), eye.lying_depth(on))
         });
-        canvas.painter().add(Shape::mesh(mesh));
     } else if shifted.is_empty() {
         paint_flat_text(
             canvas,

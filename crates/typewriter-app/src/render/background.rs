@@ -177,13 +177,8 @@ impl Background {
         painter.add(Shape::mesh(mesh));
     }
 
-    /// A sheet `size` points flat, bent into `mesh`: each vertex's uv is
-    /// where on the sheet it is (0..=1), its colour a tint.
-    pub fn paint_bent_sheet(&self, painter: &Painter, size: Vec2, mesh: Mesh) {
-        painter.add(Shape::mesh(self.bent_sheet(size, mesh)));
-    }
-
-    /// The paper of [`Background::paint_bent_sheet`] on `mesh`.
+    /// The paper of a sheet `size` points flat, bent into `mesh`: each
+    /// vertex's uv is where on the sheet it is (0..=1), its colour a tint.
     pub fn bent_sheet(&self, size: Vec2, mut mesh: Mesh) -> Mesh {
         match &self.fill {
             Fill::Texture(texture) => {

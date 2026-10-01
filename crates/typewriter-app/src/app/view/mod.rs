@@ -188,11 +188,6 @@ mod tests {
             None
         }
 
-        fn sheet_lift(&self) -> Option<f32> {
-            self.note("sheet lift");
-            None
-        }
-
         fn knobs(
             &self,
             _: &egui::Ui,
@@ -239,7 +234,6 @@ mod tests {
             [
                 "typing line",
                 "behind the sheets",
-                "sheet lift",
                 "knobs",
                 "scale",
                 "over the sheets",

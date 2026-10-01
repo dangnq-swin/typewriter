@@ -4,13 +4,10 @@ Clean-up after the desk edition moved onto the depth pass (its `depth.rs`): what
 what is still shaded or ordered by hand, and what the depth buffer or the GPU could do instead.
 Worked through gradually, across sessions, on the `desk-viewpoint` branch.
 
-Work top to bottom: the parts still flat first, then the GPU's lighting, then the larger
-moves. Each item should leave the desk working and pass fmt, clippy and tests. Check drawing
-changes with the snapshots (see `AGENTS.md`) before calling them done. Finished items leave
-this file, as in `ROADMAP.md`; delete the file once it is empty.
-
-The roadmap's first desk item ("the rest of the machine in real 3D") overlaps with section 1.
-This file has the details; the roadmap keeps the order.
+Work top to bottom: the GPU's lighting first, then the larger moves. Each item should leave
+the desk working and pass fmt, clippy and tests. Check drawing changes with the snapshots (see
+`AGENTS.md`) before calling them done. Finished items leave this file; delete the file once it
+is empty.
 
 ---
 
@@ -49,33 +46,7 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
 
 ---
 
-## 1. Still flat or in painter's order
-
-The roadmap's "rest of the machine in real 3D". What each part needs:
-
-- [ ] **Parts that skip the canvas.** These build screen-space meshes with
-      `geometry::add_quad` and `canvas.painter().add(..)`. Switching them to `Canvas::depth`
-      alone would leave them flat; rewrite each with `eye.quad` into a `Solid` and
-      `canvas.mesh`:
-      - `case.rs`: `paint_well_shade`, `paint_inner_walls`, `paint_wall_tops`,
-        `paint_case_front`.
-      - `keyboard.rs`: `paint_rod`.
-- [ ] **Key caps as real faces.** `keyboard::paint_cap` fills a screen-space `hull` of the
-      projected top and foot, shaded by screen position (`down`, `across`), with outlines
-      straight on the painter. Build the top, front, sides and back as faces between the two
-      rounded outlines, lit with `matte` by each face's normal. The keyboard block in
-      `machine::paint_front` then moves onto the depth canvas and loses its "deepest first"
-      order.
-- [ ] **The side controls and wall marks** (`side_controls.rs`): onto the depth canvas once
-      the caps and steel are. Their outlines go straight to the painter.
-- [ ] **The flat sheet's ways leave the app** once nothing uses them: they are the desk's
-      only, so the rule in `AGENTS.md` (*The two editions*) wants them gone from
-      `typewriter-app`. `PaperTable` with its `place` and `PLATEN_SHADE` darkening,
-      `paint_on_table`, and the `sheet_curl` and `sheet_lift` hooks. The new sheet's way in
-      still reads `wrap_inches` and `seen_inches` for its timing: hand those over as plain
-      numbers. `paint_in_machine` stays: the plain app's feed uses it.
-
-## 2. Hand-made shading and offsets the GPU could do
+## 1. Hand-made shading and offsets the GPU could do
 
 - [ ] **Light in the shader.** Gradients painted by hand stand in for lighting:
       - `body::paint_deck`: front to back.
@@ -91,8 +62,8 @@ The roadmap's "rest of the machine in real 3D". What each part needs:
       uniform, and do `matte`, `streak` and the paper's shade in `depth.wgsl`. This changes the
       vertex layout (`VERTEX_BYTES`), `Solid`, and the snapshot rasterizer. Decide per
       gradient whether it is lighting (goes) or the material's own look (stays). The cover's
-      shadow in its opening and the well's shade are fake occlusion and stay until there are
-      real shadows.
+      shadow in its opening, the well's shade and the keys' shadows (set as deep as under the
+      foot casting them) are fake occlusion and stay until there are real shadows.
 - [ ] **Depth bias instead of offsets.** Things that lie on a face are set nearer by hand:
       `eye::LYING_INCHES` with `lying_depth`, `carriage::UNDER_PAPER_INCHES`,
       `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.002` on the wall marks in
@@ -106,17 +77,17 @@ The roadmap's "rest of the machine in real 3D". What each part needs:
       - `carriage::paint_side_plate`: `eye.faces`, and its outlines.
       - `lever.rs`: `eye.faces` for the bracket's inner face and the screw's rim.
 
-      Once those parts are in depth, drop the checks, or keep them only as culling, said so
-      in a comment. The lever's `seen` normal picks which side is lit and stays, as does
+      All are in depth now: drop the checks, or keep them only as culling, said so in a
+      comment. The lever's `seen` normal picks which side is lit and stays, as does
       `Eye::sees` in `sheet::paint_sheets` (which side the print is on).
 
-## 3. Larger: the GPU projects
+## 2. Larger: the GPU projects
 
 - [ ] **Positions in inches, projected on the GPU.** Today `Eye::at` projects every vertex
       on the CPU and the shader gets screen positions. Interpolation in screen space is
       affine, so the paper's texture and colours are not perspective-correct (hence the fine
       sheet mesh). Send inch positions and the eye as a uniform (a view-projection matrix
-      with `w`), and the GPU interpolates correctly and does the divide. Needs everything
-      drawn in depth first (sections 1 and 2), since flat parts line up with `Eye::at` on the
-      CPU. The click rects (`Panel::rect`, knobs) still need `Eye::at` on the CPU. Large: do
+      with `w`), and the GPU interpolates correctly and does the divide. Needs section 1
+      first; the machine's shadow on the desk and the panel's controls (`Panel::paint`, after
+      the depth pass), still flat, line up with `Eye::at` on the CPU. The click rects (`Panel::rect`, knobs) still need `Eye::at` on the CPU. Large: do
       it last, and only if the earlier items leave a reason.
