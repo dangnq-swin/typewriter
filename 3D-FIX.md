@@ -80,6 +80,20 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
             `cover::paint_plate_wall`'s foot, the cover's shadow in its opening and the keys'
             shadows. Then the paper's shade (`sheet::paper_shade`) as a material. Retune
             against the snapshots.
+- [ ] **One kind of bar: the key levers and the type bars.** Both draw an elongated steel
+      bar the same way — a dark stroke with a bright hair along its lit edge — and each does
+      it its own way. `keyboard::paint_steel` (the key levers, the stems the key tops sit
+      on, and the lock's and the selectors' posts through it): 0.05 of `STEM` with 0.014 of
+      `STEM_SHINE.gamma_multiply(shine)` 0.018 inches to the writer's left,
+      `shine = streak(along, 10).max(0.25)`. `cover::paint_type_basket` (the type bars, the
+      arms that strike): 0.075 of `TYPE_BAR` with 0.02 of
+      `METAL_SHINE.gamma_multiply(0.12 + 0.88 * streak(along, 12))` 0.022 inches aside
+      across the fan. One helper for both, one width, one aside, one floor under the
+      streak. Then light them like the rest of the machine: a stroke carrying a
+      `Shade::Streak` needs `Solids::add` to take a shade per vertex, and the streak must
+      lerp a feathered decal's straight rgb toward its shine, not its premultiplied colour,
+      or the halo shines. A point light makes a streak baked once per bar wrong anyway,
+      since it changes along the bar: do this with the lamp.
 - [ ] **Depth bias instead of offsets.** Things that lie on a face are set nearer by hand:
       `eye::LYING_INCHES` with `lying_depth`, `carriage::UNDER_PAPER_INCHES`,
       `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.002` on the wall marks in

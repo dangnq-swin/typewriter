@@ -221,17 +221,19 @@ fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
     canvas.mesh(Layer::Decal, solid);
 }
 
-/// The type basket under the cover's opening: the type bars fanned out
-/// wider than the opening, the cover cropping them, and the segment they
-/// hang in: a teal plate in a brushed silver rim.
+/// The type basket under the cover's opening: the type bars — the arms that
+/// carry their type slugs up to strike the ribbon — fanned out wider than the
+/// opening, the cover cropping them, and the segment they hang in: a teal
+/// plate in a brushed silver rim. The link from each key lever up to its bar
+/// is under the panel, out of sight.
 fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     let centre = OPENING_BACK.0 - 0.15;
     let at =
         |angle: f32, radius: f32, z: f32| [radius * angle.sin(), centre + radius * angle.cos(), z];
-    let bars = 52u16;
+    let bars = 53u16;
     let (reach, low) = TYPE_BAR_REACH;
-    for i in 0..=bars {
-        let angle = (-86.0 + 172.0 * f32::from(i) / f32::from(bars)).to_radians();
+    for i in 0..bars {
+        let angle = (-86.0 + 172.0 * f32::from(i) / f32::from(bars - 1)).to_radians();
         let (from, to) = (at(angle, SEGMENT_RIM, SEGMENT_Z), at(angle, reach, low));
         eye.line(canvas, &[from, to], 0.075, TYPE_BAR);
         // A streak down its lit edge, bright where it points to catch the light.
