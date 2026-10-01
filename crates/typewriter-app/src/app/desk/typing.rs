@@ -86,8 +86,8 @@ impl Desk {
     /// scrolling, it zooms: up is closer.
     fn wheel(&mut self, points: f32, over_knob: bool, now: f64) {
         if over_knob && self.view == View::Typing {
-            // Wheel down rolls on, like the Down key.
-            self.turn_knob(-points, SCROLL_POINTS_PER_STEP, now);
+            // Wheel up rolls on, as the knob's front turns up on a platen.
+            self.turn_knob(points, SCROLL_POINTS_PER_STEP, now);
             return;
         }
         self.scroll_zoom += points;
@@ -97,8 +97,8 @@ impl Desk {
         }
     }
 
-    /// Adds `points` of turn (down positive); each `per_notch` rolls a
-    /// half-line.
+    /// Adds `points` of turn (up positive, rolling on); each `per_notch`
+    /// rolls a half-line.
     pub(super) fn turn_knob(&mut self, points: f32, per_notch: f32, now: f64) {
         // A flick drops what's past a few notches: each clicks, and clicks
         // struck together get loud.
@@ -272,7 +272,7 @@ mod tests {
                 now,
             );
         };
-        wheel(&mut desk, -SCROLL_POINTS_PER_STEP, true, 10.0);
+        wheel(&mut desk, SCROLL_POINTS_PER_STEP, true, 10.0);
         assert_eq!(desk.project.machine.carriage().half_line, half_line + 1);
         assert_eq!(desk.zoom_percent, 100);
         wheel(&mut desk, 25.0, false, 10.1);

@@ -22,7 +22,7 @@
 //! - F1 / F2 / F3: line spacing 1 / 1.5 / 2
 //! - F4: next correction method
 //! - Up / Down: platen knob, a half-line (superscripts, footnote marks); or
-//!   drag / scroll a knob either side of the paper
+//!   drag / scroll a knob either side of the paper, up to roll on
 //! - Left / Right: free movement (if allowed)
 //! - Page Up / Page Down, arrows, Shift+arrows, Enter, Esc: the folder;
 //!   the desk redirects them there

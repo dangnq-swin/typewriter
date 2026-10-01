@@ -84,7 +84,7 @@ Shift+Backspace removes the letter before the carriage without a trace, digital 
 
 | Control | Does |
 |---|---|
-| Platen knobs (either side of the paper) | Drag or scroll: roll the paper a half-line a notch |
+| Platen knobs (either side of the paper) | Drag or scroll: roll the paper a half-line a notch, up to roll on |
 | Red margin stops on the scale | Drag: move the margin. Click: margin release |
 | **Spacing** plate | Click: next line spacing |
 | **Zoom** plate | Double-click: 100 % |

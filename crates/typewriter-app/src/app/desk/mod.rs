@@ -78,7 +78,7 @@ pub struct Desk {
     pub zoom_percent: u16,
     /// Scroll not yet turned into zoom steps.
     scroll_zoom: f32,
-    /// Knob turn not yet a whole notch: wheel or drag points, down positive.
+    /// Knob turn not yet a whole notch: wheel or drag points, up positive.
     knob_turn: f32,
     /// The last strike from the keyboard, for type jams.
     last_strike: f64,

@@ -20,7 +20,7 @@ pub enum Intent {
         wheel: f32,
         over_knob: bool,
     },
-    /// A platen knob dragged `points`, down positive; `per_notch` rolls a
+    /// A platen knob dragged `points`, up positive; `per_notch` rolls a
     /// half-line.
     DragKnob {
         points: f32,
