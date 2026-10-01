@@ -1,8 +1,10 @@
 # A release: pushing tag vX.Y.Z (the version in Cargo.toml) builds Linux (glibc
 # and musl) and Windows and publishes a GitHub Release, its notes the tag's
 # message. It stays a draft until every build is attached, each Linux build
-# having run on a virtual display first. Run by hand (Actions → Release → Run
-# workflow) for a dry run of one build or all: builds and tests, no release.
+# having run on a virtual display first. The desk edition's binary goes to the
+# run as an artifact, not to the Release: it is not packaged yet. Run by hand
+# (Actions → Release → Run workflow) for a dry run of one build or all: builds
+# and tests, no release.
 name: Release
 
 on:
@@ -70,6 +72,13 @@ jobs:
       # No FUSE on the runner: appimagetool unpacks itself instead.
       - run: APPIMAGE_EXTRACT_AND_RUN=1 APPIMAGETOOL="$PWD/appimagetool" scripts/package-linux.sh "${TAG#v}"
       - run: scripts/smoke-test.sh target/release/typewriter
+      # The desk edition is not packaged or released yet: its binary goes to the run.
+      - run: cargo build --release --locked -p typewriter-desk
+      - run: scripts/smoke-test.sh target/release/typewriter-desk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: typewriter-desk-x86_64-linux
+          path: target/release/typewriter-desk
       - run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/*.AppImage
         if: github.ref_type == 'tag'
 
@@ -95,6 +104,12 @@ jobs:
       - run: cargo test --workspace --release --locked
       - run: LIBC=musl scripts/package-linux.sh "${TAG#v}"
       - run: scripts/smoke-test.sh target/release/typewriter
+      - run: cargo build --release --locked -p typewriter-desk
+      - run: scripts/smoke-test.sh target/release/typewriter-desk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: typewriter-desk-x86_64-musl
+          path: target/release/typewriter-desk
       - run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz
         if: github.ref_type == 'tag'
 
@@ -106,13 +121,18 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - run: cargo test --workspace --release --locked
-      - run: cargo build --release --locked -p typewriter-app --bins
+      - run: cargo build --release --locked -p typewriter-app -p typewriter-desk --bins
       # Flat: the programs, the license and the readme side by side.
       - run: |
           $name = "typewriter-$($env:TAG.Substring(1))-x86_64-windows"
           New-Item -ItemType Directory $name
           Copy-Item target/release/typewriter.exe, target/release/typewriter-import.exe, LICENSE, README.md $name
           Compress-Archive $name "$name.zip"
+      # The desk edition's binary goes to the run, not into the release zip.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: typewriter-desk-x86_64-windows.exe
+          path: target/release/typewriter-desk.exe
       - run: gh release upload $env:TAG --repo $env:GITHUB_REPOSITORY "typewriter-$($env:TAG.Substring(1))-x86_64-windows.zip"
         if: github.ref_type == 'tag'
 

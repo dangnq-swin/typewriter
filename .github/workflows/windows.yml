@@ -1,5 +1,6 @@
 # A Windows build for testers, started by hand (Actions → Windows build → Run
-# workflow). The app is left on the run as the `typewriter-windows` download.
+# workflow). The app is left on the run as the `typewriter-windows` download,
+# and the desk edition's exe beside it as `typewriter-desk-windows.exe`.
 name: Windows build
 
 on: workflow_dispatch
@@ -22,7 +23,7 @@ jobs:
           restore-keys: windows-
       - run: rustup toolchain install
       - run: cargo test --workspace --release
-      - run: cargo build --release -p typewriter-app --bins
+      - run: cargo build --release -p typewriter-app -p typewriter-desk --bins
       # Flat: the programs and the license side by side in the download.
       - run: |
           New-Item -ItemType Directory dist
@@ -31,3 +32,8 @@ jobs:
         with:
           name: typewriter-windows
           path: dist
+      # The desk edition is not packaged yet: its binary goes to the run too.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: typewriter-desk-windows.exe
+          path: target/release/typewriter-desk.exe
