@@ -7,7 +7,8 @@ use eframe::egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, pos
 use super::EDGE;
 use super::canvas::Canvas;
 use super::geometry::{add, convex_grid, dot, sub};
-use crate::depth::{Layer, Solid};
+use super::light::Paint;
+use crate::depth::{Layer, Shade, Solid};
 use typewriter_app::draw::{Metrics, convex_mesh};
 
 /// The eye from the printing point, and how far it looks down.
@@ -115,64 +116,76 @@ impl Eye {
         points.iter().map(|&p| self.at(p)).collect()
     }
 
-    /// Fills convex `points`, each vertex coloured by `colour`: a face, or
+    /// Fills convex `points`, each vertex painted by `colour`: a face, or
     /// see-through lying on what is behind.
-    pub(super) fn fill(
+    pub(super) fn fill<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
         points: &[[f32; 3]],
-        colour: impl Fn([f32; 3]) -> Color32,
+        colour: impl Fn([f32; 3]) -> P,
     ) {
         self.fill_on(canvas, points, colour, false);
     }
 
     /// As [`Eye::fill`], lying on a face: a patch on it.
-    pub(super) fn fill_lying(
+    pub(super) fn fill_lying<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
         points: &[[f32; 3]],
-        colour: impl Fn([f32; 3]) -> Color32,
+        colour: impl Fn([f32; 3]) -> P,
     ) {
         self.fill_on(canvas, points, colour, true);
     }
 
-    fn fill_on(
+    fn fill_on<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
         points: &[[f32; 3]],
-        colour: impl Fn([f32; 3]) -> Color32,
+        colour: impl Fn([f32; 3]) -> P,
         lying: bool,
     ) {
-        let mut colours = points.iter().map(|&p| colour(p));
+        let paints: Vec<Paint> = points.iter().map(|&p| colour(p).into()).collect();
+        let mut colours = paints.iter().map(|paint| paint.colour);
         let mesh = convex_mesh(&self.polygon(points), |pos| Vertex {
             pos,
             uv: WHITE_UV,
             color: colours.next().unwrap_or_default(),
         });
-        self.add_mesh(canvas, mesh, points, lying);
+        let shades = paints.iter().map(|paint| paint.shade).collect();
+        self.add_mesh(canvas, mesh, points, shades, lying);
     }
 
     /// Fills convex `outline`, flat inches, bent onto the machine by `place`
-    /// and cut fine enough to follow it; each vertex coloured by `colour`.
-    pub(super) fn fill_bent(
+    /// and cut fine enough to follow it; each vertex painted by `colour`.
+    pub(super) fn fill_bent<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
         outline: &[Pos2],
         place: impl Fn(Pos2) -> [f32; 3],
-        colour: impl Fn([f32; 3]) -> Color32,
+        colour: impl Fn([f32; 3]) -> P,
     ) {
         let mut mesh = convex_grid(outline, BENT_INCHES);
         let on: Vec<_> = mesh.vertices.iter().map(|v| place(v.pos)).collect();
+        let mut shades = Vec::with_capacity(on.len());
         for (vertex, &p) in mesh.vertices.iter_mut().zip(&on) {
+            let paint = colour(p).into();
             vertex.pos = self.at(p);
-            vertex.color = colour(p);
+            vertex.color = paint.colour;
+            shades.push(paint.shade);
         }
-        self.add_mesh(canvas, mesh, &on, false);
+        self.add_mesh(canvas, mesh, &on, shades, false);
     }
 
-    /// `mesh` on screen, its vertices at `points`: a face, or see-through or
-    /// `lying` on what is behind.
-    fn add_mesh(&self, canvas: &Canvas, mesh: Mesh, points: &[[f32; 3]], lying: bool) {
+    /// `mesh` on screen, its vertices at `points` taking the light as
+    /// `shades`: a face, or see-through or `lying` on what is behind.
+    fn add_mesh(
+        &self,
+        canvas: &Canvas,
+        mesh: Mesh,
+        points: &[[f32; 3]],
+        shades: Vec<Shade>,
+        lying: bool,
+    ) {
         let see_through = mesh.vertices.iter().any(|v| v.color.a() < u8::MAX);
         let (layer, depth): (_, fn(&Self, [f32; 3]) -> f32) = if lying || see_through {
             (Layer::Decal, Self::lying_depth)
@@ -180,30 +193,43 @@ impl Eye {
             (Layer::Opaque, Self::depth)
         };
         let depths = points.iter().map(|&p| depth(self, p)).collect();
-        canvas.mesh(layer, Solid { mesh, depths });
+        canvas.mesh(
+            layer,
+            Solid {
+                mesh,
+                depths,
+                shades,
+            },
+        );
     }
 
-    /// Adds a quad of `corners`, in order round it, each in its colour, to
+    /// Adds a quad of `corners`, in order round it, each in its paint, to
     /// `solid`.
-    pub(super) fn quad(&self, solid: &mut Solid, corners: [([f32; 3], Color32); 4]) {
+    pub(super) fn quad<P: Into<Paint>>(&self, solid: &mut Solid, corners: [([f32; 3], P); 4]) {
         self.add_quad(solid, corners, Self::depth);
     }
 
     /// As [`Eye::quad`], lying on a face.
-    pub(super) fn lying_quad(&self, solid: &mut Solid, corners: [([f32; 3], Color32); 4]) {
+    pub(super) fn lying_quad<P: Into<Paint>>(
+        &self,
+        solid: &mut Solid,
+        corners: [([f32; 3], P); 4],
+    ) {
         self.add_quad(solid, corners, Self::lying_depth);
     }
 
-    fn add_quad(
+    fn add_quad<P: Into<Paint>>(
         &self,
         solid: &mut Solid,
-        corners: [([f32; 3], Color32); 4],
+        corners: [([f32; 3], P); 4],
         depth: fn(&Self, [f32; 3]) -> f32,
     ) {
         let first = solid.mesh.vertices.len() as u32;
-        for (p, colour) in corners {
-            solid.mesh.colored_vertex(self.at(p), colour);
+        for (p, paint) in corners {
+            let paint = paint.into();
+            solid.mesh.colored_vertex(self.at(p), paint.colour);
             solid.depths.push(depth(self, p));
+            solid.shades.push(paint.shade);
         }
         solid.mesh.add_triangle(first, first + 1, first + 2);
         solid.mesh.add_triangle(first, first + 2, first + 3);

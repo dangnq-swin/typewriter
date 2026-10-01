@@ -142,7 +142,7 @@ fn patch(texture: &mut ColorImage, part: &ColorImage, [x, y]: [usize; 2]) {
 }
 
 /// Premultiplied, 0..=1.
-type Rgba = [f32; 4];
+pub type Rgba = [f32; 4];
 
 fn rgba(colour: Color32) -> Rgba {
     colour.to_array().map(|c| f32::from(c) / 255.0)
@@ -167,7 +167,7 @@ fn rasterize(
             .clip_rect
             .intersect(Rect::from_min_size(Pos2::ZERO, size));
         match &primitive.primitive {
-            Primitive::Mesh(mesh) => raster.fill(mesh, clip, |_, _, _| true),
+            Primitive::Mesh(mesh) => raster.fill(mesh, clip, |_, _, _| true, |_, _, rgba| rgba),
             Primitive::Callback(callback) => stage.snapshot_callback(callback, clip, &mut raster),
         }
     }
@@ -205,12 +205,14 @@ impl Raster<'_> {
 
     /// Each triangle of `mesh` inside `clip`, blended over what is there.
     /// `keep` may refuse a pixel, given its index in the frame, its
-    /// triangle's vertices, and their weights there.
+    /// triangle's vertices, and their weights there; `shade` then turns its
+    /// colour, given the same triangle and weights.
     pub fn fill(
         &mut self,
         mesh: &Mesh,
         clip: Rect,
         mut keep: impl FnMut(usize, [u32; 3], [f32; 3]) -> bool,
+        shade: impl Fn([u32; 3], [f32; 3], Rgba) -> Rgba,
     ) {
         let (width, texture) = (self.width, self.textures.get(&mesh.texture_id));
         for triangle in mesh.indices.as_chunks::<3>().0 {
@@ -246,7 +248,7 @@ impl Raster<'_> {
                         [0, 1, 2, 3].map(|k| w[0] * ca[k] + w[1] * cb[k] + w[2] * cc[k]);
                     let uv = a.uv.to_vec2() * w[0] + b.uv.to_vec2() * w[1] + c.uv.to_vec2() * w[2];
                     let texel = texture.map_or([1.0; 4], |t| sample(t, uv));
-                    let source: Rgba = [0, 1, 2, 3].map(|k| colour[k] * texel[k]);
+                    let source = shade(*triangle, w, [0, 1, 2, 3].map(|k| colour[k] * texel[k]));
                     let target = &mut self.pixels[y * width + x];
                     for k in 0..4 {
                         target[k] = source[k] + target[k] * (1.0 - source[3]);

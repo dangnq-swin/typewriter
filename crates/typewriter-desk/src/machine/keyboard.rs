@@ -6,7 +6,7 @@ use super::canvas::Canvas;
 use super::case::{OPENING_HALF, PANEL_EDGE_INCHES};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
 use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
-use super::light::{brighten, matte, polished, streak, toward_light};
+use super::light::{Paint, brighten, matte, polished, streak, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
 use crate::depth::{Layer, Solid};
@@ -295,7 +295,7 @@ fn paint_key_shadow(
         .iter()
         .map(|v| eye.depth([v.pos.x - dx, v.pos.y - dy, z]))
         .collect();
-    let mut solid = Solid { mesh, depths };
+    let mut solid = Solid::unlit(mesh, depths);
     for vertex in &mut solid.mesh.vertices {
         vertex.pos = eye.at([vertex.pos.x, vertex.pos.y, z]);
     }
@@ -418,7 +418,7 @@ pub(super) fn paint_cap(
     // Each point faces between its neighbours, tilted up by the flare: the
     // shading rounds the corners instead of stepping.
     let n = top.len();
-    let lit: Vec<Color32> = (0..n)
+    let lit: Vec<Paint> = (0..n)
         .map(|i| {
             let along = sub(top[(i + 1) % n], top[(i + n - 1) % n]);
             let out = normalized([along[1], -along[0], 0.0]);
@@ -444,9 +444,10 @@ pub(super) fn paint_cap(
     canvas.mesh(Layer::Opaque, sides);
     eye.outline_in(canvas, &foot, brighten(front_colour, 0.8));
     // Dished: its back slope in the cap's own shade, its front catching light.
-    let lit_top = matte(top_colour, [0.0, 0.2, 1.0]);
     eye.fill(canvas, &top, |[_, py, _]| {
-        brighten(lit_top, 0.9).lerp_to_gamma(lit_top, (py - back) / (front - back))
+        let dished =
+            brighten(top_colour, 0.9).lerp_to_gamma(top_colour, (py - back) / (front - back));
+        matte(dished, [0.0, 0.2, 1.0])
     });
     eye.outline_in(canvas, &top, brighten(front_colour, 0.85));
 }

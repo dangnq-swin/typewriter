@@ -191,8 +191,7 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
                 if !Eye::sees(a, facing) {
                     continue;
                 }
-                let lit = matte(IVORY_SHADE, facing);
-                let (colour, low) = (brighten(lit, top), brighten(lit, foot));
+                let [colour, low] = [top, foot].map(|by| matte(brighten(IVORY_SHADE, by), facing));
                 eye.quad(
                     &mut solid,
                     [
@@ -315,7 +314,7 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
             continue;
         }
         let [top_a, top_b] = [i, i + 1].map(|k| matte(IVORY, facing[k]));
-        let [low_a, low_b] = [i, i + 1].map(|k| brighten(matte(IVORY_SHADE, facing[k]), 0.85));
+        let [low_a, low_b] = [i, i + 1].map(|k| matte(brighten(IVORY_SHADE, 0.85), facing[k]));
         let [base_a, base_b] = [i, i + 1].map(|k| matte(PLINTH, facing[k]));
         let at = |p: [f32; 3], z: f32| [p[0], p[1], z];
         eye.quad(

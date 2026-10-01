@@ -4,7 +4,7 @@
 //! sets its place, parts [`gather`] into it, [`end`] draws it.
 //!
 //! Each vertex is egui's, on screen in points, with a depth added: 0 at the
-//! eye to 1 far off. Opaque triangles hide what is behind them; decals lie
+//! eye to 1 far off, and how it takes the frame's light ([`Shade`]). Opaque triangles hide what is behind them; decals lie
 //! on them (print, edges, glass), hide nothing and are drawn after. Where no
 //! renderer is installed, as in the snapshot tool, the triangles go out as
 //! data for [`rasterize`] to fill.
@@ -27,8 +27,11 @@ pub const DEPTH_BITS: u8 = 32;
 const SHADER: &str = include_str!("depth.wgsl");
 /// egui's font atlas, which text and plain fills (`WHITE_UV`) draw from.
 const FONTS: TextureId = TextureId::Managed(0);
-/// Position (3 floats), uv (2), colour (4 bytes).
-const VERTEX_BYTES: u64 = 24;
+/// Position (3 floats), uv (2), colour (4 bytes), normal (3 floats),
+/// material (4 bytes).
+const VERTEX_BYTES: u64 = 40;
+/// The light's direction, padded to a `vec4`.
+const LIGHT_BYTES: u64 = 16;
 
 /// Whether triangles hide what is behind them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +41,56 @@ pub enum Layer {
     Decal,
 }
 
-/// Triangles in depth, in one texture: egui's mesh, and each vertex's depth.
+/// How a vertex takes the frame's light.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum Shade {
+    /// Its colour as it is.
+    #[default]
+    Unlit,
+    /// Plastic facing the unit `normal`: lit over an ambient floor (Lambert).
+    Matte([f32; 3]),
+}
+
+impl Shade {
+    /// `rgba` (premultiplied sRGB gamma, 0..=1) lit from `toward_light`,
+    /// unit length. Keep in step with `depth.wgsl`.
+    pub fn apply(self, rgba: [f32; 4], toward_light: [f32; 3]) -> [f32; 4] {
+        match self {
+            Self::Unlit => rgba,
+            Self::Matte(normal) => {
+                let facing: f32 = (0..3).map(|k| normal[k] * toward_light[k]).sum();
+                let by = 0.7 + 0.4 * facing.max(0.0);
+                let [r, g, b, a] = rgba;
+                let lit = |c: f32| (c * by).min(1.0);
+                [lit(r), lit(g), lit(b), a]
+            }
+        }
+    }
+
+    /// `colour` as [`Shade::apply`] lights it.
+    pub fn colour(self, colour: Color32, toward_light: [f32; 3]) -> Color32 {
+        if self == Self::Unlit {
+            return colour;
+        }
+        let rgba = colour.to_array().map(|c| f32::from(c) / 255.0);
+        // Safe cast: clamped to a byte.
+        let [r, g, b, a] = self
+            .apply(rgba, toward_light)
+            .map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+        Color32::from_rgba_premultiplied(r, g, b, a)
+    }
+
+    /// Its material for the shader, and its normal.
+    fn packed(self) -> (u32, [f32; 3]) {
+        match self {
+            Self::Unlit => (0, [0.0; 3]),
+            Self::Matte(normal) => (1, normal),
+        }
+    }
+}
+
+/// Triangles in depth, in one texture: egui's mesh, and each vertex's depth
+/// and shade.
 #[derive(Debug, Clone, Default)]
 pub struct Solid {
     /// In egui's font atlas ([`FONTS`]), uvs are in texels: the atlas may
@@ -46,6 +98,20 @@ pub struct Solid {
     pub mesh: Mesh,
     /// 0 at the eye to 1 far off, one for each of `mesh`'s vertices.
     pub depths: Vec<f32>,
+    /// One for each of `mesh`'s vertices.
+    pub shades: Vec<Shade>,
+}
+
+impl Solid {
+    /// `mesh` at `depths`, each vertex its colour as it is.
+    pub fn unlit(mesh: Mesh, depths: Vec<f32>) -> Self {
+        let shades = vec![Shade::Unlit; depths.len()];
+        Self {
+            mesh,
+            depths,
+            shades,
+        }
+    }
 }
 
 /// What a frame draws in depth.
@@ -65,9 +131,9 @@ impl Solids {
         [(Layer::Opaque, &self.opaque), (Layer::Decal, &self.decals)]
     }
 
-    /// Adds `mesh`, `place` moving each vertex where it shows, maybe tinting
-    /// it, and giving its depth. `None` hides a vertex, and the triangles
-    /// touching it.
+    /// Adds `mesh`, unlit, `place` moving each vertex where it shows, maybe
+    /// tinting it, and giving its depth. `None` hides a vertex, and the
+    /// triangles touching it.
     pub fn add(
         &mut self,
         layer: Layer,
@@ -75,10 +141,7 @@ impl Solids {
         mut place: impl FnMut(&mut Vertex) -> Option<f32>,
     ) {
         let placed: Vec<_> = mesh.vertices.iter_mut().map(&mut place).collect();
-        let mut solid = Solid {
-            mesh: Mesh::with_texture(mesh.texture_id),
-            depths: Vec::new(),
-        };
+        let mut solid = Solid::unlit(Mesh::with_texture(mesh.texture_id), Vec::new());
         // Old index to new, once used.
         let mut kept = vec![None; placed.len()];
         for triangle in mesh.indices.as_chunks::<3>().0 {
@@ -90,12 +153,18 @@ impl Solids {
                 let new = *kept[i].get_or_insert_with(|| {
                     solid.mesh.vertices.push(mesh.vertices[i]);
                     solid.depths.push(placed[i].unwrap_or_default());
+                    solid.shades.push(Shade::Unlit);
                     // Safe cast: a frame's vertices fit egui's own u32 indices.
                     solid.mesh.vertices.len() as u32 - 1
                 });
                 solid.mesh.indices.push(new);
             }
         }
+        self.join(layer, solid);
+    }
+
+    /// Adds `solid` as it is.
+    pub fn push(&mut self, layer: Layer, solid: Solid) {
         self.join(layer, solid);
     }
 
@@ -136,6 +205,7 @@ impl Solids {
                 let into = &mut solids[at];
                 into.mesh.append(solid.mesh);
                 into.depths.extend(solid.depths);
+                into.shades.extend(solid.shades);
             }
             None => solids.push(solid),
         }
@@ -300,19 +370,31 @@ struct Frame {
     /// Where it draws in the painter's order. `None`: not begun.
     slot: Option<ShapeIdx>,
     solids: Solids,
+    /// Toward the light, unit length.
+    light: [f32; 3],
+}
+
+/// A frame's depth pass as drawn: its solids, lit from `light`.
+#[derive(Debug, Default)]
+pub struct Pass {
+    pub solids: Solids,
+    /// Toward the light, unit length.
+    pub light: [f32; 3],
 }
 
 fn frame_id() -> Id {
     Id::new("depth-pass-frame")
 }
 
-/// Starts the frame's depth pass: what is [`gather`]ed until [`end`] draws
-/// over what `painter` has drawn so far, under what it draws after.
-pub fn begin(painter: &Painter) {
+/// Starts the frame's depth pass, lit from `light` (unit length): what is
+/// [`gather`]ed until [`end`] draws over what `painter` has drawn so far,
+/// under what it draws after.
+pub fn begin(painter: &Painter, light: [f32; 3]) {
     let slot = painter.add(Shape::Noop);
     let frame = Frame {
         slot: Some(slot),
         solids: Solids::default(),
+        light,
     };
     painter
         .ctx()
@@ -332,7 +414,11 @@ pub fn gather(ctx: &Context, solids: Solids) {
 /// Draws the frame's depth pass where it [`begin`]s, or else now, with
 /// `painter`'s clip.
 pub fn end(painter: &Painter) {
-    let Frame { slot, solids } = painter
+    let Frame {
+        slot,
+        solids,
+        light,
+    } = painter
         .ctx()
         .data_mut(|data| data.remove_temp::<Frame>(frame_id()))
         .unwrap_or_default();
@@ -341,19 +427,19 @@ pub fn end(painter: &Painter) {
     }
     // The whole window: positions stay the window's.
     let rect = painter.ctx().viewport_rect();
-    let solids = Arc::new(solids);
+    let pass = Arc::new(Pass { solids, light });
     let callback = if is_installed(painter.ctx()) {
         egui_wgpu::Callback::new_paint_callback(
             rect,
             Gpu {
-                solids,
+                pass,
                 ctx: painter.ctx().clone(),
             },
         )
     } else {
         PaintCallback {
             rect,
-            callback: solids,
+            callback: pass,
         }
     };
     match slot {
@@ -403,16 +489,47 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
             },
         ],
     });
+    let light_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("depth_light"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: wgpu::BufferSize::new(LIGHT_BYTES),
+            },
+            count: None,
+        }],
+    });
+    let light = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("depth_light"),
+        size: LIGHT_BYTES,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let light_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("depth_light"),
+        layout: &light_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: light.as_entire_binding(),
+        }],
+    });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("depth"),
-        bind_group_layouts: &[Some(&textures)],
+        bind_group_layouts: &[Some(&textures), Some(&light_layout)],
         immediate_size: 0,
     });
     let format = render_state.target_format;
     let pipeline = |layer: Layer| {
         let opaque = layer == Layer::Opaque;
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(if opaque { "depth_opaque" } else { "depth_decal" }),
+            label: Some(if opaque {
+                "depth_opaque"
+            } else {
+                "depth_decal"
+            }),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &module,
@@ -420,7 +537,13 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: VERTEX_BYTES,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Uint32],
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3,
+                        1 => Float32x2,
+                        2 => Uint32,
+                        3 => Float32x3,
+                        4 => Uint32,
+                    ],
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
@@ -470,6 +593,8 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
     let pipelines = Pipelines {
         opaque: pipeline(Layer::Opaque),
         decal: pipeline(Layer::Decal),
+        light,
+        light_group,
         renderer: Arc::downgrade(&render_state.renderer),
         buffers: None,
         draws: Vec::new(),
@@ -487,6 +612,9 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
 struct Pipelines {
     opaque: wgpu::RenderPipeline,
     decal: wgpu::RenderPipeline,
+    /// Toward the light, written each frame.
+    light: wgpu::Buffer,
+    light_group: wgpu::BindGroup,
     /// Weak: the renderer keeps these.
     renderer: Weak<RwLock<Renderer>>,
     /// Refilled each frame, grown when too small: one pass a frame.
@@ -495,9 +623,9 @@ struct Pipelines {
     draws: Vec<Draw>,
 }
 
-/// A frame's solids, for egui's renderer.
+/// A frame's pass, for egui's renderer.
 struct Gpu {
-    solids: Arc<Solids>,
+    pass: Arc<Pass>,
     /// For the font atlas's size once the frame is over.
     ctx: Context,
 }
@@ -544,14 +672,15 @@ fn pack(
     };
     let vertex_count: usize = all().map(|(_, solid)| solid.mesh.vertices.len()).sum();
     let index_count: usize = all().map(|(_, solid)| solid.mesh.indices.len()).sum();
-    // Safe cast: a vertex's 24 bytes.
+    // Safe cast: a vertex's bytes.
     let mut vertices = Vec::with_capacity(vertex_count * VERTEX_BYTES as usize);
     let mut indices = Vec::with_capacity(index_count * 4);
     let mut draws = Vec::new();
     let (mut first, mut base) = (0, 0);
     for (layer, solid) in all() {
         let texels = texel_scale(solid.mesh.texture_id, fonts);
-        for (vertex, depth) in solid.mesh.vertices.iter().zip(&solid.depths) {
+        let placed = solid.depths.iter().zip(&solid.shades);
+        for (vertex, (depth, shade)) in solid.mesh.vertices.iter().zip(placed) {
             let x = 2.0 * vertex.pos.x / width - 1.0;
             let y = 1.0 - 2.0 * vertex.pos.y / height;
             let uv = vertex.uv.to_vec2() * texels;
@@ -559,6 +688,11 @@ fn pack(
                 vertices.extend_from_slice(&value.to_le_bytes());
             }
             vertices.extend_from_slice(&vertex.color.to_array());
+            let (material, normal) = shade.packed();
+            for value in normal {
+                vertices.extend_from_slice(&value.to_le_bytes());
+            }
+            vertices.extend_from_slice(&material.to_le_bytes());
         }
         for index in &solid.mesh.indices {
             indices.extend_from_slice(&index.to_le_bytes());
@@ -614,7 +748,11 @@ impl CallbackTrait for Gpu {
             .map(|pixels| pixels as f32 / screen.pixels_per_point);
         // The frame is over: the atlas is as large as it gets this frame.
         let fonts = self.ctx.fonts(|fonts| fonts.font_image_size());
-        let (vertices, indices, draws) = pack(&self.solids, size, fonts);
+        let (vertices, indices, draws) = pack(&self.pass.solids, size, fonts);
+        let light: Vec<u8> = (self.pass.light.into_iter().chain([0.0]))
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        queue.write_buffer(&pipelines.light, 0, &light);
         // Safe casts: byte counts.
         let (vertex_bytes, index_bytes) = (vertices.len() as u64, indices.len() as u64);
         let buffers = match pipelines.buffers.take() {
@@ -648,6 +786,7 @@ impl CallbackTrait for Gpu {
         let renderer = renderer.read();
         render_pass.set_vertex_buffer(0, buffers.vertices.slice(..));
         render_pass.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.set_bind_group(1, &pipelines.light_group, &[]);
         for draw in &pipelines.draws {
             let Some(texture) = renderer.texture(&draw.texture) else {
                 continue;
@@ -662,15 +801,15 @@ impl CallbackTrait for Gpu {
     }
 }
 
-/// Fills `callback`'s solids inside `clip` in a snapshot, with a depth
-/// buffer kept through the frame.
+/// Fills `callback`'s pass inside `clip` in a snapshot, with a depth buffer
+/// kept through the frame, each pixel lit as the shader lights it.
 #[cfg(test)]
 pub fn rasterize(
     callback: &PaintCallback,
     clip: eframe::egui::Rect,
     raster: &mut typewriter_app::snapshot::Raster,
 ) {
-    let Some(solids) = callback.callback.downcast_ref::<Solids>() else {
+    let Some(Pass { solids, light }) = callback.callback.downcast_ref::<Pass>() else {
         return;
     };
     let [width, height] = raster.size();
@@ -688,7 +827,7 @@ pub fn rasterize(
             for vertex in &mut mesh.vertices {
                 vertex.uv = (vertex.uv.to_vec2() * texels).to_pos2();
             }
-            raster.fill(&mesh, clip, |pixel, triangle, weights| {
+            let keep = |pixel: usize, triangle: [u32; 3], weights: [f32; 3]| {
                 let depth: f32 = (0..3)
                     .map(|k| solid.depths[triangle[k] as usize] * weights[k])
                     .sum();
@@ -701,10 +840,33 @@ pub fn rasterize(
                     Layer::Decal => depth <= *there,
                     Layer::Opaque => false,
                 }
-            });
+            };
+            let shade = |triangle: [u32; 3], weights: [f32; 3], rgba| {
+                pixel_shade(&solid.shades, triangle, weights).apply(rgba, *light)
+            };
+            raster.fill(&mesh, clip, keep, shade);
         }
     }
     raster.frame = Some(Box::new(buffer));
+}
+
+/// The shade at a pixel `weights` across `triangle`, its normal blended and
+/// made unit length again, as the shader does.
+#[cfg(test)]
+fn pixel_shade(shades: &[Shade], triangle: [u32; 3], weights: [f32; 3]) -> Shade {
+    let corners = triangle.map(|i| shades[i as usize]);
+    let Shade::Matte(_) = corners[0] else {
+        return corners[0];
+    };
+    let mut normal = [0.0; 3];
+    for (shade, weight) in corners.into_iter().zip(weights) {
+        let (_, n) = shade.packed();
+        for k in 0..3 {
+            normal[k] += n[k] * weight;
+        }
+    }
+    let length = normal.iter().map(|c| c * c).sum::<f32>().sqrt().max(1e-6);
+    Shade::Matte(normal.map(|c| c / length))
 }
 
 #[cfg(test)]
@@ -785,7 +947,9 @@ mod tests {
             mesh.add_triangle(0, 1, 2);
             mesh
         };
-        solids.add(Layer::Opaque, triangle(Color32::RED), |_| Some(0.25));
+        let mut lit = Solid::unlit(triangle(Color32::RED), vec![0.25; 3]);
+        lit.shades = vec![Shade::Matte([0.0, 0.0, 1.0]); 3];
+        solids.push(Layer::Opaque, lit);
         solids.add(Layer::Decal, triangle(Color32::BLUE), |_| Some(0.5));
         let (vertices, indices, draws) = pack(&solids, [1600.0, 1000.0], [64, 32]);
         assert_eq!(vertices.len(), 6 * VERTEX_BYTES as usize);
@@ -798,8 +962,12 @@ mod tests {
         let float = |at: usize| f32::from_le_bytes(vertices[at..at + 4].try_into().unwrap());
         // The window's middle, then its top right, in device coordinates.
         assert_eq!([float(0), float(4), float(8)], [0.0, 0.0, 0.25]);
-        assert_eq!([float(24), float(28)], [1.0, 1.0]);
+        assert_eq!([float(40), float(44)], [1.0, 1.0]);
         assert_eq!(vertices[20..24], Color32::RED.to_array());
+        // Its normal and material, then the unlit decal's.
+        assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
+        assert_eq!(vertices[36..40], 1u32.to_le_bytes());
+        assert_eq!(vertices[3 * 40 + 36..4 * 40], 0u32.to_le_bytes());
     }
 
     #[test]
@@ -920,7 +1088,7 @@ mod tests {
         };
         let mut output = ctx.run_ui(Default::default(), |ui| {
             let painter = ui.painter();
-            begin(painter);
+            begin(painter, [0.0, 0.0, 1.0]);
             gather(&ctx, triangle(0.5));
             painter.rect_filled(
                 Rect::from_min_size(pos2(0.0, 0.0), Vec2::splat(5.0)),
@@ -936,7 +1104,7 @@ mod tests {
             .iter()
             .enumerate()
             .filter_map(|(i, s)| match s {
-                Shape::Callback(c) => Some((i, c.callback.downcast_ref::<Solids>()?)),
+                Shape::Callback(c) => Some((i, &c.callback.downcast_ref::<Pass>()?.solids)),
                 _ => None,
             })
             .collect();

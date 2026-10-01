@@ -182,16 +182,15 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[[f32; 3]], facing: f32) 
         let along = sub(b, a);
         // Across the edge, the way it faces: each edge runs back to front.
         let across = [facing * along[1], -facing * along[0]];
-        let colour = matte(IVORY_SHADE, [across[0], across[1], 0.2]);
+        let normal = [across[0], across[1], 0.2];
+        let (colour, foot) = (
+            matte(IVORY_SHADE, normal),
+            matte(brighten(IVORY_SHADE, 0.7), normal),
+        );
         let down = |p: [f32; 3]| [p[0], p[1], p[2] - PLATE_THICKNESS];
         eye.quad(
             &mut solid,
-            [
-                (a, colour),
-                (b, colour),
-                (down(b), brighten(colour, 0.7)),
-                (down(a), brighten(colour, 0.7)),
-            ],
+            [(a, colour), (b, colour), (down(b), foot), (down(a), foot)],
         );
     }
     canvas.mesh(Layer::Opaque, solid);

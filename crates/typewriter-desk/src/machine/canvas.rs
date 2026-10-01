@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 
+use super::light::toward_light;
 use crate::depth::{self, Layer, Solid, Solids};
 use eframe::egui::{Mesh, Painter, Pos2, Shape};
 use typewriter_app::draw::warp;
@@ -40,15 +41,15 @@ impl<'a> Canvas<'a> {
     pub(super) fn mesh(&self, layer: Layer, solid: Solid) {
         match &self.solids {
             None => {
-                self.painter.add(Shape::mesh(solid.mesh));
+                let Solid {
+                    mut mesh, shades, ..
+                } = solid;
+                for (vertex, shade) in mesh.vertices.iter_mut().zip(shades) {
+                    vertex.color = shade.colour(vertex.color, toward_light());
+                }
+                self.painter.add(Shape::mesh(mesh));
             }
-            Some(solids) => {
-                let Solid { mesh, depths } = solid;
-                let mut depths = depths.into_iter();
-                solids
-                    .borrow_mut()
-                    .add(layer, mesh, |_| Some(depths.next().unwrap_or(1.0)));
-            }
+            Some(solids) => solids.borrow_mut().push(layer, solid),
         }
     }
 

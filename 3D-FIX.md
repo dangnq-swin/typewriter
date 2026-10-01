@@ -48,22 +48,30 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
 
 ## 1. Hand-made shading and offsets the GPU could do
 
-- [ ] **Light in the shader.** Gradients painted by hand stand in for lighting:
-      - `body::paint_deck`: front to back.
-      - `cover::paint`: `IVORY_SHADE` → `IVORY_LIT` down the cover.
-      - `panel::paint_face`: `IVORY_LIT` → `IVORY` down the panel.
-      - `case::paint_well`: `KEY_BED` → `KEY_BED_FRONT`.
-      - `case::paint_inner_walls`: the `[top, foot]` brightness factors.
-      - `cover::paint_plate_wall`: `brighten(colour, 0.7)` at the foot.
-      - `bail::paint_bar`: `BAR_TOP` → `BAR_MID` → `BAR_LOW` down the bar.
-      - the caps' dished top.
+- [ ] **Light in the shader.** Depth vertices carry a `Shade` (a material and a normal), the
+      light is a uniform, and `depth.wgsl` lights matte plastic per pixel; `Shade::apply` is
+      its Rust twin, for the snapshot rasterizer and flat canvases. Left:
+      - [ ] **Polished, streak and chrome.** `polished` (the platen, knobs, bail, rod),
+            `streak` (levers, cover trim, side controls) and `paint_chrome`'s bands are still
+            lit on the CPU, per vertex. Add them as materials: polished needs its shine colour
+            and sharpness, streak a tangent rather than a normal. Lines (`eye.line`) take no
+            shade and stay lit on the CPU (`Paint::lit`).
+      - [ ] **A lamp, and the gradients it replaces.** The light is a direction, so a flat
+            face is lit evenly. The maintainer chose a lamp instead: a point light to the
+            writer's left, above and in front. The shader then needs each fragment's place in
+            inches (a vertex attribute, until section 2 projects on the GPU). Then drop the
+            gradients that are lighting:
+            - `cover::paint`: `IVORY_SHADE` → `IVORY_LIT` down the cover.
+            - `panel::paint_face`: `IVORY_LIT` → `IVORY` down the panel.
+            - `bail::paint_bar`: `BAR_TOP` → `BAR_MID` → `BAR_LOW` down the bar (give it
+              normals).
+            - the caps' dished top (`keyboard`: give it normals).
 
-      Give depth vertices a normal (and a material: matte, chrome, paper), pass the light as a
-      uniform, and do `matte`, `streak` and the paper's shade in `depth.wgsl`. This changes the
-      vertex layout (`VERTEX_BYTES`), `Solid`, and the snapshot rasterizer. Decide per
-      gradient whether it is lighting (goes) or the material's own look (stays). The cover's
-      shadow in its opening, the well's shade and the keys' shadows (set as deep as under the
-      foot casting them) are fake occlusion and stay until there are real shadows.
+            Fake occlusion stays until there are real shadows: `body::paint_deck` (the
+            carriage's shade), `case::paint_well`, `case::paint_inner_walls`' `[top, foot]`,
+            `cover::paint_plate_wall`'s foot, the cover's shadow in its opening and the keys'
+            shadows. Then the paper's shade (`sheet::paper_shade`) as a material. Retune
+            against the snapshots.
 - [ ] **Depth bias instead of offsets.** Things that lie on a face are set nearer by hand:
       `eye::LYING_INCHES` with `lying_depth`, `carriage::UNDER_PAPER_INCHES`,
       `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.002` on the wall marks in

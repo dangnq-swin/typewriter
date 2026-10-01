@@ -261,7 +261,7 @@ fn paint_disc(canvas: &Canvas, eye: &Eye, end: End) {
     for knurl in 0..KNURLS {
         let (sin, cos) = (TAU * f32::from(knurl) / f32::from(KNURLS)).sin_cos();
         let (ky, kz) = (y + DISC_RADIUS * sin, z + DISC_RADIUS * cos);
-        let colour = matte(METAL, [0.0, sin, cos]);
+        let colour = matte(METAL, [0.0, sin, cos]).lit();
         eye.line(canvas, &[[x0, ky, kz], [x1, ky, kz]], KNURL_WIDTH, colour);
     }
 }

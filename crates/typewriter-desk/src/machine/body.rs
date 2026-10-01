@@ -62,9 +62,10 @@ pub(super) fn paint_deck(canvas: &Canvas, eye: &Eye) {
         [half, front, DECK_Z],
         [-half, front, DECK_Z],
     ];
-    let lit = matte(IVORY_SHADE, [0.0, 0.0, 1.0]);
     eye.fill(canvas, &deck, |[_, y, _]| {
-        brighten(lit, 0.7).lerp_to_gamma(lit, (y - back) / (front - back))
+        let shaded =
+            brighten(IVORY_SHADE, 0.7).lerp_to_gamma(IVORY_SHADE, (y - back) / (front - back));
+        matte(shaded, [0.0, 0.0, 1.0])
     });
 }
 

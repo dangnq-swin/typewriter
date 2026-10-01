@@ -1,5 +1,5 @@
 //! One light, to the writer's left, above and a little in front, and how
-//! plastic and metal take it.
+//! plastic and metal take it: matte plastic in the shader, the rest here.
 
 use eframe::egui::Color32;
 
@@ -7,7 +7,7 @@ use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
 use super::geometry::{add, dot, normalized};
 use super::{METAL, METAL_SHINE};
-use crate::depth::{Layer, Solid};
+use crate::depth::{Layer, Shade, Solid};
 
 /// Toward the light from the machine: to the writer's left, above, a little
 /// in front.
@@ -15,10 +15,35 @@ pub(super) fn toward_light() -> [f32; 3] {
     normalized([-0.6, 0.4, 0.7])
 }
 
-/// Plastic facing `normal`: lit over an ambient floor (Lambert).
-pub(super) fn matte(colour: Color32, normal: [f32; 3]) -> Color32 {
-    let lit = dot(normalized(normal), toward_light()).max(0.0);
-    brighten(colour, 0.7 + 0.4 * lit)
+/// A vertex's colour, and how it takes the light.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Paint {
+    pub(super) colour: Color32,
+    pub(super) shade: Shade,
+}
+
+impl From<Color32> for Paint {
+    fn from(colour: Color32) -> Self {
+        Self {
+            colour,
+            shade: Shade::Unlit,
+        }
+    }
+}
+
+impl Paint {
+    /// Lit here, for what takes no shade: lines, and flat drawing.
+    pub(super) fn lit(self) -> Color32 {
+        self.shade.colour(self.colour, toward_light())
+    }
+}
+
+/// Plastic facing `normal`: lit over an ambient floor (Lambert), per pixel.
+pub(super) fn matte(colour: Color32, normal: [f32; 3]) -> Paint {
+    Paint {
+        colour,
+        shade: Shade::Matte(normalized(normal)),
+    }
 }
 
 /// A polished round part facing `normal`: `shade` lit over an ambient floor,
@@ -127,13 +152,10 @@ mod tests {
 
     #[test]
     fn one_light_from_the_front_left() {
-        let (left, right) = (
-            matte(IVORY, [-1.0, 0.0, 0.0]),
-            matte(IVORY, [1.0, 0.0, 0.0]),
-        );
+        let lit = |normal| matte(IVORY, normal).lit();
+        let (left, right) = (lit([-1.0, 0.0, 0.0]), lit([1.0, 0.0, 0.0]));
         assert!(left.r() > right.r());
-        let up = matte(IVORY, [0.0, 0.0, 1.0]);
-        assert!(up.r() > matte(IVORY, [0.0, 0.0, -1.0]).r());
+        assert!(lit([0.0, 0.0, 1.0]).r() > lit([0.0, 0.0, -1.0]).r());
         for angle in 0..36 {
             let turn = (10.0 * angle as f32).to_radians();
             let shine = streak([turn.cos(), turn.sin(), 0.0], 6);

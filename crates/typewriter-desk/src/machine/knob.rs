@@ -153,7 +153,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hov
             let around = TAU * f32::from(rib) / f32::from(RIBS) - turned;
             let (sin, cos) = around.sin_cos();
             let (y, z) = (DISC.1 * sin, DISC.1 * cos);
-            let colour = matte(RIB, [0.0, sin, cos]);
+            let colour = matte(RIB, [0.0, sin, cos]).lit();
             eye.line(canvas, &[[from, y, z], [to, y, z]], RIB_WIDTH, colour);
         }
         if hovered {
