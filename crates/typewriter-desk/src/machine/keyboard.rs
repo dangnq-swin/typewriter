@@ -5,9 +5,9 @@ use eframe::egui::{Align2, Color32, Mesh, Shape, Stroke, pos2};
 
 use super::canvas::Canvas;
 use super::case::OPENING_HALF;
-use super::eye::{Eye, FLAT_TEXT, paint_flat_text, toward_eye};
-use super::geometry::{add, add_quad, dot, hull, lerp3, normalized, rounded_rect, soft, sub};
-use super::light::{brighten, matte, streak, toward_light};
+use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
+use super::geometry::{add, add_quad, hull, lerp3, rounded_rect, soft, sub};
+use super::light::{brighten, matte, polished, streak, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
 use typewriter_app::draw::{convex_mesh, warp};
@@ -217,17 +217,13 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
         return;
     };
     let half = OPENING_HALF;
-    let light = toward_light();
-    let halfway = normalized(add(light, toward_eye()));
     // Round the side the eye sees: from behind its top to under its front.
     let bands = 16u8;
     let around: Vec<([f32; 3], Color32)> = (0..=bands)
         .map(|i| {
             let angle = (-60.0 + 190.0 * f32::from(i) / f32::from(bands)).to_radians();
             let normal = [0.0, angle.sin(), angle.cos()];
-            let lit = dot(normal, light).max(0.0);
-            let shine = dot(normal, halfway).max(0.0).powi(24);
-            let colour = brighten(ROD, 0.5 + 0.6 * lit).lerp_to_gamma(METAL_SHINE, shine);
+            let colour = polished(ROD, METAL_SHINE, normal, 24);
             let offset = [0.0, ROD_RADIUS * angle.sin(), ROD_RADIUS * angle.cos()];
             (add([0.0, y, z], offset), colour)
         })

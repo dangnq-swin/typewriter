@@ -13,9 +13,8 @@ use eframe::egui::{Align2, Color32, Rect};
 use super::canvas::Canvas;
 use super::carriage::{PLATEN_DIAMETER_INCHES, STRIKE_DEGREES, platen_axis};
 use super::eye::{Eye, paint_flat_text};
-use super::geometry::dot;
-use super::light::{matte, toward_light};
-use super::sheet::front_at;
+use super::light::matte;
+use super::sheet::{front_at, paper_shade};
 use super::{CHROME, EDGE, ENGRAVED, IVORY_LIT, METAL};
 use typewriter_app::draw::{Metrics, PaperTable, smoothstep};
 
@@ -46,9 +45,6 @@ const TICK_WIDTH: f32 = 0.018;
 const NUMBER_HEIGHT: f32 = 0.09;
 /// Half the gap in a numbered tick.
 const NUMBER_GAP: f32 = 0.07;
-/// Paper's back: lit over an ambient floor, never past white.
-const PAPER_AMBIENT: f32 = 0.74;
-const PAPER_LIT: f32 = 0.3;
 /// Where it goes down past the platen: how dark, and from how far above.
 const PLATEN_SHADE: f32 = 0.55;
 const PLATEN_SHADE_INCHES: f32 = 0.4;
@@ -108,8 +104,7 @@ pub fn paper_table(view: Rect, metrics: &Metrics, typing_y: f32) -> PaperTable {
     let eye = Eye::new(view, metrics, typing_y);
     let radius = PLATEN_DIAMETER_INCHES / 2.0 * metrics.points_per_inch;
     let [ny, nz] = facing();
-    let lit = dot([0.0, ny, nz], toward_light()).max(0.0);
-    let shade = (PAPER_AMBIENT + PAPER_LIT * lit).min(1.0);
+    let shade = paper_shade([0.0, ny, nz]);
     let axis_y = eye.at(platen_axis()).y;
     let platen_top = axis_y - radius;
     PaperTable {

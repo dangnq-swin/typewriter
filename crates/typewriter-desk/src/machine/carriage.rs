@@ -1,17 +1,17 @@
 //! The carriage, travelling with the sheet: the platen, the carriage's back
-//! and side plates, in depth; and the paper bail, drawn flat over the sheet
-//! at its scale, above the printing point on the platen's front.
+//! and side plates, and the paper bail above the printing point, its scale
+//! printed on it by the app.
 
-use std::f32::consts::{PI, TAU};
-use std::ops::RangeInclusive;
+use std::f32::consts::TAU;
 
-use eframe::egui::{Color32, CornerRadius, Mesh, Painter, Rect, Shape, Stroke, StrokeKind, pos2};
+use eframe::egui::Color32;
 
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::add_quad;
-use super::light::matte;
-use super::{CHROME, EDGE, METAL, METAL_SHINE};
+use super::geometry::{add, normalized, scaled};
+use super::light::{matte, polished};
+use super::sheet::face_y;
+use super::{CHROME, METAL, METAL_SHINE};
 use crate::depth::{Layer, Solid};
 use typewriter_app::draw::{Metrics, ruler};
 
@@ -24,31 +24,40 @@ pub(super) const STRIKE_DEGREES: f32 = 35.0;
 /// The metal rings at the platen's ends.
 const PLATEN_END_INCHES: f32 = 0.08;
 /// Bands of shading round a roller: enough for a smooth curve.
-const ROLLER_BANDS: u16 = 14;
+const ROLLER_BANDS: u16 = 28;
 /// Round the platen, in depth: fine enough that its flats stay under the
 /// paper wound on it.
 const PLATEN_BANDS: u16 = 64;
 /// The platen drawn this far under the paper on it.
 const UNDER_PAPER_INCHES: f32 = 0.01;
-/// Light from above and in front: angle round a roller from its top.
-const LIGHT_DEGREES: f32 = 55.0;
+/// How tight the highlight on a roller or the platen is.
+const ROLLER_SHARPNESS: i32 = 4;
 /// The carriage's side plates, inside its ends: their thickness, and from
-/// the platen's axis their back and front `y`, their top and foot `z`.
+/// the platen's axis their back and front `y`, their top and foot `z`. Their
+/// front behind the alignment guide, which the carriage runs past.
 const SIDE_PLATE_INCHES: f32 = 0.2;
-const SIDE_PLATE_Y: (f32, f32) = (-1.05, 0.45);
+pub(super) const SIDE_PLATE_Y: (f32, f32) = (-1.05, 0.4);
 const SIDE_PLATE_Z: (f32, f32) = (0.8, -0.75);
 /// The rod across the carriage's back, from the platen's axis `(y, z)`, and
 /// its radius.
 const CARRIAGE_BACK: (f32, f32) = (-0.75, 0.45);
 const CARRIAGE_BACK_RADIUS: f32 = 0.22;
 /// The paper bail above the typing line: its scale's centre, the bar's
-/// height past the scale's, its rollers either side of the sheet's centre,
-/// and the arms holding it to the side plates, pivoting just above the line.
+/// height past the scale's and its depth, its rollers either side of the
+/// sheet's centre, their length and how much larger round than the scale is
+/// high; the arms holding it to the side plates, pivoting at `(y, z)` clear
+/// of the platen, behind the alignment guide.
 const BAIL_ABOVE_INCHES: f32 = 0.6;
 const BAIL_EXTRA_INCHES: f32 = 0.08;
+const BAIL_DEPTH: f32 = 0.06;
 const BAIL_ROLLER_INCHES: f32 = 1.65;
+const BAIL_ROLLER_HALF: f32 = 0.25;
+const BAIL_ROLLER_EXTRA: f32 = 0.07;
 const BAIL_ARM_INCHES: f32 = 0.14;
-const BAIL_PIVOT_ABOVE: f32 = 0.1;
+const BAIL_PIVOT: (f32, f32) = (-0.15, 0.3);
+/// Searching for where the bail shows: how high at most, and how finely.
+const BAIL_HIGHEST: f32 = 3.0;
+const SEARCH_STEPS: u16 = 30;
 const RUBBER: Color32 = Color32::from_rgb(0x16, 0x15, 0x14);
 const RUBBER_SHINE: Color32 = Color32::from_rgb(0x55, 0x53, 0x50);
 const BAIL_TOP: Color32 = Color32::from_rgb(0xD4, 0xD6, 0xD2);
@@ -61,25 +70,11 @@ pub(super) fn ends(middle: f32) -> [f32; 2] {
     [middle - PLATEN_HALF_INCHES, middle + PLATEN_HALF_INCHES]
 }
 
-/// The carriage's ends on screen, on the platen's axis where the knobs
-/// turn, for the sheet centred at `carriage_x`.
-pub fn platen_ends(view: Rect, metrics: &Metrics, typing_y: f32, carriage_x: f32) -> [f32; 2] {
-    let eye = Eye::new(view, metrics, typing_y);
-    let [_, y, z] = platen_axis();
-    let middle = (carriage_x - eye.origin.x) / eye.ppi;
-    ends(middle).map(|x| eye.at([x, y, z]).x)
-}
-
 /// The platen's axis from the printing point.
 pub(super) fn platen_axis() -> [f32; 3] {
     let (sin, cos) = STRIKE_DEGREES.to_radians().sin_cos();
     let radius = PLATEN_DIAMETER_INCHES / 2.0;
     [0.0, -radius * cos, -radius * sin]
-}
-
-/// The platen's axis on screen, for the typing line at `typing_y`.
-pub fn platen_axis_y(view: Rect, metrics: &Metrics, typing_y: f32) -> f32 {
-    Eye::new(view, metrics, typing_y).at(platen_axis()).y
 }
 
 /// The carriage for the sheet centred `middle` inches across: the rod at
@@ -124,21 +119,20 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
 }
 
 /// A cylinder across `x` round `(y, z)` of `radius`, in `bands` round it,
-/// lit from above and in front: `[shade, shine]`.
-fn cylinder(
+/// polished: `[shade, shine]`.
+pub(super) fn cylinder(
     eye: &Eye,
     solid: &mut Solid,
     ([left, right], (y, z), radius): ([f32; 2], (f32, f32), f32),
     bands: u16,
-    colours: [Color32; 2],
+    [shade, shine]: [Color32; 2],
 ) {
-    let light = LIGHT_DEGREES.to_radians();
     let at = |i: u16, x: f32| {
         // From the top round the front, the bottom and the back.
         let around = TAU * f32::from(i) / f32::from(bands);
-        let lit = (around - light).cos().max(0.0).powi(3);
-        let p = [x, y + radius * around.sin(), z + radius * around.cos()];
-        (p, colours[0].lerp_to_gamma(colours[1], lit))
+        let (sin, cos) = around.sin_cos();
+        let p = [x, y + radius * sin, z + radius * cos];
+        (p, polished(shade, shine, [0.0, sin, cos], ROLLER_SHARPNESS))
     };
     for i in 0..bands {
         eye.quad(
@@ -201,112 +195,198 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, [x0, x1]: [f32; 2]) {
     }
 }
 
-/// A horizontal cylinder from the front, lit from above: `[shade, shine]`.
-pub(super) fn roller(
-    mesh: &mut Mesh,
-    x: RangeInclusive<f32>,
-    centre_y: f32,
-    radius: f32,
-    colours: [Color32; 2],
-) {
-    let light = LIGHT_DEGREES.to_radians();
-    let row = |i: u16| {
-        // From the top (0) round the front to the bottom (π).
-        let around = PI * f32::from(i) / f32::from(ROLLER_BANDS);
-        let lit = (around - light).cos().max(0.0).powi(3);
-        let colour = colours[0].lerp_to_gamma(colours[1], lit);
-        (centre_y - radius * around.cos(), colour)
-    };
-    for i in 0..ROLLER_BANDS {
-        let ((top, top_colour), (bottom, bottom_colour)) = (row(i), row(i + 1));
-        add_quad(
-            mesh,
-            [
-                (pos2(*x.start(), top), top_colour),
-                (pos2(*x.end(), top), top_colour),
-                (pos2(*x.end(), bottom), bottom_colour),
-                (pos2(*x.start(), bottom), bottom_colour),
-            ],
-        );
-    }
-}
-
 /// The top of the bail's scale for the typing line at `typing_y`.
 pub fn bail_scale_top(metrics: &Metrics, typing_y: f32) -> f32 {
     typing_y - BAIL_ABOVE_INCHES * metrics.points_per_inch - ruler::HEIGHT / 2.0
 }
 
-/// The paper bail across the carriage for the sheet centred at
-/// `carriage_x`, its scale printed on it later: the arms holding it to the
-/// side plates, the bar, and the rubber rollers pressing the paper.
-pub fn paint_bail(
-    painter: &Painter,
-    view: Rect,
+/// The `z` whose point at depth `y(z)` shows at screen height `target`:
+/// higher on screen further up.
+fn z_showing_at(eye: &Eye, y: impl Fn(f32) -> f32, target: f32) -> f32 {
+    let (mut low, mut high) = (0.0, BAIL_HIGHEST);
+    for _ in 0..SEARCH_STEPS {
+        let mid = (low + high) / 2.0;
+        if eye.at([0.0, y(mid), mid]).y > target {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    high
+}
+
+/// The paper bail across the carriage for the sheet centred `middle` inches
+/// across: its rollers pressing the paper, the bar's front where the app
+/// prints its scale, and the arms holding it to the side plates.
+pub(super) fn paint_bail(
+    canvas: &Canvas,
+    eye: &Eye,
     metrics: &Metrics,
-    carriage_x: f32,
     typing_y: f32,
+    middle: f32,
 ) {
     let ppi = metrics.points_per_inch;
-    let [left, right] = platen_ends(view, metrics, typing_y, carriage_x);
-    let (left, right) = (
-        left + SIDE_PLATE_INCHES * ppi,
-        right - SIDE_PLATE_INCHES * ppi,
+    let scale_top = bail_scale_top(metrics, typing_y);
+    let extra = BAIL_EXTRA_INCHES * ppi;
+    let roller = ruler::HEIGHT / 2.0 / ppi + BAIL_ROLLER_EXTRA;
+    // The rollers on the paper, the bar's front a little before their axis.
+    let front_at = |z: f32| face_y(z) + roller + BAIL_DEPTH / 2.0;
+    let middle_z = z_showing_at(eye, front_at, scale_top + ruler::HEIGHT / 2.0);
+    let front = front_at(middle_z);
+    let axis = (front - BAIL_DEPTH / 2.0, middle_z);
+    let [top, foot] = [scale_top - extra, scale_top + ruler::HEIGHT + extra]
+        .map(|target| z_showing_at(eye, |_| front, target));
+    let [left, right] = ends(middle);
+    let (inner_left, inner_right) = (left + SIDE_PLATE_INCHES, right - SIDE_PLATE_INCHES);
+    let arm = BAIL_ARM_INCHES;
+    paint_bail_bar(
+        canvas,
+        eye,
+        [inner_left + arm, inner_right - arm],
+        front,
+        [top, foot],
     );
-    let y = bail_scale_top(metrics, typing_y) + ruler::HEIGHT / 2.0;
-    let half_height = ruler::HEIGHT / 2.0 + BAIL_EXTRA_INCHES * ppi;
-    let pivot_y = typing_y - BAIL_PIVOT_ABOVE * ppi;
-    let arm = BAIL_ARM_INCHES * ppi;
-    for x in [left..=left + arm, right - arm..=right] {
-        let arm_rect = Rect::from_x_y_ranges(x, y - half_height..=pivot_y + arm / 2.0);
-        painter.rect(
-            arm_rect,
-            CornerRadius::same(3),
-            CHROME,
-            Stroke::new(1.0, EDGE),
-            StrokeKind::Inside,
-        );
-        let rivet = pos2(arm_rect.center().x, pivot_y);
-        painter.circle(rivet, arm * 0.28, METAL, Stroke::new(1.0, EDGE));
-    }
-    let bar = Rect::from_x_y_ranges(left + arm..=right - arm, y - half_height..=y + half_height);
-    // Brushed metal, brightest just above the middle.
-    let stops = [
-        (bar.top(), BAIL_TOP),
-        (bar.top() + 0.35 * bar.height(), BAIL_MID),
-        (bar.bottom(), BAIL_LOW),
-    ];
-    let mut mesh = Mesh::default();
-    for pair in stops.windows(2) {
-        let [(upper, upper_colour), (lower, lower_colour)] = [pair[0], pair[1]];
-        add_quad(
-            &mut mesh,
-            [
-                (pos2(bar.left(), upper), upper_colour),
-                (pos2(bar.right(), upper), upper_colour),
-                (pos2(bar.right(), lower), lower_colour),
-                (pos2(bar.left(), lower), lower_colour),
-            ],
-        );
-    }
-    painter.add(Shape::mesh(mesh));
-    painter.rect_stroke(
-        bar,
-        CornerRadius::same(2),
-        Stroke::new(1.0, EDGE),
-        StrokeKind::Inside,
-    );
-    let mut mesh = Mesh::default();
+    let mut solid = Solid::default();
     for side in [-1.0, 1.0] {
-        let x = carriage_x + side * BAIL_ROLLER_INCHES * ppi;
-        let radius = ruler::HEIGHT / 2.0 + 0.07 * ppi;
-        let width = 0.25 * ppi;
-        roller(
-            &mut mesh,
-            x - width..=x + width,
-            y,
-            radius,
+        let x = middle + side * BAIL_ROLLER_INCHES;
+        let across = [x - BAIL_ROLLER_HALF, x + BAIL_ROLLER_HALF];
+        cylinder(
+            eye,
+            &mut solid,
+            (across, axis, roller),
+            ROLLER_BANDS,
             [RUBBER, RUBBER_SHINE],
         );
     }
-    painter.add(Shape::mesh(mesh));
+    canvas.mesh(Layer::Opaque, solid);
+    for x in [
+        [inner_left, inner_left + arm],
+        [inner_right - arm, inner_right],
+    ] {
+        paint_bail_arm(canvas, eye, x, (axis.0, top), BAIL_PIVOT);
+    }
+}
+
+/// The bail's bar over `x`, its front at depth `front` from `top` to `foot`:
+/// brushed metal, brightest just above the middle.
+fn paint_bail_bar(
+    canvas: &Canvas,
+    eye: &Eye,
+    [x0, x1]: [f32; 2],
+    front: f32,
+    [top, foot]: [f32; 2],
+) {
+    let back = front - BAIL_DEPTH;
+    let stops = [
+        (top, BAIL_TOP),
+        (top + 0.35 * (foot - top), BAIL_MID),
+        (foot, BAIL_LOW),
+    ];
+    let mut solid = Solid::default();
+    for pair in stops.windows(2) {
+        let [(upper, upper_colour), (lower, lower_colour)] = [pair[0], pair[1]];
+        eye.quad(
+            &mut solid,
+            [
+                ([x0, front, upper], upper_colour),
+                ([x1, front, upper], upper_colour),
+                ([x1, front, lower], lower_colour),
+                ([x0, front, lower], lower_colour),
+            ],
+        );
+    }
+    let lid = matte(BAIL_TOP, [0.0, 0.0, 1.0]);
+    eye.quad(
+        &mut solid,
+        [
+            ([x0, back, top], lid),
+            ([x1, back, top], lid),
+            ([x1, front, top], lid),
+            ([x0, front, top], lid),
+        ],
+    );
+    canvas.mesh(Layer::Opaque, solid);
+    let outline = [
+        [x0, front, top],
+        [x1, front, top],
+        [x1, front, foot],
+        [x0, front, foot],
+    ];
+    eye.outline(canvas, &outline);
+}
+
+/// A bail arm over `x`, from the bar's end at `from` down to its rivet on
+/// the side plate at `pivot`, each `(y, z)`: chrome, its front and inner
+/// side lit as they face.
+fn paint_bail_arm(
+    canvas: &Canvas,
+    eye: &Eye,
+    [x0, x1]: [f32; 2],
+    from: (f32, f32),
+    pivot: (f32, f32),
+) {
+    let down = normalized([0.0, pivot.0 - from.0, pivot.1 - from.1]);
+    // Square to the arm, toward the writer.
+    let forward = [0.0, -down[2], down[1]];
+    let forward = if forward[1] < 0.0 {
+        scaled(forward, -1.0)
+    } else {
+        forward
+    };
+    let half = scaled(forward, BAIL_DEPTH / 2.0);
+    let [start, end] = [from, pivot].map(|(y, z)| [0.0, y, z]);
+    // Past the rivet by half the arm's width: its rounded foot.
+    let end = add(end, scaled(down, BAIL_ARM_INCHES / 2.0));
+    let at = |x: f32, p: [f32; 3], side: [f32; 3]| add([x, 0.0, 0.0], add(p, side));
+    let front_face = [
+        at(x0, start, half),
+        at(x1, start, half),
+        at(x1, end, half),
+        at(x0, end, half),
+    ];
+    let back = scaled(half, -1.0);
+    // The side toward the carriage's middle.
+    let inner = if x0 + x1 < 0.0 { x1 } else { x0 };
+    let inner_face = [
+        at(inner, start, half),
+        at(inner, end, half),
+        at(inner, end, back),
+        at(inner, start, back),
+    ];
+    let toward_middle = [if inner == x1 { 1.0 } else { -1.0 }, 0.0, 0.0];
+    for (face, normal) in [(front_face, forward), (inner_face, toward_middle)] {
+        let lit = matte(CHROME, normal);
+        eye.fill(canvas, &face, |_| lit);
+        eye.outline(canvas, &face);
+    }
+    let rivet_at = at((x0 + x1) / 2.0, [0.0, pivot.0, pivot.1], half);
+    let radius = BAIL_ARM_INCHES * 0.28;
+    let (side_way, up_way) = ([1.0, 0.0, 0.0], [0.0, down[1], down[2]].map(|c| -c));
+    let rivet: Vec<[f32; 3]> = (0..16u8)
+        .map(|i| {
+            let (sin, cos) = (TAU * f32::from(i) / 16.0).sin_cos();
+            add(
+                rivet_at,
+                add(scaled(side_way, radius * cos), scaled(up_way, radius * sin)),
+            )
+        })
+        .collect();
+    eye.fill_lying(canvas, &rivet, |_| matte(METAL, forward));
+    eye.outline(canvas, &rivet);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_bail_s_arms_pivot_on_the_side_plates_clear_of_the_platen() {
+        let [_, axis_y, axis_z] = platen_axis();
+        let (y, z) = BAIL_PIVOT;
+        assert!(y < axis_y + SIDE_PLATE_Y.1 && z < axis_z + SIDE_PLATE_Z.0);
+        // The arm's rounded foot past the rivet, and its back.
+        let reach = BAIL_ARM_INCHES / 2.0 + BAIL_DEPTH / 2.0;
+        let off = ((y - axis_y).powi(2) + (z - axis_z).powi(2)).sqrt();
+        assert!(off - reach > PLATEN_DIAMETER_INCHES / 2.0, "{off}");
+    }
 }

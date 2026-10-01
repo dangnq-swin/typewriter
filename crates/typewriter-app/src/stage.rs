@@ -40,13 +40,6 @@ impl Return {
     };
 }
 
-/// The platen as drawn: its ends and its axis, on screen.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Platen {
-    pub ends: [f32; 2],
-    pub axis_y: f32,
-}
-
 /// Behind the platen, where a sheet goes in: the part not yet wound round
 /// lies on it, its blank back to the writer.
 pub struct PaperTable {
@@ -88,8 +81,8 @@ pub struct Controls<'a> {
 }
 
 /// An edition: its name, and what it draws around the sheet. The typing
-/// view calls the hooks in its order: behind the sheets, over them, then,
-/// fading in calm, the scale and around the knobs.
+/// view calls the hooks in its order: behind the sheets, the knobs, over the
+/// sheets, then, fading in calm, the scale.
 pub trait Stage {
     /// The command that opens it, also its app id.
     fn command(&self) -> &'static str;
@@ -163,6 +156,20 @@ pub trait Stage {
         0.0
     }
 
+    /// Its own platen knobs, calm or not, turned by `rolled` points of paper,
+    /// the one under the pointer lit if `active`: where each grip is, left
+    /// then right, to drag. `None`: the plain app's, which fade in calm.
+    fn knobs(
+        &self,
+        _ui: &Ui,
+        _painter: &Painter,
+        _scene: &Scene,
+        _rolled: f32,
+        _active: bool,
+    ) -> Option<[Rect; 2]> {
+        None
+    }
+
     /// After the sheets, calm or not: what stands in front of them.
     fn paint_over_sheets(&self, _painter: &Painter, _scene: &Scene) {}
 
@@ -184,18 +191,6 @@ pub trait Stage {
     fn scale_top(&self, _scene: &Scene) -> Option<f32> {
         None
     }
-
-    /// The platen on screen, where the knobs turn. `None`: beside the
-    /// paper, hanging from the scale.
-    fn platen(&self, _scene: &Scene) -> Option<Platen> {
-        None
-    }
-
-    /// Before the knobs: what they hide.
-    fn paint_behind_knobs(&self, _painter: &Painter, _scene: &Scene) {}
-
-    /// After the knobs: what passes in front of them.
-    fn paint_over_knobs(&self, _painter: &Painter, _scene: &Scene) {}
 
     /// Still moving at `now` since `last_return`: draw again soon.
     fn is_animating(&self, _last_return: Return, _now: f64) -> bool {

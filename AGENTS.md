@@ -119,13 +119,14 @@ than keep a listing here.
 - Where the desk needs the app, the app offers a hook on `Stage` whose default is the plain
   app's, and hands the desk plain data (shapes, meshes, rects, the sheet's marks, window
   options); the desk does the 3D with it. The typing view calls the hooks in its steps (behind
-  the sheets, over them, around the knobs).
+  the sheets, the knobs, over the sheets).
 - The desk edition keeps no state: the app's desk keeps what it draws from (e.g. the last
   return), and clicks on its controls come back to the app as rects.
 - It reaches the app's drawing only through `draw.rs`: share a helper by re-exporting it there,
   not by making a module public.
-- The desk draws its body and sheets in depth (its `depth.rs`): a wgpu paint callback with a
-  depth buffer, positions still projected on the CPU by the desk's eye. Its
+- The desk draws its body and sheets in depth (its `depth.rs`): one wgpu paint callback a frame
+  with a depth buffer, positions still projected on the CPU by the desk's eye. The parts gather
+  into it between `depth::begin` and `depth::end`. Its
   parts draw on a `Canvas` (`machine/canvas.rs`), flat or in depth: a face hides what is
   behind; what lies on one (edges, marks, print, glass) is set a hair nearer and hides nothing.
   A part moved into depth needs its real shape, not the order it was drawn in.

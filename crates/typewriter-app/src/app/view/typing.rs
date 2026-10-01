@@ -16,7 +16,7 @@ use crate::render::calm::{self, Dimming};
 use crate::render::folder::{Answer, Flight};
 use crate::render::platen::Layout;
 use crate::render::{self, feed, folder, holder, knob, notebook, paper, platen, ruler};
-use crate::stage::{Controls, FlatSheet, PaperTable, Platen, Scene};
+use crate::stage::{Controls, FlatSheet, PaperTable, Scene};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
@@ -101,10 +101,18 @@ struct Sheets {
     answer: Answer,
 }
 
+/// What the stage draws over the sheets, calm or not: whether it has its
+/// own controls, and its knobs' grips.
+struct Over {
+    own_controls: bool,
+    knobs: Option<[Rect; 2]>,
+}
+
 /// What fades in calm, as drawn: for its clicks and drags.
 struct Chrome {
     scale: ruler::Scale,
-    knobs: [knob::Knob; 2],
+    /// The knobs' grips, the stage's if it drew them.
+    knobs: [Rect; 2],
     /// The plates, and what the save plate reads. `None`: the stage has its
     /// own controls.
     plates: Option<([Rect; 5], Keeping)>,
@@ -132,7 +140,8 @@ impl TypewriterApp {
         let painter = ui.painter_at(view);
         let sheet_painter = self.paint_behind_sheets(&painter, &scene);
         let sheets = self.paint_sheets(ui, &sheet_painter, &scene, &layout, calm);
-        let own_controls = self.show_over_sheets(ui, &painter, &scene, intents);
+        let active = chrome >= 1.0 && !self.desk.is_busy(now);
+        let over = self.show_over_sheets(ui, &painter, &scene, &sheets, active, intents);
         self.paint_platen_marks(&painter, &layout, sheets.pointer_opacity, now);
         self.show_desk_icons(ui, view, &sheets, chrome, now, intents);
         if chrome <= 0.0 {
@@ -140,7 +149,7 @@ impl TypewriterApp {
         }
         let mut painter = painter;
         painter.multiply_opacity(chrome);
-        let drawn = self.paint_chrome(ui, &painter, &scene, &layout, chrome, &sheets, own_controls);
+        let drawn = self.paint_chrome(ui, &painter, &scene, &layout, chrome, &sheets, &over);
         // React only when fully shown, not mid-fade.
         if chrome < 1.0 {
             return;
@@ -150,8 +159,8 @@ impl TypewriterApp {
         }
         if !self.desk.is_busy(now) {
             self.margin_stops(ui, &drawn.scale, intents);
-            for (name, knob) in ["left", "right"].into_iter().zip(&drawn.knobs) {
-                self.platen_knob(ui, name, knob.grip(), intents);
+            for (name, grip) in ["left", "right"].into_iter().zip(drawn.knobs) {
+                self.platen_knob(ui, name, grip, intents);
             }
         }
     }
@@ -321,15 +330,21 @@ impl TypewriterApp {
         }
     }
 
-    /// Over the sheets, calm or not: the stage's, and its own controls,
-    /// which answer at once. False: it has none, the plates stand in.
+    /// Over the sheets, calm or not: the stage's knobs, lit under the pointer
+    /// if `active`; what it has in front of the sheets; its own controls,
+    /// which answer at once.
     fn show_over_sheets(
         &self,
         ui: &egui::Ui,
         painter: &Painter,
         scene: &Scene,
+        sheets: &Sheets,
+        active: bool,
         intents: &mut Vec<Intent>,
-    ) -> bool {
+    ) -> Over {
+        let knobs = self
+            .stage
+            .knobs(ui, painter, scene, sheets.knob_rolled, active);
         self.stage.paint_over_sheets(painter, scene);
         let (desk, project) = (&self.desk, &self.desk.project);
         let keeping = project
@@ -347,11 +362,14 @@ impl TypewriterApp {
             progress: project.session.progress(),
             keeping: &keeping,
         };
-        let Some(rects) = self.stage.controls(ui, painter, scene, &controls) else {
-            return false;
-        };
-        self.control_buttons(ui, rects, &keeping, intents);
-        true
+        let own_controls = self.stage.controls(ui, painter, scene, &controls);
+        if let Some(rects) = own_controls {
+            self.control_buttons(ui, rects, &keeping, intents);
+        }
+        Over {
+            own_controls: own_controls.is_some(),
+            knobs,
+        }
     }
 
     /// The platen's marks over the sheet: the correction slip, the guides
@@ -412,8 +430,8 @@ impl TypewriterApp {
     }
 
     /// What fades in calm: the scale, on its plate or printed on the stage's
-    /// machine; the knobs, with what the stage has behind and in front of
-    /// them; the plates, unless the stage has `own_controls`.
+    /// machine; the knobs and the plates, unless the stage has its own
+    /// (`over`).
     #[allow(clippy::too_many_arguments)]
     fn paint_chrome(
         &self,
@@ -423,7 +441,7 @@ impl TypewriterApp {
         layout: &Layout,
         chrome: f32,
         sheets: &Sheets,
-        own_controls: bool,
+        over: &Over,
     ) -> Chrome {
         let project = &self.desk.project;
         let machine = &project.machine;
@@ -439,30 +457,21 @@ impl TypewriterApp {
         } else {
             ruler::paint_scale(painter, &scale, carriage);
         }
-        let knobs = match self.stage.platen(scene) {
-            Some(Platen {
-                ends: [left, right],
-                axis_y,
-                ..
-            }) => [(Side::Left, left), (Side::Right, right)]
-                .map(|(side, edge)| knob::Knob::on_axis(&self.metrics, side, edge, axis_y)),
-            None => {
-                let paper_left = layout.paper_origin.x;
-                [
-                    (Side::Left, paper_left),
-                    (Side::Right, paper_left + self.metrics.paper_size.x),
-                ]
-                .map(|(side, edge)| knob::Knob::new(&self.metrics, side, edge, scale_top))
-            }
-        };
-        self.stage.paint_behind_knobs(painter, scene);
-        let busy = self.desk.is_busy(scene.now);
-        for knob in &knobs {
-            let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
-            knob.paint(painter, sheets.knob_rolled, hovered);
-        }
-        self.stage.paint_over_knobs(painter, scene);
-        let plates = (!own_controls).then(|| {
+        let knobs = over.knobs.unwrap_or_else(|| {
+            let paper_left = layout.paper_origin.x;
+            let busy = self.desk.is_busy(scene.now);
+            [
+                (Side::Left, paper_left),
+                (Side::Right, paper_left + self.metrics.paper_size.x),
+            ]
+            .map(|(side, edge)| {
+                let knob = knob::Knob::new(&self.metrics, side, edge, scale_top);
+                let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
+                knob.paint(painter, sheets.knob_rolled, hovered);
+                knob.grip()
+            })
+        });
+        let plates = (!over.own_controls).then(|| {
             let spacing_plate = ruler::paint_spacing_indicator(
                 painter,
                 carriage.line_spacing,

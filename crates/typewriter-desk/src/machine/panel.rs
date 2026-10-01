@@ -7,7 +7,8 @@ use typewriter_core::{EraseMode, LineSpacing};
 use super::canvas::Canvas;
 use super::cover::{COVER_FRONT, COVER_HALF};
 use super::eye::{Eye, paint_flat_text};
-use super::geometry::add;
+use super::geometry::{add, dot};
+use super::light::toward_light;
 use super::{CHROME, ENGRAVED, IVORY, IVORY_LIT, SHIFT_CAP, SHIFT_FRONT};
 use typewriter_app::draw::{Controls, HIGHLIGHT, Metrics, ruler};
 use typewriter_app::settings::{ZOOM_NOTCHES, zoom_notch};
@@ -27,9 +28,6 @@ const LABEL_LINES: (f32, f32) = (-0.07, 0.07);
 pub(super) const KNOB_RADIUS: f32 = 0.3;
 const KNOB_HEIGHT: f32 = 0.22;
 const BUTTON_HEIGHT: f32 = 0.1;
-/// The knobs' shadows fall away from the light: degrees clockwise from up
-/// the panel.
-const KNOB_SHADOW_TURN: f32 = 55.0;
 /// Past the knob, where its index marks are engraved: inner and outer.
 pub(super) const INDEX_MARKS: (f32, f32) = (1.25, 1.5);
 const LAMP_RADIUS: f32 = 0.08;
@@ -37,13 +35,7 @@ const LAMP_RADIUS: f32 = 0.08;
 /// clear of the button and its shadow, short of the label.
 const LAMP_OUT: f32 = 0.56;
 const LAMP_RIM: f32 = 1.4 * LAMP_RADIUS;
-/// The shadow a knob or button casts: how far off, how much wider.
-const SHADOW_OFF: f32 = 0.06;
-const SHADOW_SPREAD: f32 = 1.1;
-const _: () = assert!(
-    LAMP_OUT - LAMP_RIM > KNOB_RADIUS * SHADOW_SPREAD + SHADOW_OFF
-        && LAMP_OUT + LAMP_RIM < LABEL_GAP + SAVE_LABEL_PAST
-);
+const _: () = assert!(LAMP_OUT + LAMP_RIM < LABEL_GAP + SAVE_LABEL_PAST);
 const KNOB_TOP: Color32 = Color32::from_rgb(0xEC, 0xE7, 0xD6);
 const KNOB_SIDE: Color32 = Color32::from_rgb(0xCC, 0xC5, 0xAF);
 const KNOB_RIB: Color32 = Color32::from_rgb(0xAE, 0xA6, 0x8E);
@@ -97,6 +89,13 @@ pub(super) fn panel_offset(centre: [f32; 3], radius: f32, turn: f32) -> [f32; 3]
         let right = if k == 0 { 1.0 } else { 0.0 };
         centre[k] + radius * (sin * right - cos * down[k])
     })
+}
+
+/// Where the light casts `point`, `height` inches off the panel, onto it.
+fn cast_on_panel(point: [f32; 3], height: f32) -> [f32; 3] {
+    let light = toward_light();
+    let along = height / dot(light, panel_normal());
+    [0, 1, 2].map(|k| point[k] - light[k] * along)
 }
 
 /// A circle on the panel's plane.
@@ -309,10 +308,7 @@ impl Panel {
         let eye = &self.eye;
         let normal = panel_normal();
         let top = [0, 1, 2].map(|k| base[k] + normal[k] * height);
-        let shadow = circle(
-            panel_offset(base, SHADOW_OFF, KNOB_SHADOW_TURN),
-            KNOB_RADIUS * SHADOW_SPREAD,
-        );
+        let shadow = circle(cast_on_panel(top, height), KNOB_RADIUS);
         eye.fill(canvas, &shadow, |_| Color32::from_black_alpha(60));
         // The side: the base's near half, the top's far half.
         let steps = 24u8;
@@ -397,5 +393,21 @@ mod tests {
                 .iter()
                 .all(|&(left, right)| left > -half && right < half)
         );
+    }
+
+    #[test]
+    fn shadows_clear_of_the_lamp_and_labels() {
+        let shadow = |height: f32| {
+            let top = add(
+                on_panel(0.0, CONTROLS_Y),
+                panel_normal().map(|n| n * height),
+            );
+            cast_on_panel(top, height)
+        };
+        let lamp = on_panel(LAMP_OUT, CONTROLS_Y);
+        let apart = [0, 1, 2].map(|k| lamp[k] - shadow(BUTTON_HEIGHT)[k]);
+        let gap = dot(apart, apart).sqrt();
+        assert!(gap > KNOB_RADIUS + LAMP_RIM, "{gap}");
+        assert!(shadow(KNOB_HEIGHT)[0] + KNOB_RADIUS < LABEL_GAP);
     }
 }

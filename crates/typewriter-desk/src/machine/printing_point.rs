@@ -23,7 +23,7 @@ use typewriter_app::draw::Metrics;
 /// off the paper. Their inner and outer `x`. The line being typed shows
 /// through them.
 const GUIDE_Z: (f32, f32) = (-0.5, 0.27);
-const GUIDE_OFF_PAPER: f32 = 0.005;
+const GUIDE_OFF_PAPER: f32 = 0.018;
 const GUIDE_X: (f32, f32) = (0.7, 3.8);
 /// The plates' top corners, rounded: outside and in.
 const OUTER_TOP_ROUNDING: f32 = 0.25;
@@ -273,7 +273,9 @@ fn paint_vibrator(canvas: &Canvas, eye: &Eye) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::carriage::{PLATEN_DIAMETER_INCHES, SIDE_PLATE_Y, platen_axis};
     use super::super::cover::{COVER_BACK, on_cover};
+    use super::super::eye::{LYING_INCHES, toward_eye};
     use super::*;
 
     /// At 96 points an inch, the typing line's foot is 16 points down.
@@ -290,6 +292,23 @@ mod tests {
         let (vy, vtop, _) = VIBRATOR;
         assert!(eye.at([0.0, y, top]).y > foot);
         assert!(eye.at([0.0, vy, vtop]).y > LINE_FOOT + 1.0);
+    }
+
+    #[test]
+    fn the_guide_between_the_print_and_the_ribbon() {
+        // Its offset seen along the eye: on the typing line the paper faces
+        // the eye; at the platen's front, nearest the ribbon, it stands upright.
+        let up = toward_eye()[1];
+        assert!(GUIDE_OFF_PAPER * up > LYING_INCHES);
+        let front = platen_axis()[1] + PLATEN_DIAMETER_INCHES / 2.0;
+        assert!((RIBBON.0 - front - GUIDE_OFF_PAPER) / up > LYING_INCHES);
+    }
+
+    #[test]
+    fn the_carriage_runs_behind_the_guide() {
+        // Its top, leaning back with the paper, is nearest the side plates.
+        let front = platen_axis()[1] + SIDE_PLATE_Y.1;
+        assert!(on_guide(0.0, 1.0)[1] > front);
     }
 
     #[test]

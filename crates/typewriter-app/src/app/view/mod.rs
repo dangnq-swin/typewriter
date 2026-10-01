@@ -99,7 +99,7 @@ mod tests {
     use crate::app::desk::testing::{press, type_text};
     use crate::app::desk::{Answer, Leaving};
     use crate::app::fonts;
-    use crate::draw::{Controls, Metrics, Platen, Scene};
+    use crate::draw::{Controls, Metrics, Scene};
     use crate::input::Action;
     use crate::render::folder::FolderAction;
     use crate::stage::Stage;
@@ -191,6 +191,18 @@ mod tests {
             None
         }
 
+        fn knobs(
+            &self,
+            _: &egui::Ui,
+            _: &Painter,
+            _: &Scene,
+            _: f32,
+            _: bool,
+        ) -> Option<[Rect; 2]> {
+            self.note("knobs");
+            None
+        }
+
         fn paint_over_sheets(&self, _: &Painter, _: &Scene) {
             self.note("over the sheets");
         }
@@ -210,19 +222,6 @@ mod tests {
             self.note("scale");
             None
         }
-
-        fn platen(&self, _: &Scene) -> Option<Platen> {
-            self.note("knobs");
-            None
-        }
-
-        fn paint_behind_knobs(&self, _: &Painter, _: &Scene) {
-            self.note("behind the knobs");
-        }
-
-        fn paint_over_knobs(&self, _: &Painter, _: &Scene) {
-            self.note("over the knobs");
-        }
     }
 
     #[test]
@@ -239,12 +238,10 @@ mod tests {
                 "typing line",
                 "behind the sheets",
                 "sheet lift",
+                "knobs",
                 "over the sheets",
                 "controls",
                 "scale",
-                "knobs",
-                "behind the knobs",
-                "over the knobs",
             ]
         );
     }

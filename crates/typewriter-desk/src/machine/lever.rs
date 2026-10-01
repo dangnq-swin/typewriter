@@ -9,15 +9,14 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use eframe::egui::{Painter, Rect, Stroke};
+use eframe::egui::{Shape, Stroke};
 
 use super::canvas::Canvas;
-use super::carriage::platen_axis;
 use super::eye::Eye;
 use super::geometry::{add, cross, normalized, scaled, sub};
 use super::light::{brighten, chrome_at, paint_chrome, streak, toward_light};
 use super::{EDGE, METAL, METAL_SHINE};
-use typewriter_app::draw::{Metrics, glide_seconds, smoothstep};
+use typewriter_app::draw::{glide_seconds, smoothstep};
 
 /// The bracket, `x` out from the carriage's left end (negative), `y` behind
 /// the knob's axis, `z` round it: a thin strip standing out from the end,
@@ -102,52 +101,13 @@ impl Throw {
     }
 }
 
-/// Behind the left knob, before it: the bracket on the carriage's left end
-/// at `left` on screen, the lever's base in it thrown `amount` (0..=1), and
-/// the screw.
-pub fn paint_lever_base(
-    painter: &Painter,
-    view: Rect,
-    metrics: &Metrics,
-    typing_y: f32,
-    left: f32,
-    amount: f32,
-) {
-    let eye = Eye::new(view, metrics, typing_y).about(platen_axis());
-    // It meets the side plate: nothing of it over the plate.
-    let clip = painter.clip_rect();
-    let painter = painter.with_clip_rect(Rect::from_min_max(
-        clip.min,
-        eframe::egui::pos2(left.min(clip.right()), clip.bottom()),
-    ));
-    let canvas = &Canvas::flat(&painter);
-    let left = end_at(&eye, left);
-    paint_bracket(canvas, &eye, left);
+/// The bracket on the carriage's left end at `left` inches, `eye` about the
+/// platen's axis; the lever in it thrown `amount` (0..=1), and the screw.
+pub(super) fn paint(canvas: &Canvas, eye: &Eye, left: f32, amount: f32) {
+    paint_bracket(canvas, eye, left);
     let strap = Strap::new(left, amount);
-    paint_strap(canvas, &eye, &strap.frames[..=strap.behind_knob], false);
-    paint_screw(canvas, &eye, strap.screw);
-}
-
-/// In front of the left knob, after it: the lever out of its bracket on the
-/// carriage's left end at `left` on screen, thrown `amount` (0..=1).
-pub fn paint_lever(
-    painter: &Painter,
-    view: Rect,
-    metrics: &Metrics,
-    typing_y: f32,
-    left: f32,
-    amount: f32,
-) {
-    let eye = Eye::new(view, metrics, typing_y).about(platen_axis());
-    let strap = Strap::new(end_at(&eye, left), amount);
-    let canvas = &Canvas::flat(painter);
-    paint_strap(canvas, &eye, &strap.frames[strap.behind_knob..], true);
-}
-
-/// The carriage's left end, at `left` on screen on the platen's axis, in
-/// inches: where the bracket meets it.
-fn end_at(eye: &Eye, left: f32) -> f32 {
-    (left - eye.origin.x) / eye.scale([0.0; 3])
+    paint_strap(canvas, eye, &strap.frames);
+    paint_screw(canvas, eye, strap.screw);
 }
 
 /// The bracket's faces toward the eye, for the carriage's left end at
@@ -205,21 +165,18 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
     eye.outline(canvas, &face);
 }
 
-/// The lever through `frames`, back to front. Each length's strips across
-/// it go curl first, the flat top last, which hides the rest from above;
-/// each is chrome for the way its seen side faces. Then its two edges, as
-/// single strokes no join can spike. `tip`: its end is in `frames`, and its
-/// cut shows the fold and curl.
-fn paint_strap(canvas: &Canvas, eye: &Eye, frames: &[Frame], tip: bool) {
+/// The lever through `frames`, back to front: each strip across it chrome
+/// for the way its seen side faces. Then its two edges, as single strokes no
+/// join can spike, and its tip's cut, showing the fold and curl.
+fn paint_strap(canvas: &Canvas, eye: &Eye, frames: &[Frame]) {
     let stroke = |a: [f32; 3], b: [f32; 3]| {
-        canvas
-            .painter()
-            .line_segment([eye.at(a), eye.at(b)], Stroke::new(1.0, EDGE));
+        let edge = Shape::line_segment([eye.at(a), eye.at(b)], Stroke::new(1.0, EDGE));
+        eye.stroke(canvas, &[a, b], edge);
     };
     for pair in frames.windows(2) {
         let (a, b) = (&pair[0], &pair[1]);
         let shine = 0.85 + 0.3 * streak(sub(b.middle, a.middle), 4);
-        for k in (0..ACROSS - 1).rev() {
+        for k in 0..ACROSS - 1 {
             let strip = [a.across[k], a.across[k + 1], b.across[k + 1], b.across[k]];
             let normal = cross(sub(strip[2], strip[0]), sub(strip[3], strip[1]));
             // Not yet folded: no area.
@@ -238,7 +195,7 @@ fn paint_strap(canvas: &Canvas, eye: &Eye, frames: &[Frame], tip: bool) {
         stroke(a.across[0], b.across[0]);
         stroke(a.across[1], b.across[1]);
     }
-    if tip && let Some(end) = frames.last() {
+    if let Some(end) = frames.last() {
         for pair in end.across[1..].windows(2) {
             stroke(pair[0], pair[1]);
         }
@@ -316,9 +273,6 @@ struct Frame {
 /// The lever along its path, in the machine's inches.
 struct Strap {
     frames: Vec<Frame>,
-    /// The last frame behind the knob: its lengths up to here are drawn
-    /// before the knob, the rest after.
-    behind_knob: usize,
     /// Its screw's head, on top of its base.
     screw: [f32; 3],
 }
@@ -335,10 +289,6 @@ impl Strap {
             add(add(turned, pivot), [left, 0.0, 0.0])
         };
         let resting = path();
-        let behind_knob = resting
-            .iter()
-            .rposition(|(p, _)| p[1] < BRACKET_Y.1)
-            .unwrap_or(0);
         let points: Vec<[f32; 3]> = resting.iter().map(|&(p, _)| turn(p)).collect();
         let last = points.len() - 1;
         let frames = (0..=last)
@@ -356,11 +306,7 @@ impl Strap {
             })
             .collect();
         let screw = turn([SCREW.0, SCREW.1, BRACKET_Z.1 + 2.0 * ABOVE_LID]);
-        Self {
-            frames,
-            behind_knob,
-            screw,
-        }
+        Self { frames, screw }
     }
 }
 
@@ -368,18 +314,14 @@ impl Strap {
 mod tests {
     #![allow(clippy::unwrap_used)]
 
-    use eframe::egui::{Pos2, vec2};
-    use typewriter_core::{Profile, Side};
-
-    use super::super::carriage::platen_ends;
+    use super::super::carriage::{ends, platen_axis};
     use super::super::geometry::dot;
+    use super::super::knob::{self, COLLAR, DISC};
     use super::*;
-    use typewriter_app::draw::Knob;
 
-    /// The knob's disc: out to 0.52 in past the carriage's end, 0.575 in
-    /// round its axis (knob.rs).
-    const DISC_REACH: f32 = 0.52;
-    const DISC_RADIUS: f32 = 0.575;
+    /// The knob's disc: how far out past the carriage's end, and its radius.
+    const DISC_REACH: f32 = COLLAR.0 + DISC.0;
+    const DISC_RADIUS: f32 = DISC.1;
     // The screw's head sits on the lever, which folds only past the knob.
     const _: () = assert!(SCREW_RADIUS < WIDTH / 2.0 && CURL_Y.0 > DISC_RADIUS);
 
@@ -419,18 +361,10 @@ mod tests {
         );
         assert!(across > deep && deep > tall, "a thin strip, long across");
         assert!(-BRACKET_X.0 <= DISC_REACH, "no further out than the knob");
-        let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
-        let metrics = Metrics::new(&Profile::from_toml_str(sm9).unwrap(), 96.0);
-        let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
-        let typing_y = 600.0;
-        let eye = Eye::new(view, &metrics, typing_y).about(platen_axis());
-        let [left, _] = platen_ends(view, &metrics, typing_y, view.center().x);
-        let axis_y = eye.at([0.0; 3]).y;
-        let knob = Knob::on_axis(&metrics, Side::Left, left, axis_y).grip();
-        // Its inner end meets the side plate, at the carriage's end; the
-        // knob hides its outer front.
-        let end = end_at(&eye, left);
-        assert!((end + 5.9).abs() < 1e-3, "{end}");
+        let eye = Eye::testing(600.0, 96.0).about(platen_axis());
+        let [end, _] = ends(0.0);
+        let [knob, _] = knob::grips(&eye, ends(0.0));
+        // The knob hides its outer front.
         for z in [BRACKET_Z.0, BRACKET_Z.1] {
             let corner = eye.at([end + BRACKET_X.0, BRACKET_Y.1, z]);
             assert!(knob.contains(corner), "{corner:?} outside {knob:?}");
@@ -509,14 +443,6 @@ mod tests {
         assert!(end.0 > curled[2 + FOLD_STEPS].0 && end.1 < 0.0, "{end:?}");
         let before = path().into_iter().filter(|(p, _)| p[1] <= CURL_Y.0);
         assert!(before.map(|(_, formed)| formed).all(|f| f == 0.0));
-    }
-
-    #[test]
-    fn behind_the_knob_is_only_what_the_bracket_holds_and_the_swoop_s_foot() {
-        let strap = Strap::new(0.0, 0.0);
-        let at = strap.frames[strap.behind_knob].middle;
-        assert!(at[1] < BRACKET_Y.1);
-        assert!(strap.frames[strap.behind_knob + 1].middle[1] >= BRACKET_Y.1);
     }
 
     #[test]

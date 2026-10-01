@@ -1,6 +1,7 @@
 //! What stands in front hides what is behind: triangles drawn with a depth
 //! buffer, in any order, through a paint callback on eframe's wgpu renderer.
-//! The machine and the sheets draw so.
+//! The machine and the sheets draw so, in one callback a frame: [`begin`]
+//! sets its place, parts [`gather`] into it, [`end`] draws it.
 //!
 //! Each vertex is egui's, on screen in points, with a depth added: 0 at the
 //! eye to 1 far off. Opaque triangles hide what is behind them; decals lie
@@ -9,15 +10,16 @@
 //! data for [`rasterize`] to fill.
 
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock, Weak};
+use std::sync::{Arc, Weak};
 
 use eframe::egui::epaint::{PaintCallback, TessellationOptions, Tessellator, Vertex};
+use eframe::egui::layers::ShapeIdx;
 use eframe::egui::mutex::RwLock;
 use eframe::egui::{
     Color32, Context, CornerRadius, Id, Mesh, Painter, Pos2, Shape, StrokeKind, TextureId, Vec2,
 };
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, Renderer, ScreenDescriptor};
-use eframe::wgpu::{self, util::DeviceExt};
+use eframe::wgpu;
 
 /// The window's depth buffer, in bits: eframe's `depth_buffer`. One sample
 /// a pixel, as egui's: wgpu's OpenGL backend shows nothing with more.
@@ -47,7 +49,7 @@ pub struct Solid {
 }
 
 /// What a frame draws in depth.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Solids {
     opaque: Vec<Solid>,
     decals: Vec<Solid>,
@@ -65,8 +67,7 @@ impl Solids {
 
     /// Adds `mesh`, `place` moving each vertex where it shows, maybe tinting
     /// it, and giving its depth. `None` hides a vertex, and the triangles
-    /// touching it. Joins a solid of the same texture where it can: each
-    /// solid is a draw call.
+    /// touching it.
     pub fn add(
         &mut self,
         layer: Layer,
@@ -95,6 +96,21 @@ impl Solids {
                 solid.mesh.indices.push(new);
             }
         }
+        self.join(layer, solid);
+    }
+
+    /// Adds `other`'s solids after these.
+    pub fn append(&mut self, other: Self) {
+        for (layer, solids) in [(Layer::Opaque, other.opaque), (Layer::Decal, other.decals)] {
+            for solid in solids {
+                self.join(layer, solid);
+            }
+        }
+    }
+
+    /// Adds `solid`, joined to one of the same texture where it can: each
+    /// solid is a draw call.
+    fn join(&mut self, layer: Layer, solid: Solid) {
         if solid.mesh.indices.is_empty() {
             return;
         }
@@ -278,9 +294,48 @@ fn subdivided(mesh: Mesh, longest: f32) -> Mesh {
     }
 }
 
-/// Draws `solids` over what `painter` has drawn so far, under what it draws
-/// after: their depth decides only among what is drawn in depth.
-pub fn paint(painter: &Painter, solids: Solids) {
+/// The frame's depth pass, between [`begin`] and [`end`].
+#[derive(Clone, Default)]
+struct Frame {
+    /// Where it draws in the painter's order. `None`: not begun.
+    slot: Option<ShapeIdx>,
+    solids: Solids,
+}
+
+fn frame_id() -> Id {
+    Id::new("depth-pass-frame")
+}
+
+/// Starts the frame's depth pass: what is [`gather`]ed until [`end`] draws
+/// over what `painter` has drawn so far, under what it draws after.
+pub fn begin(painter: &Painter) {
+    let slot = painter.add(Shape::Noop);
+    let frame = Frame {
+        slot: Some(slot),
+        solids: Solids::default(),
+    };
+    painter
+        .ctx()
+        .data_mut(|data| data.insert_temp(frame_id(), frame));
+}
+
+/// Adds `solids` to the frame's depth pass. Their depth decides only among
+/// what is drawn in depth.
+pub fn gather(ctx: &Context, solids: Solids) {
+    ctx.data_mut(|data| {
+        data.get_temp_mut_or_default::<Frame>(frame_id())
+            .solids
+            .append(solids);
+    });
+}
+
+/// Draws the frame's depth pass where it [`begin`]s, or else now, with
+/// `painter`'s clip.
+pub fn end(painter: &Painter) {
+    let Frame { slot, solids } = painter
+        .ctx()
+        .data_mut(|data| data.remove_temp::<Frame>(frame_id()))
+        .unwrap_or_default();
     if solids.is_empty() {
         return;
     }
@@ -293,7 +348,6 @@ pub fn paint(painter: &Painter, solids: Solids) {
             Gpu {
                 solids,
                 ctx: painter.ctx().clone(),
-                buffers: OnceLock::new(),
             },
         )
     } else {
@@ -302,7 +356,12 @@ pub fn paint(painter: &Painter, solids: Solids) {
             callback: solids,
         }
     };
-    painter.add(Shape::Callback(callback));
+    match slot {
+        Some(slot) => painter.set(slot, Shape::Callback(callback)),
+        None => {
+            painter.add(Shape::Callback(callback));
+        }
+    }
 }
 
 fn installed_id() -> Id {
@@ -412,6 +471,8 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
         opaque: pipeline(Layer::Opaque),
         decal: pipeline(Layer::Decal),
         renderer: Arc::downgrade(&render_state.renderer),
+        buffers: None,
+        draws: Vec::new(),
     };
     render_state
         .renderer
@@ -428,6 +489,10 @@ struct Pipelines {
     decal: wgpu::RenderPipeline,
     /// Weak: the renderer keeps these.
     renderer: Weak<RwLock<Renderer>>,
+    /// Refilled each frame, grown when too small: one pass a frame.
+    buffers: Option<Buffers>,
+    /// This frame's, into `buffers`.
+    draws: Vec<Draw>,
 }
 
 /// A frame's solids, for egui's renderer.
@@ -435,14 +500,34 @@ struct Gpu {
     solids: Arc<Solids>,
     /// For the font atlas's size once the frame is over.
     ctx: Context,
-    /// Made while preparing, drawn from while painting.
-    buffers: OnceLock<Buffers>,
 }
 
 struct Buffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
-    draws: Vec<Draw>,
+}
+
+impl Buffers {
+    /// Room for at least `vertex_bytes` and `index_bytes`, to the next
+    /// power of two: a growing page grows them seldom.
+    fn new(device: &wgpu::Device, vertex_bytes: u64, index_bytes: u64) -> Self {
+        let buffer = |label, bytes: u64, usage| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: bytes.next_power_of_two(),
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        Self {
+            vertices: buffer("depth_vertices", vertex_bytes, wgpu::BufferUsages::VERTEX),
+            indices: buffer("depth_indices", index_bytes, wgpu::BufferUsages::INDEX),
+        }
+    }
+
+    fn holds(&self, vertex_bytes: u64, index_bytes: u64) -> bool {
+        self.vertices.size() >= vertex_bytes && self.indices.size() >= index_bytes
+    }
 }
 
 /// `solids` as the GPU takes them, for a window `size` points and the font
@@ -516,31 +601,30 @@ impl CallbackTrait for Gpu {
     fn prepare(
         &self,
         device: &wgpu::Device,
-        _queue: &wgpu::Queue,
+        queue: &wgpu::Queue,
         screen: &ScreenDescriptor,
         _encoder: &mut wgpu::CommandEncoder,
-        _resources: &mut CallbackResources,
+        resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
+        let Some(pipelines) = resources.get_mut::<Pipelines>() else {
+            return Vec::new();
+        };
         let size = screen
             .size_in_pixels
             .map(|pixels| pixels as f32 / screen.pixels_per_point);
         // The frame is over: the atlas is as large as it gets this frame.
         let fonts = self.ctx.fonts(|fonts| fonts.font_image_size());
         let (vertices, indices, draws) = pack(&self.solids, size, fonts);
-        let buffer = |label, contents: &[u8], usage| {
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents,
-                usage,
-            })
+        // Safe casts: byte counts.
+        let (vertex_bytes, index_bytes) = (vertices.len() as u64, indices.len() as u64);
+        let buffers = match pipelines.buffers.take() {
+            Some(buffers) if buffers.holds(vertex_bytes, index_bytes) => buffers,
+            _ => Buffers::new(device, vertex_bytes, index_bytes),
         };
-        let buffers = Buffers {
-            vertices: buffer("depth_vertices", &vertices, wgpu::BufferUsages::VERTEX),
-            indices: buffer("depth_indices", &indices, wgpu::BufferUsages::INDEX),
-            draws,
-        };
-        // Prepared once a frame: a second would be the same.
-        let _ = self.buffers.set(buffers);
+        queue.write_buffer(&buffers.vertices, 0, &vertices);
+        queue.write_buffer(&buffers.indices, 0, &indices);
+        pipelines.buffers = Some(buffers);
+        pipelines.draws = draws;
         Vec::new()
     }
 
@@ -550,8 +634,10 @@ impl CallbackTrait for Gpu {
         render_pass: &mut wgpu::RenderPass<'static>,
         resources: &CallbackResources,
     ) {
-        let (Some(buffers), Some(pipelines)) = (self.buffers.get(), resources.get::<Pipelines>())
-        else {
+        let Some(pipelines) = resources.get::<Pipelines>() else {
+            return;
+        };
+        let Some(buffers) = &pipelines.buffers else {
             return;
         };
         let Some(renderer) = pipelines.renderer.upgrade() else {
@@ -562,7 +648,7 @@ impl CallbackTrait for Gpu {
         let renderer = renderer.read();
         render_pass.set_vertex_buffer(0, buffers.vertices.slice(..));
         render_pass.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
-        for draw in &buffers.draws {
+        for draw in &pipelines.draws {
             let Some(texture) = renderer.texture(&draw.texture) else {
                 continue;
             };
@@ -817,6 +903,54 @@ mod tests {
         runs.dedup();
         assert_eq!(runs, [Color32::RED, Color32::GREEN, Color32::BLUE]);
         assert!(colours.len() > 3, "cut");
+    }
+
+    #[test]
+    fn one_pass_a_frame_where_it_began() {
+        let ctx = Context::default();
+        let triangle = |depth: f32| {
+            let mut mesh = Mesh::default();
+            for (x, y) in [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)] {
+                mesh.colored_vertex(pos2(x, y), Color32::WHITE);
+            }
+            mesh.add_triangle(0, 1, 2);
+            let mut solids = Solids::default();
+            solids.add(Layer::Opaque, mesh, |_| Some(depth));
+            solids
+        };
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let painter = ui.painter();
+            begin(painter);
+            gather(&ctx, triangle(0.5));
+            painter.rect_filled(
+                Rect::from_min_size(pos2(0.0, 0.0), Vec2::splat(5.0)),
+                0,
+                Color32::RED,
+            );
+            gather(&ctx, triangle(0.25));
+            end(painter);
+        });
+        output.textures_delta.clear();
+        let shapes: Vec<_> = output.shapes.iter().map(|s| &s.shape).collect();
+        let callbacks: Vec<_> = shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| match s {
+                Shape::Callback(c) => Some((i, c.callback.downcast_ref::<Solids>()?)),
+                _ => None,
+            })
+            .collect();
+        let [(at, solids)] = callbacks[..] else {
+            panic!("{shapes:?}");
+        };
+        // Under the flat shape drawn after it began, both triangles joined.
+        assert!(matches!(shapes[at + 1], Shape::Rect(_)), "{shapes:?}");
+        let [(_, opaque), _] = solids.layers();
+        assert_eq!(opaque.len(), 1);
+        assert_eq!(
+            opaque[0].depths,
+            [0.5; 3].into_iter().chain([0.25; 3]).collect::<Vec<_>>()
+        );
     }
 
     #[test]

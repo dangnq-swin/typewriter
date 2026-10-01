@@ -23,7 +23,7 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Drawn when [`Canvas::finish`]ed.
+    /// Gathered into the frame's depth pass when [`Canvas::finish`]ed.
     pub(super) fn depth(painter: &'a Painter) -> Self {
         Self {
             painter,
@@ -77,10 +77,10 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Draws what it gathered in depth.
+    /// Hands what it gathered to the frame's depth pass.
     pub(super) fn finish(self) {
         if let Some(solids) = self.solids {
-            depth::paint(self.painter, solids.into_inner());
+            depth::gather(self.painter.ctx(), solids.into_inner());
         }
     }
 }

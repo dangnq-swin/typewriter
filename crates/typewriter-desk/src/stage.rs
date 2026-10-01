@@ -1,12 +1,10 @@
 //! The desk edition's hooks into the app: the room behind, the SM9 around
-//! the sheet, its front panel for controls, the scale on its bail, the knobs
-//! and return lever on its carriage.
+//! the sheet, its knobs and front panel for controls, the scale on its bail.
 
 use eframe::egui::{Context, Painter, Rect, Ui};
 use eframe::egui_wgpu::RenderState;
 use typewriter_app::Stage;
-use typewriter_app::draw::{Controls, FlatSheet, Knob, Metrics, PaperTable, Platen, Return, Scene};
-use typewriter_core::Side;
+use typewriter_app::draw::{Controls, FlatSheet, Metrics, PaperTable, Return, Scene};
 
 use crate::depth;
 use crate::machine::{self, Control, Panel, Throw};
@@ -60,9 +58,11 @@ impl Stage for Desk {
             metrics,
             typing_y,
             carriage_x,
-            ..
+            last_return: Return { at, inches },
+            now,
         } = *scene;
-        machine::paint_behind(painter, view, metrics, typing_y, carriage_x);
+        let throw = Throw::new(at, inches).amount(now);
+        machine::paint_behind(painter, view, metrics, typing_y, carriage_x, throw);
         None
     }
 
@@ -86,11 +86,27 @@ impl Stage for Desk {
         ))
     }
 
-    /// The machine in front of the sheet, and the paper bail over it.
+    /// On the carriage's ends, in depth with the machine: always there, as
+    /// they are the machine's.
+    fn knobs(
+        &self,
+        ui: &Ui,
+        painter: &Painter,
+        scene: &Scene,
+        rolled: f32,
+        active: bool,
+    ) -> Option<[Rect; 2]> {
+        let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
+        let turning = (scene.carriage_x, rolled);
+        let hovered = |grip| active && ui.rect_contains_pointer(grip);
+        let grips = machine::paint_knobs(painter, view, metrics, typing_y, turning, hovered);
+        Some(grips)
+    }
+
+    /// The machine in front of the sheet.
     fn paint_over_sheets(&self, painter: &Painter, scene: &Scene) {
         let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
         machine::paint_front(painter, view, metrics, typing_y);
-        machine::paint_bail(painter, view, metrics, scene.carriage_x, typing_y);
     }
 
     /// On the front panel. Always shown, calm or not: they are the machine's.
@@ -117,46 +133,6 @@ impl Stage for Desk {
         Some(machine::bail_scale_top(scene.metrics, scene.typing_y))
     }
 
-    /// At the carriage's ends, travelling with it, on the platen's axis.
-    fn platen(&self, scene: &Scene) -> Option<Platen> {
-        Some(Platen {
-            ends: ends(scene),
-            axis_y: machine::platen_axis_y(scene.view, scene.metrics, scene.typing_y),
-        })
-    }
-
-    /// The return lever's bracket, behind the left knob.
-    fn paint_behind_knobs(&self, painter: &Painter, scene: &Scene) {
-        let (left, throw) = lever(scene);
-        machine::paint_lever_base(
-            painter,
-            scene.view,
-            scene.metrics,
-            scene.typing_y,
-            left,
-            throw,
-        );
-    }
-
-    /// The ribbon cover, where it stands in front of the knobs, then the
-    /// return lever over the left knob.
-    fn paint_over_knobs(&self, painter: &Painter, scene: &Scene) {
-        let axis_y = machine::platen_axis_y(scene.view, scene.metrics, scene.typing_y);
-        let [left_end, right_end] = ends(scene);
-        let knobs = [(Side::Left, left_end), (Side::Right, right_end)]
-            .map(|(side, end)| Knob::on_axis(scene.metrics, side, end, axis_y).grip());
-        machine::paint_cover_over_knobs(painter, scene.view, scene.metrics, scene.typing_y, knobs);
-        let (left, throw) = lever(scene);
-        machine::paint_lever(
-            painter,
-            scene.view,
-            scene.metrics,
-            scene.typing_y,
-            left,
-            throw,
-        );
-    }
-
     /// The lever, springing back after a return.
     fn is_animating(&self, last_return: Return, now: f64) -> bool {
         Throw::new(last_return.at, last_return.inches).is_moving(now)
@@ -172,25 +148,6 @@ impl Stage for Desk {
     ) {
         depth::rasterize(callback, clip, raster);
     }
-}
-
-/// The carriage's ends on screen, where the knobs turn.
-fn ends(scene: &Scene) -> [f32; 2] {
-    let Scene {
-        view,
-        metrics,
-        typing_y,
-        carriage_x,
-        ..
-    } = *scene;
-    machine::platen_ends(view, metrics, typing_y, carriage_x)
-}
-
-/// The carriage's left end, where the lever is, and how far it is thrown.
-fn lever(scene: &Scene) -> (f32, f32) {
-    let [left, _] = ends(scene);
-    let Return { at, inches } = scene.last_return;
-    (left, Throw::new(at, inches).amount(scene.now))
 }
 
 #[cfg(test)]
@@ -240,6 +197,15 @@ mod tests {
                 .save(folder.join(format!("along-{typed}.png")))
                 .unwrap();
         }
+        // Near the line's end: the right knob and side plate beside the guide.
+        let line_end = Shot {
+            size: vec2(3000.0, 1400.0),
+            zoom_percent: 200,
+            text: &"x".repeat(72),
+            after_seconds: 5.0,
+        };
+        let image = render(Box::new(Desk), &line_end).unwrap();
+        image.save(folder.join("line-end.png")).unwrap();
         // A page well begun: its lines over the platen and up the sheet.
         let page = "Call me Ishmael. Some years ago - never mind how long precisely -\n\
                     having little or no money in my purse, and nothing particular to\n\

@@ -5,7 +5,7 @@ use eframe::egui::Color32;
 
 use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
-use super::geometry::{dot, normalized};
+use super::geometry::{add, dot, normalized};
 use super::{METAL, METAL_SHINE};
 use crate::depth::{Layer, Solid};
 
@@ -19,6 +19,22 @@ pub(super) fn toward_light() -> [f32; 3] {
 pub(super) fn matte(colour: Color32, normal: [f32; 3]) -> Color32 {
     let lit = dot(normalized(normal), toward_light()).max(0.0);
     brighten(colour, 0.7 + 0.4 * lit)
+}
+
+/// A polished round part facing `normal`: `shade` lit over an ambient floor,
+/// turning to `shine` halfway between the light and the eye (Blinn–Phong).
+/// `sharpness` narrows the highlight.
+pub(super) fn polished(
+    shade: Color32,
+    shine: Color32,
+    normal: [f32; 3],
+    sharpness: i32,
+) -> Color32 {
+    let light = toward_light();
+    let lit = dot(normal, light).max(0.0);
+    let halfway = normalized(add(light, toward_eye()));
+    let highlight = dot(normal, halfway).max(0.0).powi(sharpness);
+    brighten(shade, 0.5 + 0.6 * lit).lerp_to_gamma(shine, highlight)
 }
 
 /// How bright a thin metal part running along `tangent` catches the light,

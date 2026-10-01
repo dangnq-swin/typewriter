@@ -5,12 +5,11 @@
 //! printing point. There the projection's scale is the sheet's: the line
 //! being typed shows as on a sheet flat on screen.
 //!
-//! The body, the carriage's platen and the sheets are drawn in depth: what
-//! stands in front hides what is behind. The rest is still drawn flat, each
-//! part after what it hides, in the order [`paint_behind`] and
-//! [`paint_front`] call them: the shadow before the parts in depth; the
-//! keyboard, and the knobs, lever and bail at the carriage's ends in
-//! perspective, after them.
+//! The body, the carriage with its knobs, lever and bail, and the sheets are
+//! drawn in depth: what stands in front hides what is behind. The rest is
+//! still drawn flat, each part after what it hides, in the order
+//! [`paint_behind`] and [`paint_front`] call them: the shadow before the
+//! parts in depth, the keyboard after them.
 
 mod body;
 mod canvas;
@@ -20,6 +19,7 @@ mod cover;
 mod eye;
 mod geometry;
 mod keyboard;
+mod knob;
 mod lever;
 mod light;
 mod panel;
@@ -28,14 +28,15 @@ mod sheet;
 mod side_controls;
 mod support;
 
-pub use carriage::{bail_scale_top, paint_bail, platen_axis_y, platen_ends};
-pub use lever::{Throw, paint_lever, paint_lever_base};
+pub use carriage::bail_scale_top;
+pub use lever::Throw;
 pub use panel::{Control, Panel};
 pub use sheet::paint_sheets;
 pub use support::paper_table;
 
 use eframe::egui::{Color32, Painter, Rect};
 
+use crate::depth;
 use canvas::Canvas;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
@@ -49,8 +50,6 @@ const TYPING_LINE_LEANING: f32 = 0.62;
 const TYPING_LINE_SITTING: f32 = 0.25;
 const TYPING_LINE_FAR: f32 = 0.55;
 const TYPING_LINE_LEAST: f32 = 0.2;
-/// Past a knob's grip, its outline and shading.
-const KNOB_EDGE: f32 = 2.0;
 /// Between the panel's readings and the window's bottom edge.
 const CONTROLS_ROOM: f32 = 12.0;
 
@@ -89,46 +88,59 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     wanted.min(in_view).max(TYPING_LINE_LEAST)
 }
 
-/// The ribbon cover again over the knobs, `knobs` on screen: it stands in
-/// front of them, and its rounded corners and slanting sides are no rect
-/// to clip them by.
-pub fn paint_cover_over_knobs(
-    painter: &Painter,
-    view: Rect,
-    metrics: &Metrics,
-    typing_y: f32,
-    knobs: [Rect; 2],
-) {
-    let eye = Eye::new(view, metrics, typing_y);
-    for knob in knobs {
-        let clipped = painter.with_clip_rect(knob.expand(KNOB_EDGE));
-        cover::paint(&Canvas::flat(&clipped), &eye);
-    }
-}
-
 /// Behind the sheet, before it: the machine's shadow, the body's top under
-/// the carriage, the paper support and the carriage for the sheet centred
-/// at `carriage_x`.
+/// the carriage, the paper support, and the carriage for the sheet centred
+/// at `carriage_x` with its bail and its return lever, thrown `throw`
+/// (0..=1). Begins the frame's depth pass.
 pub fn paint_behind(
     painter: &Painter,
     view: Rect,
     metrics: &Metrics,
     typing_y: f32,
     carriage_x: f32,
+    throw: f32,
 ) {
     let eye = Eye::new(view, metrics, typing_y);
     body::paint_shadow(painter, &eye);
+    depth::begin(painter);
     let canvas = Canvas::depth(painter);
     body::paint_deck(&canvas, &eye);
     let middle = (carriage_x - eye.origin.x) / eye.ppi;
     support::paint(&canvas, &eye, metrics, middle);
     carriage::paint(&canvas, &eye, middle);
+    carriage::paint_bail(&canvas, &eye, metrics, typing_y, middle);
+    let [left, _] = carriage::ends(middle);
+    lever::paint(&canvas, &eye.about(carriage::platen_axis()), left, throw);
     canvas.finish();
+}
+
+/// The platen knobs at the carriage's ends, for the sheet centred at
+/// `carriage_x`, turned by `rolled` points of paper, each lit if its grip
+/// is `hovered`: their grips on screen, left then right. Into the frame's
+/// depth pass.
+pub fn paint_knobs(
+    painter: &Painter,
+    view: Rect,
+    metrics: &Metrics,
+    typing_y: f32,
+    (carriage_x, rolled): (f32, f32),
+    hovered: impl Fn(Rect) -> bool,
+) -> [Rect; 2] {
+    let eye = Eye::new(view, metrics, typing_y);
+    let middle = (carriage_x - eye.origin.x) / eye.ppi;
+    let ends = carriage::ends(middle);
+    let eye = eye.about(carriage::platen_axis());
+    let grips = knob::grips(&eye, ends);
+    let canvas = Canvas::depth(painter);
+    let turned = rolled / eye.ppi / knob::DISC.1;
+    knob::paint(&canvas, &eye, ends, turned, grips.map(hovered));
+    canvas.finish();
+    grips
 }
 
 /// In front of the sheet, after it: the alignment guide, ribbon and card
 /// holder at the printing point, the ribbon cover over the type bars, the
-/// front panel and the keyboard.
+/// front panel and the keyboard. Ends the frame's depth pass.
 pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f32) {
     let eye = Eye::new(view, metrics, typing_y);
     let canvas = Canvas::depth(painter);
@@ -137,6 +149,8 @@ pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f
     cover::paint(&canvas, &eye);
     panel::paint_face(&canvas, &eye);
     canvas.finish();
+    // The behind, the sheets and this in one pass, under the flat parts.
+    depth::end(painter);
     let canvas = &Canvas::flat(painter);
     // The keyboard, deepest first: the levers run back under the rows behind
     // and in under the panel's edge, the caps hide them, and the case round

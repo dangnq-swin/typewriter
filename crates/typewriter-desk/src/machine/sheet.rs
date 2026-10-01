@@ -152,7 +152,7 @@ pub fn paint_sheets(
             placed.facing.then_some(placed.print_depth)
         });
     }
-    depth::paint(painter, solids);
+    depth::gather(painter.ctx(), solids);
 }
 
 /// The `paper` quad, corners clockwise from the top left, cut into `rows`
