@@ -173,10 +173,21 @@ impl Stage for Desk {
 
 #[cfg(test)]
 mod tests {
-    use eframe::egui::vec2;
-    use typewriter_app::snapshot::{BACKSPACE, ERASE, Shot, render};
+    use eframe::egui::{self, vec2};
+    use typewriter_app::Stage;
+    use typewriter_app::snapshot::{self, BACKSPACE, ERASE, Shot, render};
 
     use super::Desk;
+
+    /// A full page's worth of type: what the `snapshot` test's `page`
+    /// shots carry.
+    fn page() -> String {
+        "Call me Ishmael. Some years ago - never mind how long precisely -\n\
+                    having little or no money in my purse, and nothing particular to\n\
+                    interest me on shore, I thought I would sail about a little and see\n\
+                    the watery part of the world.\n"
+            .repeat(6)
+    }
 
     /// Draws the desk to PNGs in `$TYPEWRITER_SNAPSHOT`, to look at:
     /// `cargo test -p typewriter-desk --release -- --ignored snapshot`.
@@ -237,11 +248,7 @@ mod tests {
         let image = render(Box::new(typewriter_app::Plain), &plain).unwrap();
         image.save(folder.join("plain.png")).unwrap();
         // A page well begun: its lines over the platen and up the sheet.
-        let page = "Call me Ishmael. Some years ago - never mind how long precisely -\n\
-                    having little or no money in my purse, and nothing particular to\n\
-                    interest me on shore, I thought I would sail about a little and see\n\
-                    the watery part of the world.\n"
-            .repeat(6);
+        let page = page();
         for (name, zoom_percent) in [("page", 100), ("page-close", 200)] {
             let shot = Shot {
                 size: vec2(1600.0, 1400.0),
@@ -288,6 +295,68 @@ mod tests {
             };
             let image = render(Box::new(Desk), &shot).unwrap();
             image.save(folder.join(format!("{name}.png"))).unwrap();
+        }
+    }
+
+    /// Times the typing view's frame — `run_ui` plus `ctx.tessellate` —
+    /// the desk against the plain app, empty page and full, in a
+    /// 1600 × 1000 window at 100 % zoom: the `3D-FIX.md` baseline. Run it
+    /// in debug and release, e.g.
+    /// `TYPEWRITER_BENCH=50 cargo test -p typewriter-desk --release -- --ignored bench --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench() {
+        let Some(frames) = std::env::var("TYPEWRITER_BENCH")
+            .ok()
+            .and_then(|said| said.parse::<usize>().ok())
+        else {
+            return;
+        };
+        let full = page();
+        let build = if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        };
+        println!(
+            "{frames} timed frames, 1600 × 1000 at 100 %, {build}: the desk's solids and vertices per frame."
+        );
+        println!(
+            "{:<14}{:>9}{:>9}{:>11}{:>9}{:>9}{:>8}{:>10}",
+            "frame", "ms", "run_ui", "tessellate", "fastest", "slowest", "solids", "vertices"
+        );
+        for (what, text) in [("empty", ""), ("full", full.as_str())] {
+            let shot = Shot {
+                size: vec2(1600.0, 1000.0),
+                zoom_percent: 100,
+                text,
+                after_seconds: 5.0,
+            };
+            for (name, plain) in [("Desk", false), ("Plain", true)] {
+                let ctx = egui::Context::default();
+                let stage: Box<dyn Stage> = if plain {
+                    Box::new(typewriter_app::Plain)
+                } else {
+                    Box::new(Desk)
+                };
+                let time = snapshot::bench(&ctx, stage, &shot, frames).unwrap();
+                // The plain app draws no depth pass: its counts are `-`.
+                let (solids, vertices) = match crate::depth::counts(&ctx) {
+                    Some((solids, vertices)) => (solids.to_string(), vertices.to_string()),
+                    None => ("-".to_string(), "-".to_string()),
+                };
+                println!(
+                    "{:<14}{:>9.1}{:>9.1}{:>11.1}{:>9.1}{:>9.1}{:>8}{:>10}",
+                    format!("{name}, {what}"),
+                    time.mean_ms,
+                    time.run_ms,
+                    time.tessellate_ms,
+                    time.fastest_ms,
+                    time.slowest_ms,
+                    solids,
+                    vertices,
+                );
+            }
         }
     }
 }

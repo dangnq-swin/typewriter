@@ -1,6 +1,6 @@
-//! The typing view drawn without a window, to an image: for looking at a
-//! change where there is no display. Behind the `snapshot` feature; not
-//! part of either program.
+//! The typing view drawn without a window, to an image or timed frames:
+//! for looking at a change where there is no display. Behind the
+//! `snapshot` feature; not part of either program.
 //!
 //! egui lays out and tessellates the frame as it would for the window; the
 //! triangles are then filled here, blended as egui's painters blend them.
@@ -30,6 +30,8 @@ use crate::settings::Settings;
 const SETTLED: f64 = 5.0;
 /// Between keys typed.
 const KEY_SECONDS: f64 = 0.1;
+/// Timed frames step the clock this, so egui sees a live one: 60 a second.
+const FRAME_SECONDS: f64 = 1.0 / 60.0;
 
 /// In [`Shot::text`]: the Backspace key.
 pub const BACKSPACE: char = '\u{8}';
@@ -48,11 +50,66 @@ pub struct Shot<'a> {
     pub after_seconds: f64,
 }
 
+/// A stage's steady frames, timed: what `ctx.run_ui` plus `ctx.tessellate`
+/// cost for one frame of its typing view.
+pub struct FrameCost {
+    /// Mean over the timed frames, `run_ms` plus `tessellate_ms`.
+    pub mean_ms: f64,
+    /// Mean of `ctx.run_ui` alone: deciding what to draw.
+    pub run_ms: f64,
+    /// Mean of `ctx.tessellate` alone: making it into triangles.
+    pub tessellate_ms: f64,
+    /// Fastest and slowest timed frame, whole.
+    pub fastest_ms: f64,
+    pub slowest_ms: f64,
+}
+
 /// `stage`'s typing view for `shot`, a pixel a point.
 pub fn render(stage: Box<dyn Stage>, shot: &Shot) -> anyhow::Result<RgbaImage> {
     let ctx = egui::Context::default();
-    fonts::install(&ctx);
-    let mut app = TypewriterApp::nowhere(&ctx, stage, desk(shot)?);
+    let (mut app, at) = staged(&ctx, stage, shot)?;
+    let mut textures = HashMap::new();
+    let mut last = Vec::new();
+    // Twice: the first lays out what the second draws.
+    for _ in 0..2 {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, shot.size)),
+            time: Some(at),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| {
+            app.show(ui, at);
+        });
+        for (id, deltas) in std::mem::take(&mut output.textures_delta.set) {
+            for delta in deltas {
+                let ImageData::Color(image) = delta.image;
+                match delta.pos {
+                    None => {
+                        textures.insert(id, (*image).clone());
+                    }
+                    Some(pos) => {
+                        if let Some(texture) = textures.get_mut(&id) {
+                            patch(texture, &image, pos);
+                        }
+                    }
+                }
+            }
+        }
+        output.textures_delta.clear();
+        last = ctx.tessellate(std::mem::take(&mut output.shapes), output.pixels_per_point);
+    }
+    rasterize(shot.size, &last, &textures, app.stage.as_ref())
+}
+
+/// `stage`'s app on `shot`, drawn into `ctx` (new: it gets the fonts): the
+/// keys typed, the desk settled, and the instant the frames draw at.
+fn staged(
+    ctx: &egui::Context,
+    stage: Box<dyn Stage>,
+    shot: &Shot,
+) -> anyhow::Result<(TypewriterApp, f64)> {
+    fonts::install(ctx);
+    let mut app = TypewriterApp::nowhere(ctx, stage, desk(shot)?);
     let mut now = SETTLED;
     for c in shot.text.chars() {
         let command = match c {
@@ -74,37 +131,70 @@ pub fn render(stage: Box<dyn Stage>, shot: &Shot) -> anyhow::Result<RgbaImage> {
     }
     app.desk.tick(now + shot.after_seconds);
     app.desk.take_effects();
-    let mut textures = HashMap::new();
-    let mut last = Vec::new();
-    // Twice: the first lays out what the second draws.
-    for _ in 0..2 {
+    Ok((app, now + shot.after_seconds))
+}
+
+/// `frames` of `ctx`'s frames at `size`, timed: one `run_ui` plus one
+/// `tessellate` each, the clock stepping [`FRAME_SECONDS`] from `at` on so
+/// egui sees it live. The first frame is a warm-up: it lays out what the
+/// rest draw. Nothing is typed between frames: a steady one is measured.
+/// Probes write their own `draw`; [`bench`] times the whole app's.
+pub fn time_frames(
+    ctx: &egui::Context,
+    size: Vec2,
+    at: f64,
+    frames: usize,
+    mut draw: impl FnMut(&mut egui::Ui, f64),
+) -> FrameCost {
+    let mut now = at;
+    let mut frame = || {
         let input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, shot.size)),
-            time: Some(now + shot.after_seconds),
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+            time: Some(now),
             ..Default::default()
         };
-        let mut output = ctx.run_ui(input, |ui| {
-            app.show(ui, now + shot.after_seconds);
-        });
-        for (id, deltas) in std::mem::take(&mut output.textures_delta.set) {
-            for delta in deltas {
-                let ImageData::Color(image) = delta.image;
-                match delta.pos {
-                    None => {
-                        textures.insert(id, (*image).clone());
-                    }
-                    Some(at) => {
-                        if let Some(texture) = textures.get_mut(&id) {
-                            patch(texture, &image, at);
-                        }
-                    }
-                }
-            }
-        }
+        let started = std::time::Instant::now();
+        let mut output = ctx.run_ui(input, |ui| draw(ui, now));
+        let run_ms = started.elapsed().as_secs_f64() * 1e3;
         output.textures_delta.clear();
-        last = ctx.tessellate(std::mem::take(&mut output.shapes), output.pixels_per_point);
+        let started = std::time::Instant::now();
+        let _ = ctx.tessellate(std::mem::take(&mut output.shapes), output.pixels_per_point);
+        let tessellate_ms = started.elapsed().as_secs_f64() * 1e3;
+        now += FRAME_SECONDS;
+        (run_ms + tessellate_ms, run_ms, tessellate_ms)
+    };
+    frame();
+    let mut sums = [0.0; 3];
+    let (mut fastest, mut slowest) = (f64::MAX, 0.0f64);
+    for _ in 0..frames {
+        let (whole, run, tessellate) = frame();
+        sums = [sums[0] + whole, sums[1] + run, sums[2] + tessellate];
+        fastest = fastest.min(whole);
+        slowest = slowest.max(whole);
     }
-    rasterize(shot.size, &last, &textures, app.stage.as_ref())
+    let frames = frames.max(1) as f64;
+    FrameCost {
+        mean_ms: sums[0] / frames,
+        run_ms: sums[1] / frames,
+        tessellate_ms: sums[2] / frames,
+        fastest_ms: fastest,
+        slowest_ms: slowest,
+    }
+}
+
+/// `stage`'s typing view on `shot`, `frames` steady frames timed. `ctx`
+/// must be new: a desk stage leaves its solid and vertex counts in it, for
+/// the caller to read back once the frames have run.
+pub fn bench(
+    ctx: &egui::Context,
+    stage: Box<dyn Stage>,
+    shot: &Shot,
+    frames: usize,
+) -> anyhow::Result<FrameCost> {
+    let (mut app, at) = staged(ctx, stage, shot)?;
+    Ok(time_frames(ctx, shot.size, at, frames, |ui, now| {
+        let _ = app.show(ui, now);
+    }))
 }
 
 /// A test desk with its first sheet in, at `shot`'s zoom.

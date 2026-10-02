@@ -690,6 +690,46 @@ pub fn gather(ctx: &Context, solids: Solids) {
     });
 }
 
+/// Solids and vertices of the last [`end`]'s pass, for the bench. Test-only:
+/// the counts ride in `Context` data and cost a walk of the pass's lengths
+/// each frame — nothing the app's own frames should pay.
+#[cfg(test)]
+pub fn counts(ctx: &Context) -> Option<(usize, usize)> {
+    ctx.data(|data| data.get_temp::<Counts>(counts_id()))
+        .map(|counts| (counts.solids, counts.vertices))
+}
+
+#[cfg(test)]
+fn counts_id() -> Id {
+    Id::new("depth-pass-counts")
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct Counts {
+    solids: usize,
+    vertices: usize,
+}
+
+/// Records `solids`' counts for [`counts`]: lengths the pass already
+/// holds, a few hundred reads.
+#[cfg(test)]
+fn record_counts(painter: &Painter, solids: &Solids) {
+    let counted = solids.layers().map(|(_, layer)| Counts {
+        solids: layer.len(),
+        vertices: layer.iter().map(|solid| solid.mesh.vertices.len()).sum(),
+    });
+    painter.ctx().data_mut(|data| {
+        data.insert_temp(
+            counts_id(),
+            Counts {
+                solids: counted.iter().map(|c| c.solids).sum(),
+                vertices: counted.iter().map(|c| c.vertices).sum(),
+            },
+        )
+    });
+}
+
 /// Draws the frame's depth pass where it [`begin`]s, or else now, with
 /// `painter`'s clip.
 pub fn end(painter: &Painter) {
@@ -702,6 +742,8 @@ pub fn end(painter: &Painter) {
         .ctx()
         .data_mut(|data| data.remove_temp::<Frame>(frame_id()))
         .unwrap_or_default();
+    #[cfg(test)]
+    record_counts(painter, &solids);
     if solids.is_empty() {
         return;
     }
