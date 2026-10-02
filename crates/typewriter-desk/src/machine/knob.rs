@@ -15,16 +15,16 @@ use typewriter_app::draw::HIGHLIGHT;
 
 /// Out from the carriage's end: the collar's length and radius, then the
 /// disc's.
-pub(super) const COLLAR: (f32, f32) = (0.22, 0.25);
-pub(super) const DISC: (f32, f32) = (0.3, 0.575);
+pub(super) const COLLAR: (f32, f32) = (6.0, 6.0);
+pub(super) const DISC: (f32, f32) = (8.0, 15.0);
 /// The green face: the disc's outer end, its rounded edge a little in from
 /// the rim.
-const FACE_INCHES: f32 = 0.05;
+const FACE_MM: f32 = 1.0;
 const FACE_RADIUS: f32 = 0.97 * DISC.1;
 /// Knurled ribs round the disc, and their width.
 const RIBS: u16 = 60;
-const RIB_WIDTH: f32 = 0.01;
-const HIGHLIGHT_WIDTH: f32 = 0.02;
+const RIB_WIDTH: f32 = 0.25;
+const HIGHLIGHT_WIDTH: f32 = 0.5;
 /// Round a knob: enough for a smooth rim.
 const BANDS: u16 = 48;
 const CREAM: Color32 = Color32::from_rgb(0xEC, 0xE6, 0xD4);
@@ -41,7 +41,7 @@ struct Knob {
 }
 
 impl Knob {
-    /// `from` to `to` inches out from the end, left to right.
+    /// `from` to `to` millimetres out from the end, left to right.
     fn span(self, from: f32, to: f32) -> [f32; 2] {
         let [a, b] = [from, to].map(|t| self.end + self.out * t);
         [a.min(b), a.max(b)]
@@ -53,20 +53,20 @@ impl Knob {
 
     /// The disc's knurled body, short of its face.
     fn body(self) -> [f32; 2] {
-        self.span(COLLAR.0, COLLAR.0 + DISC.0 - FACE_INCHES)
+        self.span(COLLAR.0, COLLAR.0 + DISC.0 - FACE_MM)
     }
 
     fn face(self) -> [f32; 2] {
-        self.span(COLLAR.0 + DISC.0 - FACE_INCHES, COLLAR.0 + DISC.0)
+        self.span(COLLAR.0 + DISC.0 - FACE_MM, COLLAR.0 + DISC.0)
     }
 
-    /// Across, inches out from the end.
+    /// Across, millimetres out from the end.
     fn at(self, t: f32) -> f32 {
         self.end + self.out * t
     }
 }
 
-/// The circle round the platen's axis at `x`, `radius` inches.
+/// The circle round the platen's axis at `x`, `radius` millimetres.
 fn circle(x: f32, radius: f32) -> Vec<[f32; 3]> {
     (0..BANDS)
         .map(|i| {
@@ -76,7 +76,7 @@ fn circle(x: f32, radius: f32) -> Vec<[f32; 3]> {
         .collect()
 }
 
-/// The knobs at the carriage's `ends`, inches across, left then right.
+/// The knobs at the carriage's `ends`, millimetres across, left then right.
 fn knobs([left, right]: [f32; 2]) -> [Knob; 2] {
     [
         Knob {
@@ -135,12 +135,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hov
         let (inward, outward) = ([-knob.out, 0.0, 0.0], [knob.out, 0.0, 0.0]);
         let ends = [
             (knob.at(COLLAR.0), DISC.1, CREAM, inward),
-            (
-                knob.at(COLLAR.0 + DISC.0 - FACE_INCHES),
-                DISC.1,
-                CREAM,
-                outward,
-            ),
+            (knob.at(COLLAR.0 + DISC.0 - FACE_MM), DISC.1, CREAM, outward),
             (knob.at(COLLAR.0 + DISC.0), FACE_RADIUS, FACE, outward),
         ];
         for (x, radius, colour, normal) in ends {
@@ -172,9 +167,9 @@ mod tests {
 
     #[test]
     fn collar_then_disc_out_from_each_end_the_face_outermost() {
-        let [left, right] = knobs([-5.9, 5.9]);
-        assert_eq!(left.collar(), [-5.9 - COLLAR.0, -5.9]);
-        assert_eq!(right.collar(), [5.9, 5.9 + COLLAR.0]);
+        let [left, right] = knobs([-150.0, 150.0]);
+        assert_eq!(left.collar(), [-150.0 - COLLAR.0, -150.0]);
+        assert_eq!(right.collar(), [150.0, 150.0 + COLLAR.0]);
         assert!(left.face()[0] < left.body()[0] && left.body()[1] <= left.collar()[0]);
         assert!(right.face()[1] > right.body()[1] && right.body()[0] >= right.collar()[1]);
         assert!(COLLAR.1 < DISC.1 && FACE_RADIUS < DISC.1);
@@ -183,10 +178,10 @@ mod tests {
     #[test]
     fn the_grips_cover_each_knob_either_side() {
         let eye = Eye::testing(500.0, 96.0);
-        let [left, right] = grips(&eye, [-5.9, 5.9]);
+        let [left, right] = grips(&eye, [-150.0, 150.0]);
         assert!(left.right() < right.left());
         assert!((left.width() - right.width()).abs() < 1.0, "mirrored");
         let axis = eye.at([0.0; 3]);
-        assert!(left.y_range().contains(axis.y) && left.height() > DISC.1 * 96.0);
+        assert!(left.y_range().contains(axis.y) && left.height() > DISC.1 * eye.ppmm);
     }
 }

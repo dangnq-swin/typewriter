@@ -3,7 +3,7 @@
 //! its end; the ribbon, black over red, through its vibrator below the line;
 //! the card holder's wire.
 //!
-//! The typing line's cell runs down from the origin a sixth of an inch.
+//! The typing line's cell runs down from the origin 4.2 mm.
 
 use std::f32::consts::PI;
 
@@ -22,40 +22,40 @@ use typewriter_app::draw::Metrics;
 /// down behind the ribbon, their top a line above the typing line's; how far
 /// off the paper. Their inner and outer `x`. The line being typed shows
 /// through them.
-const GUIDE_Z: (f32, f32) = (-0.615, 0.155);
-const GUIDE_OFF_PAPER: f32 = 0.018;
-const GUIDE_X: (f32, f32) = (0.7, 3.8);
+const GUIDE_Z: (f32, f32) = (-16.0, 4.0);
+const GUIDE_OFF_PAPER: f32 = 0.46;
+const GUIDE_X: (f32, f32) = (18.0, 97.0);
 /// The plates' top corners, rounded: outside and in.
-const OUTER_TOP_ROUNDING: f32 = 0.25;
-const INNER_TOP_ROUNDING: f32 = 0.08;
+const OUTER_TOP_ROUNDING: f32 = 6.0;
+const INNER_TOP_ROUNDING: f32 = 2.0;
 /// The tape stuck along each plate's foot, white marks on black: its top
 /// `z`, just down behind the cover's back edge, and its depth down the
 /// plate; its marks, on the columns' edges out from the notch, and their
 /// length.
-const SCALE_Z: f32 = -0.265;
-const SCALE_DEPTH: f32 = 0.2;
+const SCALE_Z: f32 = -7.0;
+const SCALE_DEPTH: f32 = 5.0;
 const SCALE_MARKS: i32 = 12;
-const MARK_LENGTH: f32 = 0.07;
+const MARK_LENGTH: f32 = 2.0;
 /// The line-drawing notch at each scale's inner end, a pencil's point in its
 /// V: in from the plate's inner edge, and its width.
-const PENCIL_NOTCH: (f32, f32) = (0.05, 0.14);
+const PENCIL_NOTCH: (f32, f32) = (1.0, 4.0);
 /// The ribbon, on edge in front of the paper: its `y`, top `z` and width.
 /// Straight across under the line, over the cover's back edge, out to `x`;
 /// then forward to its spools under the cover, out to `(x, y)`, dropping to
 /// pass under it.
-const RIBBON: (f32, f32, f32) = (0.15, -0.28, 0.5);
-const RIBBON_ACROSS: f32 = 3.6;
-const RIBBON_OUT: (f32, f32, f32) = (4.4, 0.9, 0.65);
+const RIBBON: (f32, f32, f32) = (4.0, -7.0, 13.0);
+const RIBBON_ACROSS: f32 = 91.0;
+const RIBBON_OUT: (f32, f32, f32) = (112.0, 23.0, 17.0);
 /// The ribbon vibrator, holding the ribbon below the line until a key
 /// lifts it: its `y`, top and bottom `z`, its body's half width, its lugs'
 /// inner and outer `x`, and the slot in its foot (half width, height).
-const VIBRATOR: (f32, f32, f32) = (0.18, -0.26, -0.74);
-const VIBRATOR_HALF: f32 = 0.3;
-const LUGS: (f32, f32) = (0.4, 0.47);
-const VIBRATOR_SLOT: (f32, f32) = (0.08, 0.2);
+const VIBRATOR: (f32, f32, f32) = (5.0, -7.0, -19.0);
+const VIBRATOR_HALF: f32 = 8.0;
+const LUGS: (f32, f32) = (10.0, 12.0);
+const VIBRATOR_SLOT: (f32, f32) = (2.0, 5.0);
 /// The card holder: a wire arch from the vibrator up the guide's face, half
 /// its width.
-const CARD_HOLDER_HALF: f32 = 0.27;
+const CARD_HOLDER_HALF: f32 = 7.0;
 /// Smoked perspex.
 const GLASS: Color32 = Color32::from_rgba_unmultiplied_const(0x9C, 0xA4, 0xA6, 0x34);
 const GLASS_EDGE: Color32 = Color32::from_rgba_unmultiplied_const(0x70, 0x74, 0x72, 0xB0);
@@ -92,12 +92,12 @@ fn on_guide(x: f32, t: f32) -> [f32; 3] {
     [x, face_y(z) + GUIDE_OFF_PAPER, z]
 }
 
-/// A point on the guide's face, flat inches across and up it.
+/// A point on the guide's face, flat millimetres across and up it.
 fn to_guide(p: Pos2) -> [f32; 3] {
     on_guide(p.x, p.y / guide_height())
 }
 
-/// Corners `((x, t), rounding)` round the guide's face, flat inches.
+/// Corners `((x, t), rounding)` round the guide's face, flat millimetres.
 fn guide_outline(corners: [((f32, f32), f32); 4]) -> Vec<Pos2> {
     let corners = corners.map(|((x, t), r)| ([x, t * guide_height(), 0.0], r));
     rounded(&corners)
@@ -111,7 +111,7 @@ fn scale_t() -> f32 {
     (SCALE_Z - GUIDE_Z.0) / (GUIDE_Z.1 - GUIDE_Z.0)
 }
 
-/// The guide's height, in inches: near enough its face's.
+/// The guide's height, in millimetres: near enough its face's.
 fn guide_height() -> f32 {
     GUIDE_Z.1 - GUIDE_Z.0
 }
@@ -121,8 +121,8 @@ fn paint_plates(canvas: &Canvas, eye: &Eye) {
     let (inner, outer) = GUIDE_X;
     for side in [-1.0, 1.0] {
         let flat = guide_outline([
-            ((side * inner, 0.0), 0.03),
-            ((side * outer, 0.0), 0.03),
+            ((side * inner, 0.0), 1.0),
+            ((side * outer, 0.0), 1.0),
             ((side * outer, 1.0), OUTER_TOP_ROUNDING),
             ((side * inner, 1.0), INNER_TOP_ROUNDING),
         ]);
@@ -135,7 +135,7 @@ fn paint_plates(canvas: &Canvas, eye: &Eye) {
             on_guide(side * (inner + INNER_TOP_ROUNDING), 1.0),
             on_guide(side * (outer - OUTER_TOP_ROUNDING), 1.0),
         ];
-        eye.line(canvas, &top, 0.015, Color32::from_white_alpha(170));
+        eye.line(canvas, &top, 0.38, Color32::from_white_alpha(170));
     }
 }
 
@@ -144,14 +144,14 @@ fn paint_plates(canvas: &Canvas, eye: &Eye) {
 /// it lines up with the type.
 fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
     let inner = GUIDE_X.0;
-    let (ppi, column) = (eye.ppi, metrics.column_width);
+    let (ppmm, column) = (eye.ppmm, metrics.column_width);
     let (notch_in, notch_width) = PENCIL_NOTCH;
     let (top, foot) = (scale_t(), scale_t() - SCALE_DEPTH / guide_height());
     let notch_out = inner + notch_in + notch_width;
     // The first column edge clear of the notch.
-    let first = (notch_out * ppi / column + 1.0).ceil() as i32;
+    let first = (notch_out * ppmm / column + 1.0).ceil() as i32;
     let last = first + SCALE_MARKS - 1;
-    let strip_out = (last as f32 + 0.3) * column / ppi;
+    let strip_out = (last as f32 + 0.3) * column / ppmm;
     for side in [-1.0, 1.0] {
         let strip = guide_outline([
             ((side * notch_out, top), 0.0),
@@ -162,29 +162,29 @@ fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
         eye.fill_bent(canvas, &strip, to_guide, |_| SCALE);
         let [a, b] = [inner + notch_in, notch_out].map(|x| side * x);
         let notch = guide_outline([
-            ((a, top + 0.02), 0.03),
-            ((b, top + 0.02), 0.03),
+            ((a, top + 0.5), 1.0),
+            ((b, top + 0.5), 1.0),
             ((b, foot), 0.0),
             ((a, foot), 0.0),
         ]);
         eye.fill_bent(canvas, &notch, to_guide, |_| SCALE);
         let middle = side * (inner + notch_in + notch_width / 2.0);
-        let v_top = top - 0.02 / guide_height();
-        let v_foot = top - 0.09 / guide_height();
+        let v_top = top - 0.5 / guide_height();
+        let v_foot = top - 2.0 / guide_height();
         let v = [
-            on_guide(middle - 0.035, v_top),
-            on_guide(middle + 0.035, v_top),
+            on_guide(middle - 1.0, v_top),
+            on_guide(middle + 1.0, v_top),
             on_guide(middle, v_foot),
         ];
         let v_mark = Shape::closed_line(eye.polygon(&v), Stroke::new(1.0, SCALE_MARK));
         eye.stroke(canvas, &closed(&v), v_mark);
         for k in first..=last {
-            let x = side * (k as f32 - 0.5) * column / ppi;
-            let on = on_guide(x, top - 0.015 / guide_height());
+            let x = side * (k as f32 - 0.5) * column / ppmm;
+            let on = on_guide(x, top - 0.4 / guide_height());
             let mark_top = eye.at(on).y;
             // On screen, so the marks fall on the sheet's columns exactly.
             let x = eye.origin.x + side * (k as f32 - 0.5) * column;
-            let mark = [pos2(x, mark_top), pos2(x, mark_top + MARK_LENGTH * ppi)];
+            let mark = [pos2(x, mark_top), pos2(x, mark_top + MARK_LENGTH * ppmm)];
             let depth = eye.lying_depth(on);
             let shape = Shape::line_segment(mark, Stroke::new(1.0, SCALE_MARK));
             canvas.lay(vec![shape], |at| (at, depth));
@@ -237,7 +237,7 @@ fn paint_card_holder(canvas: &Canvas, eye: &Eye) {
     // Just proud of the guide's face.
     let on_face = |x: f32, t: f32| {
         let [px, py, pz] = on_guide(x, t);
-        [px, py + 0.03, pz]
+        [px, py + 1.0, pz]
     };
     let bend = 1.0 - half / guide_height();
     let arch = (0..=16u8).map(|i| {
@@ -249,10 +249,10 @@ fn paint_card_holder(canvas: &Canvas, eye: &Eye) {
         .chain(arch)
         .chain([on_face(half, scale_t()), [half, y, top]])
         .collect();
-    eye.line(canvas, &wire, 0.065, EDGE);
-    eye.line(canvas, &wire, 0.045, METAL_SHINE);
-    let glint: Vec<[f32; 3]> = wire.iter().map(|&[x, y, z]| [x - 0.008, y, z]).collect();
-    eye.line(canvas, &glint, 0.014, Color32::WHITE);
+    eye.line(canvas, &wire, 1.65, EDGE);
+    eye.line(canvas, &wire, 1.15, METAL_SHINE);
+    let glint: Vec<[f32; 3]> = wire.iter().map(|&[x, y, z]| [x - 0.2, y, z]).collect();
+    eye.line(canvas, &glint, 0.35, Color32::WHITE);
 }
 
 /// The vibrator: a chrome body over the ribbon, the slot in its foot showing
@@ -274,15 +274,15 @@ fn paint_vibrator(canvas: &Canvas, eye: &Eye) {
     for side in [-1.0, 1.0] {
         let [a, b] = [side * inner, side * outer];
         let x = [a.min(b), a.max(b)];
-        paint_chrome(canvas, eye, x, y, top + 0.03, height + 0.1);
+        paint_chrome(canvas, eye, x, y, top + 1.0, height + 3.0);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::carriage::{PLATEN_DIAMETER_INCHES, platen_axis};
+    use super::super::carriage::{PLATEN_DIAMETER_MM, platen_axis};
     use super::super::cover::{COVER_BACK, on_cover};
-    use super::super::eye::{LYING_INCHES, toward_eye};
+    use super::super::eye::{LYING_MM, toward_eye};
     use super::*;
 
     /// At 96 points an inch, the typing line's foot is 16 points down.
@@ -304,19 +304,19 @@ mod tests {
         // Its offset seen along the eye: on the typing line the paper faces
         // the eye; at the platen's front, nearest the ribbon, it stands upright.
         let up = toward_eye()[1];
-        assert!(GUIDE_OFF_PAPER * up > LYING_INCHES);
-        let front = platen_axis()[1] + PLATEN_DIAMETER_INCHES / 2.0;
-        assert!((RIBBON.0 - front - GUIDE_OFF_PAPER) / up > LYING_INCHES);
+        assert!(GUIDE_OFF_PAPER * up > LYING_MM);
+        let front = platen_axis()[1] + PLATEN_DIAMETER_MM / 2.0;
+        assert!((RIBBON.0 - front - GUIDE_OFF_PAPER) / up > LYING_MM);
     }
 
     #[test]
     fn the_tape_s_top_meets_the_cover_s_back_edge_the_ribbon_under_it() {
         let eye = Eye::testing(0.0, 96.0);
         let (back_y, back_z) = COVER_BACK;
-        let edge = eye.at([2.0, back_y, back_z]).y;
+        let edge = eye.at([51.0, back_y, back_z]).y;
         let (y, top, _) = RIBBON;
-        assert!(edge < eye.at([2.0, y, top]).y);
-        let tape = eye.at(on_guide(2.0, scale_t())).y;
+        assert!(edge < eye.at([51.0, y, top]).y);
+        let tape = eye.at(on_guide(51.0, scale_t())).y;
         assert!((edge - tape).abs() < 1.5, "{edge} {tape}");
     }
 

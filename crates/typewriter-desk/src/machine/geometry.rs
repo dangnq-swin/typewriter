@@ -1,4 +1,4 @@
-//! Points in inches, rounded outlines, and meshes built from them.
+//! Points in millimetres, rounded outlines, and meshes built from them.
 
 use std::collections::HashMap;
 

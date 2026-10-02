@@ -13,73 +13,73 @@ use super::{CHROME, METAL, METAL_SHINE};
 use crate::depth::{Layer, Solid};
 
 /// Centre to the carriage's ends, where the knobs are.
-const PLATEN_HALF_INCHES: f32 = 5.9;
-pub(super) const PLATEN_DIAMETER_INCHES: f32 = 1.3;
+const PLATEN_HALF_MM: f32 = 150.0;
+pub(super) const PLATEN_DIAMETER_MM: f32 = 33.0;
 /// Up the platen's front from level with its axis, where the type strikes:
 /// its lower part goes behind the cover and the ribbon.
 pub(super) const STRIKE_DEGREES: f32 = 35.0;
 /// The metal rings at the platen's ends.
-const PLATEN_END_INCHES: f32 = 0.08;
+const PLATEN_END_MM: f32 = 2.0;
 /// Bands of shading round a roller: enough for a smooth curve.
 pub(super) const ROLLER_BANDS: u16 = 28;
 /// Round the platen, in depth: fine enough that its flats stay under the
 /// paper wound on it.
 const PLATEN_BANDS: u16 = 64;
 /// The platen drawn this far under the paper on it.
-const UNDER_PAPER_INCHES: f32 = 0.01;
+const UNDER_PAPER_MM: f32 = 0.25;
 /// How tight the highlight on a roller or the platen is.
 const ROLLER_SHARPNESS: f32 = 4.0;
 /// The carriage's side plates, inside its ends: their thickness, and from
 /// the platen's axis their back and front `y` and their foot's `z`. Their
 /// front, straight, just ahead of the platen, hiding its ends; their top
 /// level with the paper bail's discs, a pocket beside each.
-pub(super) const SIDE_PLATE_INCHES: f32 = 0.2;
-pub(super) const SIDE_PLATE_BACK: f32 = -1.05;
-const SIDE_PLATE_FRONT: f32 = 0.66;
-const _: () = assert!(SIDE_PLATE_FRONT > PLATEN_DIAMETER_INCHES / 2.0);
-const SIDE_PLATE_FOOT: f32 = -0.75;
+pub(super) const SIDE_PLATE_MM: f32 = 5.0;
+pub(super) const SIDE_PLATE_BACK: f32 = -27.0;
+const SIDE_PLATE_FRONT: f32 = 17.0;
+const _: () = assert!(SIDE_PLATE_FRONT > PLATEN_DIAMETER_MM / 2.0);
+const SIDE_PLATE_FOOT: f32 = -19.0;
 /// The pocket: the plate's skin left outside it, and its lower corners'
 /// radius.
-const POCKET_SKIN: f32 = 0.04;
-const POCKET_ROUNDING: f32 = 0.08;
-const _: () = assert!(POCKET_SKIN < SIDE_PLATE_INCHES);
+const POCKET_SKIN: f32 = 1.0;
+const POCKET_ROUNDING: f32 = 2.0;
+const _: () = assert!(POCKET_SKIN < SIDE_PLATE_MM);
 /// Round each of its corners.
 const POCKET_STEPS: u16 = 6;
 /// The rod across the carriage's back, from the platen's axis `(y, z)`, and
 /// its radius.
-const CARRIAGE_BACK: (f32, f32) = (-0.75, 0.45);
-const CARRIAGE_BACK_RADIUS: f32 = 0.22;
+const CARRIAGE_BACK: (f32, f32) = (-19.0, 11.0);
+const CARRIAGE_BACK_RADIUS: f32 = 6.0;
 pub(super) const RUBBER: Color32 = Color32::from_rgb(0x16, 0x15, 0x14);
 pub(super) const RUBBER_SHINE: Color32 = Color32::from_rgb(0x55, 0x53, 0x50);
 
-/// The carriage's ends, inches across, for the sheet centred `middle`
-/// inches across.
+/// The carriage's ends, millimetres across, for the sheet centred `middle`
+/// millimetres across.
 pub(super) fn ends(middle: f32) -> [f32; 2] {
-    [middle - PLATEN_HALF_INCHES, middle + PLATEN_HALF_INCHES]
+    [middle - PLATEN_HALF_MM, middle + PLATEN_HALF_MM]
 }
 
 /// The platen's axis from the printing point.
 pub(super) fn platen_axis() -> [f32; 3] {
     let (sin, cos) = STRIKE_DEGREES.to_radians().sin_cos();
-    let radius = PLATEN_DIAMETER_INCHES / 2.0;
+    let radius = PLATEN_DIAMETER_MM / 2.0;
     [0.0, -radius * cos, -radius * sin]
 }
 
-/// The carriage for the sheet centred `middle` inches across: the rod at
+/// The carriage for the sheet centred `middle` millimetres across: the rod at
 /// its back, the platen and its metal ends, and the side plates.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
     let [left, right] = ends(middle);
     let [_, axis_y, axis_z] = platen_axis();
-    let radius = PLATEN_DIAMETER_INCHES / 2.0;
+    let radius = PLATEN_DIAMETER_MM / 2.0;
     let mut solid = Solid::default();
     let back = (axis_y + CARRIAGE_BACK.0, axis_z + CARRIAGE_BACK.1);
     let rod = ([left, right], back, CARRIAGE_BACK_RADIUS);
     cylinder(eye, &mut solid, rod, 2 * ROLLER_BANDS, [METAL, CHROME]);
-    let (inner_left, inner_right) = (left + SIDE_PLATE_INCHES, right - SIDE_PLATE_INCHES);
-    let end = PLATEN_END_INCHES;
+    let (inner_left, inner_right) = (left + SIDE_PLATE_MM, right - SIDE_PLATE_MM);
+    let end = PLATEN_END_MM;
     let rubber = [inner_left + end, inner_right - end];
     let axis = (axis_y, axis_z);
-    let under = radius - UNDER_PAPER_INCHES;
+    let under = radius - UNDER_PAPER_MM;
     let bands = PLATEN_BANDS;
     cylinder(
         eye,
@@ -150,7 +150,7 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
     } = bail::pocket();
     let (x_o, x_i, x_n) = (
         outer,
-        outer + inward * SIDE_PLATE_INCHES,
+        outer + inward * SIDE_PLATE_MM,
         outer + inward * POCKET_SKIN,
     );
     let r = POCKET_ROUNDING;

@@ -165,8 +165,9 @@ impl Desk {
                 Event::CarriageReturn => {
                     let machine = &self.project.machine;
                     let columns = column.abs_diff(machine.carriage().column);
-                    let inches = f64::from(columns) / f64::from(machine.profile().pitch_cpi);
-                    self.last_return = Return { at: now, inches };
+                    // The pitch counts columns an inch: the glide, millimetres.
+                    let mm = f64::from(columns) * 25.4 / f64::from(machine.profile().pitch_cpi);
+                    self.last_return = Return { at: now, mm };
                 }
                 Event::Blocked(reason) => {
                     self.effects.push(Effect::Jolt);
@@ -243,20 +244,17 @@ mod tests {
         press(&mut desk, &[ret], 10.0);
         assert_eq!(
             desk.last_return,
-            Return {
-                at: 10.0,
-                inches: 0.0
-            },
+            Return { at: 10.0, mm: 0.0 },
             "at the margin"
         );
         type_text(&mut desk, &"x".repeat(60), 12.0);
         press(&mut desk, &[ret], 20.0);
-        // Pica: 60 columns, 6 inches.
+        // Pica: 60 columns, 152.4 mm.
         assert_eq!(
             desk.last_return,
             Return {
                 at: 20.0,
-                inches: 6.0
+                mm: 152.4
             }
         );
     }

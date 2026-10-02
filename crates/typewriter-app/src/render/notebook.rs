@@ -10,8 +10,8 @@ use super::{DeskIcon, HIGHLIGHT, rotate};
 
 pub const COVER_FAMILY: &str = "cover";
 pub const JOST: &[u8] = include_bytes!("../../../../assets/fonts/jost/Jost-Bold.ttf");
-/// 3.5 × 5.5 in.
-pub const BOOK_INCHES: Vec2 = vec2(3.5, 5.5);
+/// A pocket memo book, 88.9 × 139.7 mm (3.5 × 5.5 in).
+pub const BOOK_MM: Vec2 = vec2(88.9, 139.7);
 
 /// Right-hand corners; the spine is square.
 pub(super) const CORNER_WIDTHS: f32 = 0.1;

@@ -3,7 +3,7 @@
 use eframe::egui::{Align2, Color32, Pos2, Shape, Stroke, pos2};
 
 use super::canvas::Canvas;
-use super::case::{OPENING_HALF, PANEL_EDGE_INCHES};
+use super::case::{OPENING_HALF, PANEL_EDGE_MM};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
 use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
 use super::light::{Paint, brighten, matte, polished, streak, toward_light};
@@ -12,35 +12,35 @@ use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
 use crate::depth::{Layer, Solid};
 
 /// Keys: the far row's centre `(y, z)` of its tops, one row to the next.
-pub(super) const KEY_ROW: (f32, f32) = (5.45, -2.65);
-const KEY_ROW_STEP: (f32, f32) = (0.8, -0.28);
+pub(super) const KEY_ROW: (f32, f32) = (138.0, -67.0);
+const KEY_ROW_STEP: (f32, f32) = (20.0, -7.0);
 /// The space bar's centre `y` and top `z`: standing above the shelf, its
 /// foot down in the notch. Half its depth.
-pub(super) const SPACE_ROW: (f32, f32) = (8.75, -3.6);
-const SPACE_HALF_DEPTH: f32 = 0.2;
+pub(super) const SPACE_ROW: (f32, f32) = (222.0, -91.0);
+const SPACE_HALF_DEPTH: f32 = 5.0;
 /// Keys reach almost wall to wall, as on the real machine.
-const KEY_PITCH: f32 = 0.86;
+const KEY_PITCH: f32 = 22.0;
 /// A key cap's top, its height, and how much wider its foot is each side.
-pub(super) const KEY_CAP: (f32, f32) = (0.64, 0.56);
-pub(super) const KEY_FRONT: f32 = 0.4;
-const KEY_FLARE: f32 = 0.03;
+pub(super) const KEY_CAP: (f32, f32) = (16.0, 14.0);
+pub(super) const KEY_FRONT: f32 = 10.0;
+const KEY_FLARE: f32 = 1.0;
 /// The keyboard's middle, in key pitches from the far row's first key.
 const KEYBOARD_MIDDLE: f32 = 5.65;
 /// A key's post drops from under its cap; its lever runs back from the post
 /// under the rows behind, into the machine under the panel.
-const STEM_DROP: f32 = 0.3;
+const STEM_DROP: f32 = 8.0;
 /// The key levers draw together toward the type basket.
 const LEVER_CONVERGE: f32 = 0.94;
 /// Levers and rods end this far behind the panel's edge, under it: hidden
 /// inside the machine.
-pub(super) const INTO_MACHINE: f32 = 0.1;
+pub(super) const INTO_MACHINE: f32 = 3.0;
 /// The rod the levers rest on: how far behind the far row, its radius, and
 /// the gap between its top and the lowest lever over it.
-const ROD_BEHIND: f32 = 0.35;
-const ROD_RADIUS: f32 = 0.09;
-const ROD_GAP: f32 = 0.02;
+const ROD_BEHIND: f32 = 9.0;
+const ROD_RADIUS: f32 = 2.0;
+const ROD_GAP: f32 = 1.0;
 /// How far below a key's top its shadow falls, cast by the light.
-const KEY_SHADOW_DROP: f32 = 0.6;
+const KEY_SHADOW_DROP: f32 = 15.0;
 /// As on a US SM9 De Luxe, far row first: positions in key pitches from
 /// the far row's first key, measured from one.
 pub(super) const KEYS: [&[Key]; 4] = [
@@ -107,9 +107,9 @@ pub(super) const KEYS: [&[Key]; 4] = [
 const BACKSPACE: &str = "<-";
 /// The tab clear key, the space bar and the tab set key: `x`, and legends.
 pub(super) const SPACE_BAR: [(f32, f32, &str); 3] = [
-    (-4.4, -3.55, "clear"),
-    (-3.45, 3.35, ""),
-    (3.45, 4.3, "set"),
+    (-112.0, -90.0, "clear"),
+    (-88.0, 85.0, ""),
+    (85.0, 109.0, "set"),
 ];
 /// The rod the key levers rest on: steel.
 const ROD: Color32 = Color32::from_rgb(0x6A, 0x6D, 0x6A);
@@ -176,9 +176,9 @@ pub(super) fn key_levers() -> Vec<[f32; 3]> {
     let keys = KEYS.iter().enumerate().flat_map(|(row, keys)| {
         let (y, z) = key_row(row as f32);
         keys.iter()
-            .map(move |key| [key.x(), y - 0.1, z - KEY_FRONT])
+            .map(move |key| [key.x(), y - 3.0, z - KEY_FRONT])
     });
-    let space = [-3.98, -1.8, 1.8, 3.88].map(|x| [x, space_y - 0.1, space_z - KEY_FRONT]);
+    let space = [-101.0, -46.0, 46.0, 99.0].map(|x| [x, space_y - 3.0, space_z - KEY_FRONT]);
     keys.chain(space).collect()
 }
 
@@ -191,7 +191,7 @@ fn lever_path(under_cap: [f32; 3]) -> [[f32; 3]; 2] {
         [
             x * LEVER_CONVERGE,
             y0 - INTO_MACHINE,
-            z0 - PANEL_EDGE_INCHES - 0.05,
+            z0 - PANEL_EDGE_MM - 1.0,
         ],
     ]
 }
@@ -287,12 +287,12 @@ fn paint_key_shadow(
         [left + dx - KEY_FLARE, right + dx + KEY_FLARE],
         [back + dy - KEY_FLARE, front + dy + KEY_FLARE],
         z,
-        0.12 + 2.0 * KEY_FLARE,
+        3.0 + 2.0 * KEY_FLARE,
     )
     .into_iter()
     .map(|[x, y, _]| pos2(x, y))
     .collect();
-    let mesh = soft(&outline, 0.1, Color32::from_black_alpha(150));
+    let mesh = soft(&outline, 2.5, Color32::from_black_alpha(150));
     // Each vertex as deep as the plane it lies drawn on, where it shows:
     // whatever stands through that plane, the walls and the caps' own feet,
     // hides the shadow there.
@@ -328,23 +328,23 @@ fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: [f32; 3]) {
     let coil: Vec<[f32; 3]> = (0..=2 * turns)
         .map(|i| {
             let t = 0.1 + 0.8 * f32::from(i) / f32::from(2 * turns);
-            let out = if i % 2 == 0 { -0.07 } else { 0.07 };
+            let out = if i % 2 == 0 { -2.0 } else { 2.0 };
             [x + out, y, z - STEM_DROP * t]
         })
         .collect();
     // Strands crossing in front go one way, those behind the other.
     for (i, strand) in coil.windows(2).enumerate() {
         let colour = if i % 2 == 0 { SPRING_LIT } else { SPRING_DARK };
-        eye.line(canvas, strand, 0.022, colour);
+        eye.line(canvas, strand, 0.56, colour);
     }
 }
 
 /// A steel rod along `path`, a streak of light `shine` bright (0..=1) down
 /// its lit side.
 pub(super) fn paint_steel(canvas: &Canvas, eye: &Eye, path: &[[f32; 3]], shine: f32) {
-    eye.line(canvas, path, 0.05, STEM);
-    let lit: Vec<[f32; 3]> = path.iter().map(|&[x, y, z]| [x - 0.018, y, z]).collect();
-    eye.line(canvas, &lit, 0.014, STEM_SHINE.gamma_multiply(shine));
+    eye.line(canvas, path, 1.27, STEM);
+    let lit: Vec<[f32; 3]> = path.iter().map(|&[x, y, z]| [x - 0.46, y, z]).collect();
+    eye.line(canvas, &lit, 0.36, STEM_SHINE.gamma_multiply(shine));
 }
 
 /// The caps, far row first, then the tab clear key, the space bar and the
@@ -417,7 +417,7 @@ pub(super) fn paint_cap(
     let outline = |z: f32, grow: f32| {
         let (l, r, b, f) = (left - grow, right + grow, back - grow, front + grow);
         // The foot rounder than the top: moulded plastic.
-        rounded_rect([l, r], [b, f], z, 0.12 + 2.0 * grow)
+        rounded_rect([l, r], [b, f], z, 3.0 + 2.0 * grow)
     };
     let top = outline(z, 0.0);
     let foot = outline(z - KEY_FRONT, KEY_FLARE);
@@ -467,8 +467,8 @@ fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &st
     let [x, y, z] = centre;
     let on_top = |across: f32, down: f32| [x + across, y + down, z];
     if main == BACKSPACE {
-        let (half, head) = (0.15, 0.06);
-        let stroke = Stroke::new(0.03 * FLAT_TEXT, LEGEND);
+        let (half, head) = (4.0, 2.0);
+        let stroke = Stroke::new(0.76 * FLAT_TEXT, LEGEND);
         let at = |u: f32, v: f32| pos2(u * FLAT_TEXT, v * FLAT_TEXT);
         let shapes = vec![
             Shape::line_segment([at(-half, 0.0), at(half, 0.0)], stroke),
@@ -490,13 +490,13 @@ fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &st
             canvas,
             eye,
             main,
-            0.24 * size,
+            6.0 * size,
             LEGEND,
             Align2::CENTER_CENTER,
             on_top,
         );
     } else {
-        let size = 0.16 * size;
+        let size = 4.0 * size;
         paint_flat_text(
             canvas,
             eye,

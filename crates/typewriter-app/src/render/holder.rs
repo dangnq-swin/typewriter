@@ -55,18 +55,18 @@ impl Holder {
 /// The stand and its sheet at the window's left. True when the sheet is
 /// taken down.
 pub fn show(ui: &mut Ui, view: Rect, profile: &Profile, holder: &mut Holder, ink: bool) -> bool {
-    let paper_inches = vec2(
+    let paper_mm = vec2(
         profile.paper.width_mm as f32,
         profile.paper.height_mm as f32,
-    ) / super::MM_PER_INCH;
+    );
     let height = view.height() - MARGIN - BOTTOM_ROOM - 2.0 * BOARD;
     let width = view.width() * MOST_WIDTH - MARGIN - 2.0 * BOARD;
-    let points_per_inch = (height / paper_inches.y).min(width / paper_inches.x);
-    if points_per_inch < 8.0 {
+    let points_per_mm = (height / paper_mm.y).min(width / paper_mm.x);
+    if points_per_mm * super::MM_PER_INCH < 8.0 {
         // No room to read: stay down until the window grows.
         return false;
     }
-    let metrics = Metrics::new(profile, points_per_inch);
+    let metrics = Metrics::new(profile, points_per_mm * super::MM_PER_INCH);
     let origin = view.left_top() + vec2(MARGIN + BOARD, MARGIN + BOARD);
     let sheet = Rect::from_min_size(origin, metrics.paper_size);
     let board = sheet.expand(BOARD);

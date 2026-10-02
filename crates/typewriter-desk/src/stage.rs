@@ -69,10 +69,10 @@ impl Stage for Desk {
             metrics,
             typing_y,
             carriage_x,
-            last_return: Return { at, inches },
+            last_return: Return { at, mm },
             now,
         } = *scene;
-        let throw = Throw::new(at, inches).amount(now);
+        let throw = Throw::new(at, mm).amount(now);
         machine::paint_behind(painter, view, metrics, typing_y, carriage_x, throw);
         None
     }
@@ -156,7 +156,7 @@ impl Stage for Desk {
 
     /// The lever, springing back after a return.
     fn is_animating(&self, last_return: Return, now: f64) -> bool {
-        Throw::new(last_return.at, last_return.inches).is_moving(now)
+        Throw::new(last_return.at, last_return.mm).is_moving(now)
     }
 
     /// What it draws in depth.

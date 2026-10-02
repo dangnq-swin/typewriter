@@ -16,29 +16,29 @@ use crate::depth::{Layer, Solid};
 
 /// The keyboard's well: the thin side walls either side of it, running the
 /// case's full depth; the panel's thickness over it; the key bed.
-pub(super) const OPENING_HALF: f32 = 5.85;
-pub(super) const PANEL_EDGE_INCHES: f32 = 0.45;
-pub(super) const KEY_BED_Z: f32 = -4.25;
+pub(super) const OPENING_HALF: f32 = 149.0;
+pub(super) const PANEL_EDGE_MM: f32 = 11.0;
+pub(super) const KEY_BED_Z: f32 = -108.0;
 /// The walls' tops: easing from the panel's foot to `WALL_EASE_Z`, then
 /// swooping down over `WALL_SWOOP` (`y`) to the case's front corners.
-const WALL_EASE_Z: f32 = -2.55;
-const WALL_SWOOP: (f32, f32) = (7.0, CASE_FRONT);
+const WALL_EASE_Z: f32 = -65.0;
+const WALL_SWOOP: (f32, f32) = (178.0, CASE_FRONT);
 /// The shelf between the walls, flush with the space bar and reaching just
 /// past it: its back `y`, the case's front `y`, its top `z`. The notch in
 /// it that the space bar and the keys beside it sit in: half its width, its
 /// front `y`.
-const SHELF_BACK: f32 = 8.45;
-pub(super) const CASE_FRONT: f32 = 9.15;
-pub(super) const SHELF_Z: f32 = -3.9;
-const NOTCH_HALF: f32 = 4.5;
-const NOTCH_FRONT: f32 = 9.02;
+const SHELF_BACK: f32 = 215.0;
+pub(super) const CASE_FRONT: f32 = 232.0;
+pub(super) const SHELF_Z: f32 = -99.0;
+const NOTCH_HALF: f32 = 114.0;
+const NOTCH_FRONT: f32 = 229.0;
 /// Where the shelf rounds off into the well beside the notch; the notch's
 /// front corners; the case's front corners.
-const SHELF_LIP: f32 = 0.3;
-const NOTCH_ROUNDING: f32 = 0.15;
-pub(super) const FRAME_ROUNDING: f32 = 0.5;
+const SHELF_LIP: f32 = 8.0;
+const NOTCH_ROUNDING: f32 = 4.0;
+pub(super) const FRAME_ROUNDING: f32 = 13.0;
 /// The case's front face down to the plinth.
-const PLINTH_TOP: f32 = -4.2;
+const PLINTH_TOP: f32 = -107.0;
 /// Dark enough to read as the machine's insides, light enough for the keys'
 /// shadows to show on.
 const KEY_BED: Color32 = Color32::from_rgb(0x2A, 0x29, 0x26);
@@ -82,7 +82,7 @@ fn case_side() -> Vec<[f32; 3]> {
 fn case_front_edge() -> Vec<[f32; 3]> {
     let corner: Vec<[f32; 3]> = case_side()
         .into_iter()
-        .filter(|p| p[1] >= CASE_FRONT - FRAME_ROUNDING - 1e-4)
+        .filter(|p| p[1] >= CASE_FRONT - FRAME_ROUNDING - 2.5e-3)
         .collect();
     let left = corner.iter().rev().map(|&[x, y, z]| [-x, y, z]);
     corner.iter().copied().chain(left).collect()
@@ -116,7 +116,7 @@ pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
         KEY_BED.lerp_to_gamma(KEY_BED_FRONT, (y - y0) / (NOTCH_FRONT - y0))
     });
     // The machine's insides under the panel's edge.
-    let under = z0 - PANEL_EDGE_INCHES;
+    let under = z0 - PANEL_EDGE_MM;
     let inside = [
         [-half, y0, under],
         [half, y0, under],
@@ -130,7 +130,7 @@ pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
 /// Shade on the key bed at the foot of the walls and under the panel.
 fn paint_well_shade(canvas: &Canvas, eye: &Eye) {
     let (y0, _) = PANEL_BOTTOM;
-    let (half, reach, bed) = (OPENING_HALF, 0.5, KEY_BED_Z);
+    let (half, reach, bed) = (OPENING_HALF, 13.0, KEY_BED_Z);
     let (dark, clear) = (Color32::from_black_alpha(170), Color32::TRANSPARENT);
     let mut solid = Solid::default();
     for (a, b, inward) in [
@@ -210,7 +210,7 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
 /// The panel's edge over the well: the levers go in under it.
 pub(super) fn paint_panel_edge(canvas: &Canvas, eye: &Eye) {
     let (y0, z0) = PANEL_BOTTOM;
-    let (half, under) = (OPENING_HALF, z0 - PANEL_EDGE_INCHES);
+    let (half, under) = (OPENING_HALF, z0 - PANEL_EDGE_MM);
     let edge = [
         [-half, y0, z0],
         [half, y0, z0],
@@ -229,7 +229,7 @@ pub(super) fn paint_frame(canvas: &Canvas, eye: &Eye) {
     paint_case_front(canvas, eye);
     for side in [-1.0, 1.0] {
         let edge: Vec<[f32; 3]> = outline.iter().map(|&[x, y, z]| [side * x, y, z]).collect();
-        eye.line(canvas, &edge, 0.012, EDGE);
+        eye.line(canvas, &edge, 0.3, EDGE);
     }
 }
 
@@ -349,20 +349,20 @@ mod tests {
         let eye = Eye::testing(300.0, 48.0);
         for row in 0..4 {
             let (y, z) = key_row(row as f32);
-            assert!(wall_top(y) > z + 0.2, "row {row}");
+            assert!(wall_top(y) > z + 5.0, "row {row}");
         }
         // The walls meet the shelf at the case's front corners, above it before.
-        assert!((wall_top(CASE_FRONT) - SHELF_Z).abs() < 1e-4);
+        assert!((wall_top(CASE_FRONT) - SHELF_Z).abs() < 2.5e-3);
         assert!(wall_top(SPACE_ROW.0) > SHELF_Z);
         let (space_y, space_z) = SPACE_ROW;
         assert!(SHELF_Z <= space_z);
-        assert!(SHELF_BACK < space_y - 0.2 && space_y + 0.2 < NOTCH_FRONT);
+        assert!(SHELF_BACK < space_y - 5.0 && space_y + 5.0 < NOTCH_FRONT);
         assert!(
             SPACE_BAR
                 .iter()
                 .all(|&(left, right, _)| -NOTCH_HALF < left && right < NOTCH_HALF)
         );
-        let bar = eye.at([0.0, space_y + 0.2, space_z]).y;
+        let bar = eye.at([0.0, space_y + 5.0, space_z]).y;
         let shelf = eye.at([0.0, CASE_FRONT, SHELF_Z]).y;
         assert!(bar < shelf, "{bar} {shelf}");
         assert!(key_row(3.0).0 + KEY_CAP.1 / 2.0 < SHELF_BACK);
@@ -372,7 +372,7 @@ mod tests {
     fn the_case_corner_is_sampled_finely_to_its_end() {
         let corner: Vec<[f32; 3]> = case_side()
             .into_iter()
-            .filter(|p| p[1] >= CASE_FRONT - FRAME_ROUNDING - 1e-4)
+            .filter(|p| p[1] >= CASE_FRONT - FRAME_ROUNDING - 2.5e-3)
             .collect();
         // No step cuts across the curve: every one short, the last too.
         for pair in corner.windows(2) {
@@ -380,8 +380,8 @@ mod tests {
             assert!(step[0].hypot(step[1]) < FRAME_ROUNDING / 10.0, "{pair:?}");
         }
         let last = corner[corner.len() - 1];
-        assert!((last[1] - CASE_FRONT).abs() < 1e-4);
-        assert!((last[0] - (PANEL_HALF_BOTTOM - FRAME_ROUNDING)).abs() < 1e-4);
+        assert!((last[1] - CASE_FRONT).abs() < 2.5e-3);
+        assert!((last[0] - (PANEL_HALF_BOTTOM - FRAME_ROUNDING)).abs() < 2.5e-3);
     }
 
     #[test]

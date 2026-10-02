@@ -14,26 +14,26 @@ use typewriter_app::draw::{Controls, HIGHLIGHT, Metrics, ruler};
 use typewriter_app::settings::{ZOOM_NOTCHES, zoom_notch};
 
 /// The front panel, falling from the cover's fold to the keyboard's opening.
-pub(super) const PANEL_BOTTOM: (f32, f32) = (4.7, -2.35);
-pub(super) const PANEL_HALF_BOTTOM: f32 = 6.45;
+pub(super) const PANEL_BOTTOM: (f32, f32) = (119.0, -60.0);
+pub(super) const PANEL_HALF_BOTTOM: f32 = 164.0;
 /// The controls where the maker's badge would be: across the panel at `y`,
 /// their names and readings below.
-pub(super) const CONTROLS_Y: f32 = 3.6;
+pub(super) const CONTROLS_Y: f32 = 91.0;
 /// Knob to its name and reading beside it; their lines, above and below
 /// the knob's centre.
-const LABEL_GAP: f32 = 0.5;
+const LABEL_GAP: f32 = 13.0;
 /// The save label further out still, past the lamp.
-const SAVE_LABEL_PAST: f32 = 0.3;
-const LABEL_LINES: (f32, f32) = (-0.07, 0.07);
-pub(super) const KNOB_RADIUS: f32 = 0.3;
-const KNOB_HEIGHT: f32 = 0.22;
-const BUTTON_HEIGHT: f32 = 0.1;
+const SAVE_LABEL_PAST: f32 = 8.0;
+const LABEL_LINES: (f32, f32) = (-2.0, 2.0);
+pub(super) const KNOB_RADIUS: f32 = 8.0;
+const KNOB_HEIGHT: f32 = 6.0;
+const BUTTON_HEIGHT: f32 = 3.0;
 /// Past the knob, where its index marks are engraved: inner and outer.
 pub(super) const INDEX_MARKS: (f32, f32) = (1.25, 1.5);
-const LAMP_RADIUS: f32 = 0.08;
+const LAMP_RADIUS: f32 = 2.0;
 /// The lamp's middle out from the save button's, its chrome rim round it:
 /// clear of the button and its shadow, short of the label.
-const LAMP_OUT: f32 = 0.56;
+const LAMP_OUT: f32 = 14.0;
 const LAMP_RIM: f32 = 1.4 * LAMP_RADIUS;
 const _: () = assert!(LAMP_OUT + LAMP_RIM < LABEL_GAP + SAVE_LABEL_PAST);
 const KNOB_TOP: Color32 = Color32::from_rgb(0xEC, 0xE7, 0xD6);
@@ -79,8 +79,8 @@ fn panel_normal() -> [f32; 3] {
     [0.0, -dz, dy]
 }
 
-/// On the panel's plane from `centre`, `radius` inches toward `turn` degrees
-/// clockwise from the top, the top being up the slope.
+/// On the panel's plane from `centre`, `radius` millimetres toward `turn`
+/// degrees clockwise from the top, the top being up the slope.
 pub(super) fn panel_offset(centre: [f32; 3], radius: f32, turn: f32) -> [f32; 3] {
     let down = panel_down();
     let (sin, cos) = turn.to_radians().sin_cos();
@@ -90,7 +90,7 @@ pub(super) fn panel_offset(centre: [f32; 3], radius: f32, turn: f32) -> [f32; 3]
     })
 }
 
-/// Where the light casts `point`, `height` inches off the panel, onto it.
+/// Where the light casts `point`, `height` millimetres off the panel, onto it.
 fn cast_on_panel(point: [f32; 3], height: f32) -> [f32; 3] {
     let light = toward_light();
     let along = height / dot(light, panel_normal());
@@ -123,26 +123,26 @@ impl Control {
         Self::Save,
     ];
 
-    /// Across the panel, in inches from its centre: where the maker's
+    /// Across the panel, in millimetres from its centre: where the maker's
     /// badge would be on the left, where its emblem would be on the right.
     fn x(self) -> f32 {
         match self {
-            Self::Spacing => -5.6,
-            Self::Zoom => -4.1,
-            Self::Correct => -2.35,
-            Self::Goal => 1.2,
-            Self::Save => 4.5,
+            Self::Spacing => -142.0,
+            Self::Zoom => -104.0,
+            Self::Correct => -58.0,
+            Self::Goal => 30.0,
+            Self::Save => 114.0,
         }
     }
 
-    /// Room for the name and reading beside it, in inches.
+    /// Room for the name and reading beside it, in millimetres.
     fn label_width(self) -> f32 {
         match self {
-            Self::Spacing => 0.5,
-            Self::Zoom => 0.8,
-            Self::Correct => 1.2,
-            Self::Goal => 2.2,
-            Self::Save => 0.7,
+            Self::Spacing => 13.0,
+            Self::Zoom => 20.0,
+            Self::Correct => 30.0,
+            Self::Goal => 56.0,
+            Self::Save => 18.0,
         }
     }
 
@@ -269,11 +269,11 @@ impl Panel {
         for &mark in marks {
             let [inner, outer] =
                 [INDEX_MARKS.0, INDEX_MARKS.1].map(|r| panel_offset(centre, KNOB_RADIUS * r, mark));
-            eye.line(canvas, &[inner, outer], 0.025, ENGRAVED);
+            eye.line(canvas, &[inner, outer], 0.64, ENGRAVED);
         }
         let top = self.paint_cylinder(canvas, centre, KNOB_HEIGHT, lit, [KNOB_TOP, KNOB_SIDE]);
         let [from, to] = [0.25, 0.85].map(|r| panel_offset(top, KNOB_RADIUS * r, turn));
-        eye.line(canvas, &[from, to], 0.05, READING);
+        eye.line(canvas, &[from, to], 1.27, READING);
     }
 
     /// The save button, flush, and its lamp beside it: lit in `lamp`'s
@@ -322,7 +322,7 @@ impl Panel {
             .collect();
         eye.fill(canvas, &side, |_| side_colour);
         for i in (1..half).step_by(2) {
-            eye.line(canvas, &[at(base, i), at(top, i)], 0.02, KNOB_RIB);
+            eye.line(canvas, &[at(base, i), at(top, i)], 0.5, KNOB_RIB);
         }
         let face = circle(top, KNOB_RADIUS);
         eye.fill(canvas, &face, |_| top_colour);
@@ -349,16 +349,8 @@ impl Panel {
             }
         };
         let left = Align2::LEFT_CENTER;
-        paint_flat_text(
-            canvas,
-            eye,
-            control.name(),
-            0.11,
-            ENGRAVED,
-            left,
-            on(name_y),
-        );
-        paint_flat_text(canvas, eye, reading, 0.14, colour, left, on(reading_y));
+        paint_flat_text(canvas, eye, control.name(), 3.0, ENGRAVED, left, on(name_y));
+        paint_flat_text(canvas, eye, reading, 4.0, colour, left, on(reading_y));
     }
 }
 
@@ -384,9 +376,9 @@ mod tests {
             .map(|c| (c.x() - reach, c.label_x() + c.label_width()))
             .collect();
         for pair in spans.windows(2) {
-            assert!(pair[0].1 <= pair[1].0 + 1e-3, "{pair:?}");
+            assert!(pair[0].1 <= pair[1].0 + 2.5e-3, "{pair:?}");
         }
-        let half = PANEL_HALF_BOTTOM - 0.3;
+        let half = PANEL_HALF_BOTTOM - 8.0;
         assert!(
             spans
                 .iter()

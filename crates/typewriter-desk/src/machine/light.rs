@@ -14,12 +14,12 @@ use super::geometry::{dot, normalized};
 use super::{METAL, METAL_SHINE};
 use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
 
-/// Where the lamp stands, in machine inches from the printing point: over
-/// the desk's left front, its head about sixteen inches above the desk's
+/// Where the lamp stands, in machine millimetres from the printing point:
+/// over the desk's left front, its head about 400 mm above the desk's
 /// top. Seen from the machine's middle it lies where the old direction
 /// pointed, so what the CPU lights keeps its look.
 pub(super) fn lamp() -> [f32; 3] {
-    [-10.0, 6.7, 11.7]
+    [-254.0, 170.0, 297.0]
 }
 
 /// Toward the lamp from the machine's middle: for lines and cast shadows,
@@ -108,7 +108,7 @@ pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
 }
 
 /// An upright chrome plate facing the writer over `x` at depth `y`, from
-/// `top` down `height` inches, outlined. Chrome mirrors the room, so the
+/// `top` down `height` millimetres, outlined. Chrome mirrors the room, so the
 /// shader bands the plate: bright sky above, the light's band, the dark room
 /// below.
 pub(super) fn paint_chrome(

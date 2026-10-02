@@ -15,13 +15,13 @@ const DISTANCE_VIEWS: f32 = 1.2;
 /// The desk's far edge, down from the view's top, as a share of its height.
 const FAR_EDGE_HEIGHT: f32 = 0.34;
 /// Window's bottom edge to the wall.
-const DESK_DEPTH_CM: f32 = 75.0;
+const DESK_DEPTH_MM: f32 = 750.0;
 /// Boards run left to right, grain along them.
-const PLANK_CM: f32 = 14.0;
+const PLANK_MM: f32 = 140.0;
 const STREAKS_PER_PLANK: u64 = 18;
 const GRAIN_SEGMENTS: u16 = 32;
 /// Wall to desk shading: how far it reaches on the desk.
-const CONTACT_SHADE_CM: f32 = 4.0;
+const CONTACT_SHADE_MM: f32 = 40.0;
 const SEED: u64 = 0x5EED_DE5C;
 
 const WALL_TOP: Color32 = Color32::from_rgb(0xB4, 0xAB, 0x9C);
@@ -37,8 +37,8 @@ struct Desk {
     camera: Camera,
     depth: f32,
     half_width: f32,
-    /// Plane units per centimetre.
-    cm: f32,
+    /// Plane units per millimetre.
+    mm: f32,
 }
 
 impl Desk {
@@ -54,7 +54,7 @@ impl Desk {
             depth,
             // At the far edge too, past the window's sides.
             half_width: view.width().max(1.0),
-            cm: depth / DESK_DEPTH_CM,
+            mm: depth / DESK_DEPTH_MM,
         }
     }
 
@@ -83,7 +83,7 @@ pub fn paint(painter: &Painter, view: Rect) {
     gradient(&mut mesh, desk.band(0.0, desk.depth), WOOD_NEAR, WOOD_FAR);
     grain(&mut mesh, &desk);
     // Where desk meets wall, a little light is kept out.
-    let shade = desk.depth - CONTACT_SHADE_CM * desk.cm;
+    let shade = desk.depth - CONTACT_SHADE_MM * desk.mm;
     gradient(
         &mut mesh,
         desk.band(shade, desk.depth),
@@ -101,9 +101,9 @@ pub fn paint(painter: &Painter, view: Rect) {
         Color32::TRANSPARENT,
     );
     painter.add(Shape::mesh(mesh));
-    let planks = (DESK_DEPTH_CM / PLANK_CM).ceil() as u16;
+    let planks = (DESK_DEPTH_MM / PLANK_MM).ceil() as u16;
     for plank in 1..planks {
-        let y = f32::from(plank) * PLANK_CM * desk.cm;
+        let y = f32::from(plank) * PLANK_MM * desk.mm;
         let [left, right, ..] = desk.band(y, y);
         painter.line_segment([left, right], Stroke::new(1.0, SEAM));
     }
@@ -112,14 +112,14 @@ pub fn paint(painter: &Painter, view: Rect) {
 /// Streaks along each board, fading to a hairline with distance rather than
 /// thinning below a pixel: sub-pixel strips shimmer.
 fn grain(mesh: &mut Mesh, desk: &Desk) {
-    let planks = (DESK_DEPTH_CM / PLANK_CM).ceil() as u64;
+    let planks = (DESK_DEPTH_MM / PLANK_MM).ceil() as u64;
     for plank in 0..planks {
-        let plank_near = plank as f32 * PLANK_CM;
+        let plank_near = plank as f32 * PLANK_MM;
         // Each board a shade apart.
         let tone = splitmix64(SEED ^ plank);
         let (near, far) = (
-            plank_near * desk.cm,
-            (plank_near + PLANK_CM).min(DESK_DEPTH_CM) * desk.cm,
+            plank_near * desk.mm,
+            (plank_near + PLANK_MM).min(DESK_DEPTH_MM) * desk.mm,
         );
         let tint = if unit(tone, 0) < 0.5 {
             GRAIN_DARK
@@ -134,8 +134,8 @@ fn grain(mesh: &mut Mesh, desk: &Desk) {
         );
         for streak in 0..STREAKS_PER_PLANK {
             let bits = splitmix64(SEED ^ (plank << 16) ^ streak);
-            let y = plank_near + unit(bits, 0) * PLANK_CM;
-            if y >= DESK_DEPTH_CM {
+            let y = plank_near + unit(bits, 0) * PLANK_MM;
+            if y >= DESK_DEPTH_MM {
                 continue;
             }
             let colour = if unit(bits, 48) < 0.7 {
@@ -148,10 +148,10 @@ fn grain(mesh: &mut Mesh, desk: &Desk) {
                 mesh,
                 desk,
                 Streak {
-                    y: y * desk.cm,
-                    thickness: (0.05 + unit(bits, 32) * 0.25) * desk.cm,
-                    amplitude: (0.1 + unit(bits, 8) * 0.4) * desk.cm,
-                    wavelength: (30.0 + unit(bits, 24) * 60.0) * desk.cm,
+                    y: y * desk.mm,
+                    thickness: (0.5 + unit(bits, 32) * 2.5) * desk.mm,
+                    amplitude: (1.0 + unit(bits, 8) * 4.0) * desk.mm,
+                    wavelength: (300.0 + unit(bits, 24) * 600.0) * desk.mm,
                     phase: unit(bits, 40) * TAU,
                     colour,
                     alpha,

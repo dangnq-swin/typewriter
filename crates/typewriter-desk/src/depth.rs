@@ -4,9 +4,9 @@
 //! sets its place, parts [`gather`] into it, [`end`] draws it.
 //!
 //! Each vertex is egui's, on screen in points, with a depth added: 0 at the
-//! eye to 1 far off, where it stands in machine inches, and how it takes the
-//! frame's light ([`Shade`]). The shader lights each fragment from those
-//! inches toward the lamp, so a flat face is not lit evenly. Opaque triangles
+//! eye to 1 far off, where it stands in machine millimetres, and how it takes
+//! the frame's light ([`Shade`]). The shader lights each fragment from those
+//! millimetres toward the lamp, so a flat face is not lit evenly. Opaque triangles
 //! hide what is behind them; decals lie on them (print, edges, glass), hide
 //! nothing and are drawn after. Where no renderer is installed, as in the
 //! snapshot tool, the triangles go out as data for [`rasterize`] to fill.
@@ -31,7 +31,7 @@ const SHADER: &str = include_str!("depth.wgsl");
 const FONTS: TextureId = TextureId::Managed(0);
 /// Position (3 floats), uv (2), colour (4 bytes), the way it faces (3
 /// floats), its material's parameter (1 float), material (4 bytes),
-/// highlight (4 bytes) and the inches it stands at (3 floats).
+/// highlight (4 bytes) and the millimetres it stands at (3 floats).
 const VERTEX_BYTES: u64 = 60;
 /// The lamp and the eye as `vec4`s, then chrome's bands as `vec4`s: as many
 /// as the shader's `r_lighting`.
@@ -52,8 +52,8 @@ pub enum Layer {
 /// `depth.wgsl`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Lighting {
-    /// Where the lamp stands, in machine inches from the printing point:
-    /// each fragment is lit from there toward its own inches.
+    /// Where the lamp stands, in machine millimetres from the printing
+    /// point: each fragment is lit from there toward its own millimetres.
     pub lamp: [f32; 3],
     /// Toward the eye, unit length: a highlight is where a surface turns them
     /// both.
@@ -112,11 +112,11 @@ pub enum Shade {
 
 impl Shade {
     /// `rgba` (premultiplied sRGB gamma, 0..=1) standing at `at`, in machine
-    /// inches, as `lighting`'s lamp lights it. Keep in step with `depth.wgsl`.
+    /// millimetres, as `lighting`'s lamp lights it. Keep in step with `depth.wgsl`.
     pub fn apply(self, rgba: [f32; 4], lighting: &Lighting, at: [f32; 3]) -> [f32; 4] {
         let [r, g, b, a] = rgba;
         let gamma = [r, g, b];
-        // From these inches toward the lamp: what a fragment sees, the
+        // From these millimetres toward the lamp: what a fragment sees, the
         // direction from it to the light.
         let light = unit(sub(lighting.lamp, at));
         let eye = lighting.eye;
@@ -161,7 +161,7 @@ impl Shade {
         [r, g, b, a]
     }
 
-    /// `colour` as [`Shade::apply`] lights it at `at`, in machine inches.
+    /// `colour` as [`Shade::apply`] lights it at `at`, in machine millimetres.
     pub fn colour(self, colour: Color32, lighting: &Lighting, at: [f32; 3]) -> Color32 {
         if self == Self::Unlit {
             return colour;
@@ -236,7 +236,7 @@ fn unit(v: [f32; 3]) -> [f32; 3] {
 }
 
 /// Triangles in depth, in one texture: egui's mesh, and each vertex's depth,
-/// the inches it stands at, and shade.
+/// the millimetres it stands at, and shade.
 #[derive(Debug, Clone, Default)]
 pub struct Solid {
     /// In egui's font atlas ([`FONTS`]), uvs are in texels: the atlas may
@@ -244,9 +244,9 @@ pub struct Solid {
     pub mesh: Mesh,
     /// 0 at the eye to 1 far off, one for each of `mesh`'s vertices.
     pub depths: Vec<f32>,
-    /// Where each of `mesh`'s vertices stands, in machine inches from the
-    /// printing point: the lamp lights a fragment from these. What takes no
-    /// shade says `[0.0; 3]`.
+    /// Where each of `mesh`'s vertices stands, in machine millimetres from
+    /// the printing point: the lamp lights a fragment from these. What takes
+    /// no shade says `[0.0; 3]`.
     pub places: Vec<[f32; 3]>,
     /// One for each of `mesh`'s vertices.
     pub shades: Vec<Shade>,
@@ -266,8 +266,8 @@ impl Solid {
     }
 }
 
-/// Where a vertex shows in a [`Solid`]: its depth, the inches it stands at,
-/// and its take of the light.
+/// Where a vertex shows in a [`Solid`]: its depth, the millimetres it stands
+/// at, and its take of the light.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Placing {
     pub depth: f32,
@@ -276,7 +276,7 @@ pub struct Placing {
 }
 
 impl From<f32> for Placing {
-    /// Unlit, needing no inches.
+    /// Unlit, needing no position.
     fn from(depth: f32) -> Self {
         Self {
             depth,
@@ -304,7 +304,7 @@ impl Solids {
     }
 
     /// Adds `mesh`, `place` moving each vertex where it shows, maybe tinting
-    /// it, and saying its [`Placing`]: depth, inches and shade. `None` hides
+    /// it, and saying its [`Placing`]: depth, position and shade. `None` hides
     /// a vertex, and the triangles touching it.
     pub fn add(
         &mut self,
@@ -1021,9 +1021,9 @@ pub fn rasterize(
                 }
             };
             let shade = |triangle: [u32; 3], weights: [f32; 3], rgba| {
-                // The shader blends each vertex's inches across the triangle
-                // affine, in screen space: this blends them the same way, to
-                // find the fragment's place on the lamp.
+                // The shader blends each vertex's millimetres across the
+                // triangle affine, in screen space: this blends them the same
+                // way, to find the fragment's place on the lamp.
                 let at = [0, 1, 2].map(|k| {
                     (0..3)
                         .map(|c| weights[c] * solid.places[triangle[c] as usize][k])
@@ -1182,7 +1182,7 @@ mod tests {
         assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
         assert_eq!(float(36), 0.0);
         assert_eq!(vertices[40..44], 1u32.to_le_bytes());
-        // And where it stands, in inches, for the lamp.
+        // And where it stands, in millimetres, for the lamp.
         assert_eq!([float(48), float(52), float(56)], [1.0, 2.0, 3.5]);
         let next = 3 * VERTEX_BYTES as usize;
         assert_eq!(vertices[next + 40..next + 44], 0u32.to_le_bytes());

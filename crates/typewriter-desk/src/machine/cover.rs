@@ -19,25 +19,25 @@ use typewriter_app::draw::{splitmix64, unit};
 /// opening, `(y, half)`: a small one at the back, just holding the ribbon,
 /// its vibrator and the segment under them, running out at the back between
 /// the plates' tips.
-pub(super) const COVER_BACK: (f32, f32) = (0.3, -0.14);
-pub(super) const COVER_FRONT: (f32, f32) = (2.8, -0.89);
-pub(super) const COVER_HALF: (f32, f32) = (5.95, 6.35);
-const OPENING_BACK: (f32, f32) = (0.3, 1.5);
-const OPENING_FRONT: (f32, f32) = (2.3, 3.1);
+pub(super) const COVER_BACK: (f32, f32) = (8.0, -4.0);
+pub(super) const COVER_FRONT: (f32, f32) = (71.0, -23.0);
+pub(super) const COVER_HALF: (f32, f32) = (151.0, 161.0);
+const OPENING_BACK: (f32, f32) = (8.0, 38.0);
+const OPENING_FRONT: (f32, f32) = (58.0, 79.0);
 /// The plates' tips, rounded thick; the opening's front corners; the
 /// plates' thickness, showing where they drop into the opening.
-const PLATE_TIP: f32 = 0.35;
-const OPENING_CORNER: f32 = 0.4;
-const PLATE_THICKNESS: f32 = 0.3;
+const PLATE_TIP: f32 = 9.0;
+const OPENING_CORNER: f32 = 10.0;
+const PLATE_THICKNESS: f32 = 8.0;
 /// The type segment, a half disc straight edge back along the ribbon's foot:
 /// its teal plate's and silver rim's radii, its height; how far its type
 /// bars reach from its centre, past the opening's edges, and how low.
-const SEGMENT_CORE: f32 = 0.95;
-const SEGMENT_RIM: f32 = 1.1;
-const SEGMENT_Z: f32 = -0.76;
-const TYPE_BAR_REACH: (f32, f32) = (3.8, -1.9);
+const SEGMENT_CORE: f32 = 24.0;
+const SEGMENT_RIM: f32 = 28.0;
+const SEGMENT_Z: f32 = -19.0;
+const TYPE_BAR_REACH: (f32, f32) = (97.0, -48.0);
 /// How far the cover's shadow reaches inside the opening.
-const OPENING_SHADE_INCHES: f32 = 0.3;
+pub(super) const OPENING_SHADE_MM: f32 = 8.0;
 const INSIDE: Color32 = Color32::from_rgb(0x16, 0x12, 0x0E);
 const TYPE_BAR: Color32 = Color32::from_rgb(0x2E, 0x2B, 0x26);
 const TEAL: Color32 = Color32::from_rgb(0x3A, 0x68, 0x64);
@@ -63,8 +63,8 @@ fn opening() -> [[f32; 3]; 4] {
     inset_opening(0.0, 0.0)
 }
 
-/// The opening with its sides moved in `side` inches across and its front
-/// `front` inches back, corners as [`opening`]'s.
+/// The opening with its sides moved in `side` millimetres across and its
+/// front `front` millimetres back, corners as [`opening`]'s.
 fn inset_opening(side: f32, front: f32) -> [[f32; 3]; 4] {
     let (ob, of) = (OPENING_BACK, OPENING_FRONT);
     let front_y = of.0 - front;
@@ -96,8 +96,8 @@ pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
     // Deep under the cover, below the type bars: the cover and panel hide
     // all but what shows through the opening.
     let ((back, _), (front, half)) = (OPENING_BACK, OPENING_FRONT);
-    let floor = TYPE_BAR_REACH.1 - 0.1;
-    let (wide, back, front) = (half + 2.0, back - 3.0, front + 0.5);
+    let floor = TYPE_BAR_REACH.1 - 3.0;
+    let (wide, back, front) = (half + 51.0, back - 76.0, front + 13.0);
     let insides = [
         [-wide, back, floor],
         [wide, back, floor],
@@ -144,12 +144,12 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     }
     // One slope, one normal: the lamp washes it the way the gradient faked.
     let lit = |_| matte(IVORY, cover_normal());
-    let left: Vec<[f32; 3]> = fillet(fl, bl, tip_l, 0.25)
+    let left: Vec<[f32; 3]> = fillet(fl, bl, tip_l, 6.0)
         .into_iter()
         .chain(left_edge.iter().copied())
         .chain([fl])
         .collect();
-    let right: Vec<[f32; 3]> = fillet(fr, br, tip_r, 0.25)
+    let right: Vec<[f32; 3]> = fillet(fr, br, tip_r, 6.0)
         .into_iter()
         .chain(right_edge.iter().copied())
         .chain([fr])
@@ -167,11 +167,11 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     }
     // The rounded top of the plates' edges catches the light.
     for edge in [&left_wall, &right_wall] {
-        eye.line(canvas, edge, 0.03, Color32::from_white_alpha(150));
+        eye.line(canvas, edge, 1.0, Color32::from_white_alpha(150));
     }
     let outline = [
-        fillet(fl, bl, br, 0.25),
-        fillet(bl, br, fr, 0.25),
+        fillet(fl, bl, br, 6.0),
+        fillet(bl, br, fr, 6.0),
         vec![fr, fl],
     ]
     .concat();
@@ -204,7 +204,7 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[[f32; 3]], facing: f32) 
 /// The cover's shadow just inside the opening, round its sides and front:
 /// its back is open.
 fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
-    let reach = OPENING_SHADE_INCHES;
+    let reach = OPENING_SHADE_MM;
     let (dark, clear) = (Color32::from_black_alpha(190), Color32::TRANSPARENT);
     let edge = round_the_front(opening(), OPENING_CORNER);
     // A smaller opening inside it, point for point: offsetting each point
@@ -232,7 +232,7 @@ fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
 /// plate in a brushed silver rim. The link from each key lever up to its bar
 /// is under the panel, out of sight.
 fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
-    let centre = OPENING_BACK.0 - 0.15;
+    let centre = OPENING_BACK.0 - 4.0;
     let at =
         |angle: f32, radius: f32, z: f32| [radius * angle.sin(), centre + radius * angle.cos(), z];
     let bars = 53u16;
@@ -240,13 +240,13 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     for i in 0..bars {
         let angle = (-86.0 + 172.0 * f32::from(i) / f32::from(bars - 1)).to_radians();
         let (from, to) = (at(angle, SEGMENT_RIM, SEGMENT_Z), at(angle, reach, low));
-        eye.line(canvas, &[from, to], 0.075, TYPE_BAR);
+        eye.line(canvas, &[from, to], 2.0, TYPE_BAR);
         // A streak down its lit edge, bright where it points to catch the light.
         let shine = streak(sub(to, from), 12);
-        let aside = [-0.022 * angle.cos(), 0.022 * angle.sin(), 0.0];
+        let aside = [-0.6 * angle.cos(), 0.6 * angle.sin(), 0.0];
         let edge = [add(from, aside), add(to, aside)];
         let colour = METAL_SHINE.gamma_multiply(0.12 + 0.88 * shine);
-        eye.line(canvas, &edge, 0.02, colour);
+        eye.line(canvas, &edge, 0.5, colour);
     }
 
     // The rim: brushed, so its streak runs round it.
@@ -272,7 +272,7 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
             )
         })
         .collect();
-    eye.line(canvas, &edge, 0.025, PALE_RING);
+    eye.line(canvas, &edge, 0.6, PALE_RING);
 }
 
 /// The front half of an annulus round `(0, centre_y)` at the segment's
@@ -327,7 +327,7 @@ fn speckle(
         } else {
             Color32::from_black_alpha(50)
         };
-        let radius = (0.012 * eye.scale(p)).max(0.6);
+        let radius = (0.3 * eye.scale(p)).max(0.6);
         let depth = eye.lying_depth(p);
         let speck = Shape::circle_filled(eye.at(p), radius, colour);
         canvas.lay(vec![speck], |at| (at, depth));
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn the_type_bars_reach_past_the_opening() {
-        let back = OPENING_BACK.0 - 0.15;
+        let back = OPENING_BACK.0 - 4.0;
         let reach = TYPE_BAR_REACH.0;
         assert!(back + reach > OPENING_FRONT.0);
         assert!(reach * 84.0_f32.to_radians().sin() > OPENING_FRONT.1);

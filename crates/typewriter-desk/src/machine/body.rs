@@ -13,21 +13,21 @@ use super::light::{brighten, matte};
 use super::panel::PANEL_HALF_BOTTOM;
 
 /// The light is also to the writer's left: the machine's shadow falls right
-/// and a little back on the desk, `(x, y)` inches.
-const CAST_SHADOW: (f32, f32) = (0.9, -0.5);
+/// and a little back on the desk, `(x, y)` millimetres.
+const CAST_SHADOW: (f32, f32) = (23.0, -13.0);
 /// The body's top under the carriage, as wide as the ribbon cover's back,
 /// to under the platen's front, behind the ribbon: its `y` range and `z`.
-const DECK: (f32, f32) = (-1.8, 0.0);
-const DECK_Z: f32 = -0.55;
+const DECK: (f32, f32) = (-46.0, 0.0);
+const DECK_Z: f32 = -14.0;
 /// The body's back on the desk, under the carriage, and the desk's top.
-const BODY_BACK: f32 = -2.6;
-pub(super) const DESK_Z: f32 = -4.35;
+const BODY_BACK: f32 = -66.0;
+pub(super) const DESK_Z: f32 = -110.0;
 
 /// Its shadows on the desk: cast away from the light, and the contact
 /// shadow round its base.
 pub(super) fn paint_shadow(painter: &Painter, eye: &Eye) {
     let (cast, contact) = (footprint(eye, CAST_SHADOW), footprint(eye, (0.0, 0.0)));
-    let (cast_blur, contact_blur) = (0.9 * eye.ppi, 0.15 * eye.ppi);
+    let (cast_blur, contact_blur) = (23.0 * eye.ppmm, 4.0 * eye.ppmm);
     painter.add(Shape::mesh(soft(
         &cast,
         cast_blur,
@@ -40,8 +40,8 @@ pub(super) fn paint_shadow(painter: &Painter, eye: &Eye) {
     )));
 }
 
-/// Where the body stands on the desk, moved `(x, y)` inches, on screen: its
-/// front corners rounded as the case's are.
+/// Where the body stands on the desk, moved `(x, y)` millimetres, on screen:
+/// its front corners rounded as the case's are.
 fn footprint(eye: &Eye, (dx, dy): (f32, f32)) -> Vec<Pos2> {
     let (half, back, front) = (PANEL_HALF_BOTTOM, BODY_BACK, CASE_FRONT);
     eye.polygon(&rounded(&[

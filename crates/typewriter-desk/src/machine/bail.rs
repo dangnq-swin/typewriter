@@ -13,7 +13,7 @@ use typewriter_core::carriage::Carriage;
 
 use super::canvas::Canvas;
 use super::carriage::{
-    ROLLER_BANDS, RUBBER, RUBBER_SHINE, SIDE_PLATE_BACK, SIDE_PLATE_INCHES, cylinder, ends,
+    ROLLER_BANDS, RUBBER, RUBBER_SHINE, SIDE_PLATE_BACK, SIDE_PLATE_MM, cylinder, ends,
     plate_front, platen_axis,
 };
 use super::eye::{Eye, FLAT_TEXT};
@@ -23,36 +23,36 @@ use super::{CHROME, METAL, METAL_SHINE};
 use crate::depth::{Layer, Solid};
 
 /// The bar: half its height, and its depth.
-const HALF_HEIGHT: f32 = 0.1;
-const DEPTH: f32 = 0.06;
+const HALF_HEIGHT: f32 = 3.0;
+const DEPTH: f32 = 2.0;
 /// The rubber rollers either side of the sheet's centre: how far out, half
 /// their length, their radius. Their axis is the bar's.
-const ROLLER_OUT: f32 = 1.65;
-const ROLLER_HALF: f32 = 0.25;
-const ROLLER_RADIUS: f32 = 0.21;
+const ROLLER_OUT: f32 = 42.0;
+const ROLLER_HALF: f32 = 6.0;
+const ROLLER_RADIUS: f32 = 5.0;
 // Proud of the bar all round.
 const _: () = assert!(ROLLER_RADIUS > DEPTH / 2.0 && ROLLER_RADIUS > HALF_HEIGHT);
 /// In from each side plate, across: the rod's gap from the plate, the rod,
 /// the gap the disc floats clear by; the disc, its radius, and the knurls
 /// round its rim.
-const ROD_GAP: f32 = 0.01;
-const ROD: f32 = 0.03;
-const DISC_GAP: f32 = 0.07;
-const DISC: f32 = 0.03;
-const DISC_RADIUS: f32 = 0.13;
+const ROD_GAP: f32 = 0.25;
+const ROD: f32 = 1.0;
+const DISC_GAP: f32 = 2.0;
+const DISC: f32 = 1.0;
+const DISC_RADIUS: f32 = 3.0;
 const KNURLS: u16 = 40;
-const KNURL_WIDTH: f32 = 0.006;
+const KNURL_WIDTH: f32 = 0.15;
 /// Half the flat stem's width and thickness, and half the rod's height.
-const STEM_HALF: (f32, f32) = (0.04, 0.0125);
-const ROD_HALF: f32 = 0.025;
+const STEM_HALF: (f32, f32) = (1.0, 0.32);
+const ROD_HALF: f32 = 1.0;
 /// The pocket in the side plate's top, past the disc behind, before and
 /// below, and the plate left whole ahead of it: the bar runs that far
 /// behind the plate's front.
-const POCKET_MARGIN: f32 = 0.05;
-const AHEAD_OF_POCKET: f32 = 0.1;
+const POCKET_MARGIN: f32 = 1.0;
+const AHEAD_OF_POCKET: f32 = 3.0;
 /// Searching up the paper for where the bar presses it: how high at most,
 /// and how finely.
-const HIGHEST: f32 = 4.0;
+const HIGHEST: f32 = 102.0;
 const SEARCH_STEPS: u16 = 30;
 /// Round the disc: enough for a smooth rim.
 const ROUND: u16 = 24;
@@ -114,7 +114,7 @@ struct End {
 }
 
 impl End {
-    /// `[from, to]` inches in from the plate's inner face, left to right.
+    /// `[from, to]` millimetres in from the plate's inner face, left to right.
     fn span(self, from: f32, to: f32) -> [f32; 2] {
         let [a, b] = [from, to].map(|t| self.x + self.inward * t);
         [a.min(b), a.max(b)]
@@ -139,22 +139,22 @@ impl End {
     }
 }
 
-/// The side plates' inner faces for the sheet centred `middle` inches across.
+/// The side plates' inner faces for the sheet centred `middle` millimetres across.
 fn plate_ends(middle: f32) -> [End; 2] {
     let [left, right] = ends(middle);
     [
         End {
-            x: left + SIDE_PLATE_INCHES,
+            x: left + SIDE_PLATE_MM,
             inward: 1.0,
         },
         End {
-            x: right - SIDE_PLATE_INCHES,
+            x: right - SIDE_PLATE_MM,
             inward: -1.0,
         },
     ]
 }
 
-/// The paper bail for the sheet centred `middle` inches across: the bar,
+/// The paper bail for the sheet centred `middle` millimetres across: the bar,
 /// its rollers, and at each end the disc, its stem and the rod.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
     let [left, right] = plate_ends(middle);
@@ -229,7 +229,7 @@ fn paint_bar(canvas: &Canvas, eye: &Eye, [x0, x1]: [f32; 2]) {
     eye.outline(canvas, &outline);
 }
 
-/// The circle round the bar's axis at `x`, `radius` inches.
+/// The circle round the bar's axis at `x`, `radius` millimetres.
 fn round_axis(x: f32, radius: f32) -> Vec<[f32; 3]> {
     let (y, z) = axis();
     (0..ROUND)
@@ -309,22 +309,22 @@ fn paint_box(
 pub(super) fn print_scale(canvas: &Canvas, eye: &Eye, scale: &Scale, carriage: &Carriage) -> Scale {
     let (front, [top, foot]) = front();
     let origin = eye.origin.x;
-    // Laid out at FLAT_TEXT points an inch, the band the bar's front: sharp
+    // Laid out at FLAT_TEXT points a millimetre, the band the bar's front: sharp
     // up close.
-    let flat = scale.stretched(origin, FLAT_TEXT / eye.ppi, 0.0, (top - foot) * FLAT_TEXT);
+    let flat = scale.stretched(origin, FLAT_TEXT / eye.ppmm, 0.0, (top - foot) * FLAT_TEXT);
     let marks = ruler::scale_marks(canvas.painter(), &flat, carriage);
     canvas.lay(marks, |p| {
         let on = [(p.x - origin) / FLAT_TEXT, front, top - p.y / FLAT_TEXT];
         (eye.at(on), eye.lying_depth(on))
     });
     let [top_y, foot_y] = [top, foot].map(|z| eye.at([0.0, front, z]).y);
-    let by = eye.scale([0.0, front, (top + foot) / 2.0]) / eye.ppi;
+    let by = eye.scale([0.0, front, (top + foot) / 2.0]) / eye.ppmm;
     scale.stretched(origin, by, top_y, foot_y - top_y)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::carriage::PLATEN_DIAMETER_INCHES;
+    use super::super::carriage::PLATEN_DIAMETER_MM;
     use super::super::eye::screen_up;
     use super::super::printing_point::guide_top;
     use super::*;
@@ -333,7 +333,7 @@ mod tests {
     fn the_bar_presses_the_paper_behind_the_plates_its_rollers_clear_of_the_guide() {
         let (y, z) = axis();
         let (front, _) = front();
-        assert!((front - DEPTH - face_y(z)).abs() < 1e-4);
+        assert!((front - DEPTH - face_y(z)).abs() < 2.5e-3);
         assert!(plate_front() > front, "behind the plates' fronts");
         // Clear on screen too, the guide's glass whole under them.
         let guide = screen_up(guide_top());
@@ -356,11 +356,11 @@ mod tests {
         let (y, z) = axis();
         // Inside the plate's top round the disc, the plate whole ahead of it.
         assert!(axis_y + SIDE_PLATE_BACK < pocket_back);
-        assert!((plate_front() - pocket_front - AHEAD_OF_POCKET).abs() < 1e-6);
+        assert!((plate_front() - pocket_front - AHEAD_OF_POCKET).abs() < 2.5e-5);
         assert!(pocket_back < y - DISC_RADIUS && y + DISC_RADIUS < pocket_front);
         assert!(floor < z - DISC_RADIUS && top > z);
         // The rod clear over the platen's end.
-        assert!(z - ROD_HALF - axis_z > PLATEN_DIAMETER_INCHES / 2.0, "{z}");
+        assert!(z - ROD_HALF - axis_z > PLATEN_DIAMETER_MM / 2.0, "{z}");
         for end in plate_ends(0.0) {
             let inside = |x: f32| (x - end.x) * end.inward;
             // The rod outside the plate, the disc beyond it, the stem between.
@@ -368,7 +368,7 @@ mod tests {
             let near = |s: [f32; 2]| s[0].min(s[1]);
             let far = |s: [f32; 2]| s[0].max(s[1]);
             assert!(near(rod) > 0.0 && far(rod) < near(disc));
-            assert!(near(stem) < far(rod) && far(stem) >= near(disc) - 1e-6);
+            assert!(near(stem) < far(rod) && far(stem) >= near(disc) - 2.5e-5);
         }
     }
 
@@ -392,9 +392,9 @@ mod tests {
         let (front, [top, _]) = front();
         let stop = printed.stop(&Carriage::new(0, 80, 0), typewriter_core::Side::Left);
         assert!((stop.top() - eye.at([0.0, front, top]).y).abs() < 1e-3);
-        // Nearer than the sheet, so wider on screen: the same inches out on
-        // the bar as on the sheet are the same column.
-        let on_bar = printed.column_at(eye.at([2.0, front, axis().1]).x);
+        // Nearer than the sheet, so wider on screen: the same millimetres out
+        // on the bar as on the sheet are the same column.
+        let on_bar = printed.column_at(eye.at([51.0, front, axis().1]).x);
         let on_sheet = scale.column_at(eye.origin.x + 2.0 * metrics.points_per_inch);
         assert_eq!(on_bar, on_sheet);
     }

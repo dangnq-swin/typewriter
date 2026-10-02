@@ -31,25 +31,27 @@ pub struct Scene<'a> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Return {
     pub at: f64,
-    pub inches: f64,
+    /// Millimetres.
+    pub mm: f64,
 }
 
 impl Return {
     /// Before the first: long ago.
     pub const NONE: Self = Self {
         at: f64::NEG_INFINITY,
-        inches: 0.0,
+        mm: 0.0,
     };
 }
 
 /// Behind the platen, where a sheet goes in: for its timing as it is slid
 /// down the table and wound round.
 pub struct PaperTable {
-    /// Paper round the platen from where it goes in to the typing line.
-    pub wrap_inches: f32,
-    /// How far up the table from there a sheet shows: past that it has gone
-    /// over the top, out of sight.
-    pub seen_inches: f32,
+    /// Paper round the platen from where it goes in to the typing line,
+    /// millimetres.
+    pub wrap_mm: f32,
+    /// How far up the table from there a sheet shows, millimetres: past that
+    /// it has gone over the top, out of sight.
+    pub seen_mm: f32,
 }
 
 /// A sheet as the plain app lays it flat on screen, for a stage that draws

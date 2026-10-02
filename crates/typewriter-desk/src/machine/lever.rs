@@ -21,39 +21,39 @@ use typewriter_app::draw::{glide_seconds, smoothstep};
 /// The bracket, `x` out from the carriage's left end (negative), `y` behind
 /// the knob's axis, `z` round it: a thin strip standing out from the end,
 /// longer out than deep, low enough that the knob hides most of it.
-const BRACKET_X: (f32, f32) = (-0.5, 0.0);
-const BRACKET_Y: (f32, f32) = (-1.12, -0.72);
-const BRACKET_Z: (f32, f32) = (0.06, 0.2);
+const BRACKET_X: (f32, f32) = (-13.0, 0.0);
+const BRACKET_Y: (f32, f32) = (-28.0, -18.0);
+const BRACKET_Z: (f32, f32) = (2.0, 5.0);
 /// The screw's middle on the lever's base, its radius, and how proud of the
 /// lever it stands.
-const SCREW: (f32, f32) = (-0.33, -0.85);
-const SCREW_RADIUS: f32 = 0.05;
-const SCREW_PROUD: f32 = 0.02;
+const SCREW: (f32, f32) = (-8.0, -22.0);
+const SCREW_RADIUS: f32 = 1.0;
+const SCREW_PROUD: f32 = 1.0;
 /// Round the screw's head.
 const SCREW_STEPS: u16 = 16;
 /// The lever's width, and how far the middle of its metal is above the
 /// bracket's lid: half its thickness.
-const WIDTH: f32 = 0.14;
-const ABOVE_LID: f32 = 0.02;
+const WIDTH: f32 = 4.0;
+const ABOVE_LID: f32 = 1.0;
 /// The lever's middle across, straight all along, and its back end.
 const LEVER_X: f32 = SCREW.0;
-const BACK_Y: f32 = -1.05;
+const BACK_Y: f32 = -27.0;
 /// The swoop up off the bracket and over the knob, from and to.
-const SWOOP_Y: (f32, f32) = (-0.75, -0.35);
+const SWOOP_Y: (f32, f32) = (-19.0, -9.0);
 /// The run's height out of the swoop and at the tip, and where the tip is.
-const RUN_Z: (f32, f32) = (0.7, 0.66);
-const TIP_Y: f32 = 2.6;
+const RUN_Z: (f32, f32) = (18.0, 17.0);
+const TIP_Y: f32 = 66.0;
 /// Points along the swoop and the run: enough that no bend shows a corner.
 const SWOOP_STEPS: u16 = 12;
 const RUN_STEPS: u16 = 20;
 /// Along the run, where the left edge starts to fold down and where the
 /// curl is whole: the wall deepens as its foot curls in.
-const CURL_Y: (f32, f32) = (0.8, 1.8);
+const CURL_Y: (f32, f32) = (20.0, 46.0);
 /// The fold from flat down into the wall, the wall, and the curl in at its
 /// foot: radii, depth, and how far round the curl turns.
-const FOLD_RADIUS: f32 = 0.03;
-const WALL_DEPTH: f32 = 0.12;
-const CURL_RADIUS: f32 = 0.05;
+const FOLD_RADIUS: f32 = 1.0;
+const WALL_DEPTH: f32 = 3.0;
+const CURL_RADIUS: f32 = 1.0;
 const CURL_DEGREES: f32 = 160.0;
 /// Points round the fold and round the curl.
 const FOLD_STEPS: usize = 3;
@@ -76,11 +76,11 @@ pub struct Throw {
 }
 
 impl Throw {
-    /// At `at`, the carriage gliding `inches` home.
-    pub fn new(at: f64, inches: f64) -> Self {
+    /// At `at`, the carriage gliding `mm` millimetres home.
+    pub fn new(at: f64, mm: f64) -> Self {
         Self {
             at,
-            held_seconds: glide_seconds(inches).max(SWING_SECONDS),
+            held_seconds: glide_seconds(mm).max(SWING_SECONDS),
         }
     }
 
@@ -101,7 +101,7 @@ impl Throw {
     }
 }
 
-/// The bracket on the carriage's left end at `left` inches, `eye` about the
+/// The bracket on the carriage's left end at `left` millimetres, `eye` about the
 /// platen's axis; the lever in it thrown `amount` (0..=1), and the screw.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye, left: f32, amount: f32) {
     paint_bracket(canvas, eye, left);
@@ -111,7 +111,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, left: f32, amount: f32) {
 }
 
 /// The bracket's faces toward the eye, for the carriage's left end at
-/// `left` inches.
+/// `left` millimetres.
 fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
     let ((x0, x1), (back, front), (bottom, top)) = (BRACKET_X, BRACKET_Y, BRACKET_Z);
     let (x0, x1) = (x0 + left, x1 + left);
@@ -203,7 +203,7 @@ fn paint_strap(canvas: &Canvas, eye: &Eye, frames: &[Frame]) {
     }
 }
 
-/// Across the lever, `(across, up)` inches from its middle, `across` toward
+/// Across the lever, `(across, up)` millimetres from its middle, `across` toward
 /// the keys: its right edge, its left edge, then the fold down, the wall
 /// and the curl in underneath, `formed` (0..=1) of the way. Unformed, those
 /// all lie on the left edge.
@@ -270,7 +270,7 @@ struct Frame {
     across: [[f32; 3]; ACROSS],
 }
 
-/// The lever along its path, in the machine's inches.
+/// The lever along its path, in the machine's millimetres.
 struct Strap {
     frames: Vec<Frame>,
     /// Its screw's head, on top of its base.
@@ -327,8 +327,8 @@ mod tests {
 
     #[test]
     fn a_throw_swings_holds_while_the_carriage_glides_and_springs_back() {
-        let throw = Throw::new(10.0, 6.0);
-        let held = glide_seconds(6.0);
+        let throw = Throw::new(10.0, 152.0);
+        let held = glide_seconds(152.0);
         assert_eq!(throw.amount(9.9), 0.0);
         assert!(throw.amount(10.0 + SWING_SECONDS / 2.0) > 0.0);
         assert_eq!(throw.amount(10.0 + SWING_SECONDS + 0.01), 1.0);
@@ -345,8 +345,8 @@ mod tests {
 
     #[test]
     fn a_longer_return_holds_the_lever_longer() {
-        let (short, long) = (Throw::new(0.0, 0.5), Throw::new(0.0, 6.0));
-        let at = glide_seconds(0.5) + RELEASE_SECONDS;
+        let (short, long) = (Throw::new(0.0, 13.0), Throw::new(0.0, 152.0));
+        let at = glide_seconds(13.0) + RELEASE_SECONDS;
         assert_eq!(short.amount(at), 0.0);
         assert_eq!(long.amount(at), 1.0);
     }
@@ -378,16 +378,16 @@ mod tests {
             let flat = strap
                 .frames
                 .iter()
-                .filter(|f| f.middle[1] < SWOOP_Y.0 + 1e-3);
+                .filter(|f| f.middle[1] < SWOOP_Y.0 + 0.03);
             for frame in flat {
                 for [x, y, z] in frame.across {
                     assert!((BRACKET_X.0..=BRACKET_X.1).contains(&x), "{amount}: {x}");
                     assert!(y > BRACKET_Y.0);
-                    assert!((z - BRACKET_Z.1 - ABOVE_LID).abs() < 0.01, "on the bracket");
+                    assert!((z - BRACKET_Z.1 - ABOVE_LID).abs() < 0.26, "on the bracket");
                 }
             }
             let [x, y, _] = strap.screw;
-            assert!((x - SCREW.0).abs() < 1e-4 && (y - SCREW.1).abs() < 1e-4);
+            assert!((x - SCREW.0).abs() < 2.5e-3 && (y - SCREW.1).abs() < 2.5e-3);
         }
     }
 
@@ -421,7 +421,7 @@ mod tests {
             assert!(turn.to_degrees() < 25.0, "{three:?}");
         }
         let tip = *points.last().unwrap();
-        assert!(tip[1] > DISC_RADIUS + 1.5, "well past the knob");
+        assert!(tip[1] > DISC_RADIUS + 38.0, "well past the knob");
     }
 
     #[test]
@@ -449,10 +449,10 @@ mod tests {
     fn thrown_its_front_swings_in_toward_the_keys() {
         let tip = |amount| Strap::new(0.0, amount).frames.last().unwrap().middle;
         let (resting, thrown) = (tip(0.0), tip(1.0));
-        assert!(thrown[0] - resting[0] > 0.3, "{resting:?} to {thrown:?}");
+        assert!(thrown[0] - resting[0] > 7.5, "{resting:?} to {thrown:?}");
         assert_eq!(thrown[2], resting[2], "level");
         let eye = Eye::testing(500.0, 96.0);
-        let strap = Strap::new(-5.9, 0.0);
+        let strap = Strap::new(-150.0, 0.0);
         let (start, end) = (strap.frames[0].middle, strap.frames.last().unwrap().middle);
         // Nearer the writer: lower on screen.
         assert!(eye.at(end).y > eye.at(start).y);

@@ -144,9 +144,10 @@ pub fn paint_guides(
     }
 }
 
-/// Seconds the carriage glides `inches`: a return takes longer than a step.
-pub fn glide_seconds(inches: f64) -> f64 {
-    (0.05 + inches * 0.05).clamp(0.05, 0.35)
+/// Seconds the carriage glides `mm` millimetres: 0.05 s an inch, clamped to
+/// a step's push and a return's glide.
+pub fn glide_seconds(mm: f64) -> f64 {
+    (0.05 + mm / 25.4 * 0.05).clamp(0.05, 0.35)
 }
 
 /// Eased carriage movement. Long moves (a return) take longer than a step.
@@ -170,11 +171,11 @@ impl Glide {
                 initialised: true,
             };
         } else if target != self.to {
-            let inches = f64::from((target - self.value(now)).length() / metrics.points_per_inch);
+            let mm = f64::from((target - self.value(now)).length() / metrics.points_per_mm());
             self.from = self.value(now);
             self.to = target;
             self.start = now;
-            self.duration = glide_seconds(inches);
+            self.duration = glide_seconds(mm);
         }
         self.value(now)
     }

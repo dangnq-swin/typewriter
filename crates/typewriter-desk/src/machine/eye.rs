@@ -1,5 +1,5 @@
-//! The seated eye: the machine's inches on screen, how deep they are, and
-//! text laid flat on it.
+//! The seated eye: the machine's millimetres on screen, how deep they are,
+//! and text laid flat on it.
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, pos2, vec2};
@@ -12,18 +12,18 @@ use crate::depth::{Layer, Shade, Solid};
 use typewriter_app::draw::{Metrics, convex_mesh};
 
 /// The eye from the printing point, and how far it looks down.
-const EYE_INCHES: f32 = 24.0;
+const EYE_MM: f32 = 609.6;
 /// Depth runs from this near the eye, out to far off.
-const NEAR_INCHES: f32 = 1.0;
+const NEAR_MM: f32 = 25.4;
 /// What lies on a face (edges, marks, print) is set this much nearer, to
 /// show over it.
-pub(super) const LYING_INCHES: f32 = 0.01;
+pub(super) const LYING_MM: f32 = 0.25;
 /// A flat part bent onto a curved face is cut into pieces this long.
-const BENT_INCHES: f32 = 0.05;
+const BENT_MM: f32 = 1.27;
 pub(super) const EYE_TILT_DEGREES: f32 = 35.0;
-/// Text laid flat on the machine is set at this many points an inch, then
-/// bent onto its surface.
-pub(super) const FLAT_TEXT: f32 = 160.0;
+/// Text laid flat on the machine is laid out at this many points a
+/// millimetre (160 an inch), then bent onto its surface.
+pub(super) const FLAT_TEXT: f32 = 160.0 / 25.4;
 
 /// Toward the seated eye from the machine, unit length.
 pub(super) fn toward_eye() -> [f32; 3] {
@@ -31,7 +31,7 @@ pub(super) fn toward_eye() -> [f32; 3] {
     [0.0, cos, sin]
 }
 
-/// How high `p` shows above the printing point, in inches at its scale:
+/// How high `p` shows above the printing point, in millimetres at its scale:
 /// what stands above what on screen, whatever the view.
 #[cfg(test)]
 pub(super) fn screen_up(p: [f32; 3]) -> f32 {
@@ -42,7 +42,8 @@ pub(super) fn screen_up(p: [f32; 3]) -> f32 {
 #[derive(Clone, Copy)]
 pub(super) struct Eye {
     pub(super) origin: Pos2,
-    pub(super) ppi: f32,
+    /// Screen points per machine millimetre at the printing point.
+    pub(super) ppmm: f32,
     /// The tilt's sine and cosine.
     tilt: (f32, f32),
     /// Where points are measured from, from the printing point.
@@ -51,13 +52,13 @@ pub(super) struct Eye {
 
 impl Eye {
     pub(super) fn new(view: Rect, metrics: &Metrics, typing_y: f32) -> Self {
-        Self::at_origin(pos2(view.center().x, typing_y), metrics.points_per_inch)
+        Self::at_origin(pos2(view.center().x, typing_y), metrics.points_per_mm())
     }
 
-    fn at_origin(origin: Pos2, ppi: f32) -> Self {
+    fn at_origin(origin: Pos2, ppmm: f32) -> Self {
         Self {
             origin,
-            ppi,
+            ppmm,
             tilt: EYE_TILT_DEGREES.to_radians().sin_cos(),
             anchor: [0.0; 3],
         }
@@ -77,15 +78,15 @@ impl Eye {
 
     /// Whether a face at `p` facing `normal` is turned toward the eye.
     pub(super) fn sees(p: [f32; 3], normal: [f32; 3]) -> bool {
-        let eye = toward_eye().map(|c| EYE_INCHES * c);
+        let eye = toward_eye().map(|c| EYE_MM * c);
         dot(sub(eye, p), normal) > 0.0
     }
 
-    /// Inches from the eye to `p`, along its line of sight.
+    /// Millimetres from the eye to `p`, along its line of sight.
     pub(super) fn distance(&self, p: [f32; 3]) -> f32 {
         let [_, y, z] = add(p, self.anchor);
         let (sin, cos) = self.tilt;
-        (EYE_INCHES - y * cos - z * sin).max(NEAR_INCHES)
+        (EYE_MM - y * cos - z * sin).max(NEAR_MM)
     }
 
     /// `p`'s depth: 0 at the eye to 1 far off.
@@ -95,12 +96,12 @@ impl Eye {
 
     /// The depth of what lies on a face at `p`: a hair nearer.
     pub(super) fn lying_depth(&self, p: [f32; 3]) -> f32 {
-        depth_at(self.distance(p) - LYING_INCHES)
+        depth_at(self.distance(p) - LYING_MM)
     }
 
-    /// Screen points per inch at `p`: `ppi` at the printing point.
+    /// Screen points per millimetre at `p`: `ppmm` at the printing point.
     pub(super) fn scale(&self, p: [f32; 3]) -> f32 {
-        self.ppi * EYE_INCHES / self.distance(p)
+        self.ppmm * EYE_MM / self.distance(p)
     }
 
     /// Where `p` shows on screen.
@@ -155,8 +156,9 @@ impl Eye {
         self.add_mesh(canvas, mesh, points, shades, lying);
     }
 
-    /// Fills convex `outline`, flat inches, bent onto the machine by `place`
-    /// and cut fine enough to follow it; each vertex painted by `colour`.
+    /// Fills convex `outline`, flat millimetres, bent onto the machine by
+    /// `place` and cut fine enough to follow it; each vertex painted by
+    /// `colour`.
     pub(super) fn fill_bent<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
@@ -164,7 +166,7 @@ impl Eye {
         place: impl Fn(Pos2) -> [f32; 3],
         colour: impl Fn([f32; 3]) -> P,
     ) {
-        let mut mesh = convex_grid(outline, BENT_INCHES);
+        let mut mesh = convex_grid(outline, BENT_MM);
         let on: Vec<_> = mesh.vertices.iter().map(|v| place(v.pos)).collect();
         let mut shades = Vec::with_capacity(on.len());
         for (vertex, &p) in mesh.vertices.iter_mut().zip(&on) {
@@ -238,19 +240,19 @@ impl Eye {
         solid.mesh.add_triangle(first, first + 2, first + 3);
     }
 
-    /// A line through `points`, `width_inches` thick where it starts, lying
+    /// A line through `points`, `width_mm` thick where it starts, lying
     /// on what it runs along.
     pub(super) fn line(
         &self,
         canvas: &Canvas,
         points: &[[f32; 3]],
-        width_inches: f32,
+        width_mm: f32,
         colour: Color32,
     ) {
         let Some(&start) = points.first() else {
             return;
         };
-        let width = width_inches * self.scale(start);
+        let width = width_mm * self.scale(start);
         self.stroke(
             canvas,
             points,
@@ -281,9 +283,9 @@ impl Eye {
     }
 }
 
-/// The depth of what is `distance` inches from the eye.
+/// The depth of what is `distance` millimetres from the eye.
 fn depth_at(distance: f32) -> f32 {
-    1.0 - NEAR_INCHES / distance.max(NEAR_INCHES)
+    1.0 - NEAR_MM / distance.max(NEAR_MM)
 }
 
 /// The depth along `path`, points on screen and their depths, nearest `at`.
@@ -301,9 +303,9 @@ fn nearest_depth(path: &[(Pos2, f32)], at: Pos2) -> f32 {
     best.1
 }
 
-/// `text`, `size` inches tall, laid flat on a surface and seen in
-/// perspective like print on it: `place` maps inches across and down from
-/// the text's `anchor` to the machine.
+/// `text`, `size` millimetres tall, laid flat on a surface and seen in
+/// perspective like print on it: `place` maps millimetres across and down
+/// from the text's `anchor` to the machine.
 pub(super) fn paint_flat_text(
     canvas: &Canvas,
     eye: &Eye,
@@ -328,9 +330,10 @@ pub(super) fn paint_flat_text(
 
 #[cfg(test)]
 impl Eye {
-    /// Its printing point at `(800, typing_y)`.
+    /// Its printing point at `(800, typing_y)`, `ppi` screen points an inch
+    /// there: the sheet's convention, kept for the tests' readability.
     pub(super) fn testing(typing_y: f32, ppi: f32) -> Self {
-        Self::at_origin(pos2(800.0, typing_y), ppi)
+        Self::at_origin(pos2(800.0, typing_y), ppi / 25.4)
     }
 }
 
@@ -346,11 +349,11 @@ mod tests {
     fn the_printing_point_is_at_the_sheets_scale() {
         let eye = Eye::testing(500.0, 96.0);
         assert_eq!(eye.at([0.0, 0.0, 0.0]), eye.origin);
-        assert!((eye.scale([0.0, 0.0, 0.0]) - 96.0).abs() < 1e-3);
+        assert!((eye.scale([0.0, 0.0, 0.0]) - 96.0 / 25.4).abs() < 2.5e-3);
         // Nearer the writer: lower on screen, and larger.
         let key = [0.0, KEY_ROW.0, KEY_ROW.1];
         assert!(eye.at(key).y > eye.at(on_cover(0.0, COVER_FRONT.0)).y);
-        assert!(eye.scale(key) > 96.0);
+        assert!(eye.scale(key) > eye.scale([0.0; 3]));
     }
 
     #[test]
@@ -359,7 +362,7 @@ mod tests {
         assert!(Eye::sees(front, [0.0, 1.0, 0.0]));
         assert!(!Eye::sees(front, [0.0, -1.0, 0.0]));
         // A left-hand side face, turned away from the middle.
-        let side = [-PANEL_HALF_BOTTOM, CASE_FRONT - 0.1, SHELF_Z];
+        let side = [-PANEL_HALF_BOTTOM, CASE_FRONT - 2.54, SHELF_Z];
         assert!(!Eye::sees(side, [-1.0, 0.0, 0.0]));
         assert!(Eye::sees(side, [1.0, 0.0, 0.0]));
     }

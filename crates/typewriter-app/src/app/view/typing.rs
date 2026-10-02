@@ -51,9 +51,10 @@ impl WayIn {
         placed: f32,
         by_hand: f32,
     ) -> Self {
-        let knob_from = typing_y + table.wrap_inches * points_per_inch;
+        let per_mm = points_per_inch / render::MM_PER_INCH;
+        let knob_from = typing_y + table.wrap_mm * per_mm;
         Self {
-            hand_from: knob_from + table.seen_inches * points_per_inch,
+            hand_from: knob_from + table.seen_mm * per_mm,
             knob_from,
             placed,
             by_hand,
@@ -819,8 +820,8 @@ mod tests {
 
     fn table() -> PaperTable {
         PaperTable {
-            wrap_inches: 2.0,
-            seen_inches: 5.0,
+            wrap_mm: 50.8,
+            seen_mm: 127.0,
         }
     }
 

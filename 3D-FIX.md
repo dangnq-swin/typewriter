@@ -65,14 +65,14 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
             frame, 72 fewer since the plates stopped banding). The light moved to the shader;
             the time did not.
       - [x] **A lamp, and the gradients it replaces.** The light is a point now:
-            the lamp stands 10 inches to the writer's left, 6.7 in front of the
-            printing point and 16 above the desk — its head over the front of the
+            the lamp stands 254 mm to the writer's left, 170 in front of the
+            printing point and 400 above the desk — its head over the front of the
             keys, where a real desk lamp would be put: lighting the sheet across,
-            crowding nothing. Each depth vertex carries the inches it stands at
-            (a 60-byte vertex, until section 2 projects on the GPU), the shader
-            lights a fragment from its inches toward the lamp, and the CPU twins —
-            `Shade::apply`, the flat canvas, the snapshot rasterizer — blend the
-            same inches. The gradients that were lighting are gone: the cover and
+            crowding nothing. Each depth vertex carries the millimetres it stands
+            at (a 60-byte vertex, until section 2 projects on the GPU), the shader
+            lights a fragment from its millimetres toward the lamp, and the CPU
+            twins — `Shade::apply`, the flat canvas, the snapshot rasterizer — blend
+            the same millimetres. The gradients that were lighting are gone: the cover and
             the panel are one matte slope each, the bail's front is one quad with
             a normal (its three stops and `BAR_MID` went with them), the caps'
             dished tops take normals that turn from back to front, and the paper
@@ -88,11 +88,11 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
 - [ ] **One kind of bar: the key levers and the type bars.** Both draw an elongated steel
       bar the same way — a dark stroke with a bright hair along its lit edge — and each does
       it its own way. `keyboard::paint_steel` (the key levers, the stems the key tops sit
-      on, and the lock's and the selectors' posts through it): 0.05 of `STEM` with 0.014 of
-      `STEM_SHINE.gamma_multiply(shine)` 0.018 inches to the writer's left,
+      on, and the lock's and the selectors' posts through it): 1.27 of `STEM` with 0.36 of
+      `STEM_SHINE.gamma_multiply(shine)` 0.46 mm to the writer's left,
       `shine = streak(along, 10).max(0.25)`. `cover::paint_type_basket` (the type bars, the
-      arms that strike): 0.075 of `TYPE_BAR` with 0.02 of
-      `METAL_SHINE.gamma_multiply(0.12 + 0.88 * streak(along, 12))` 0.022 inches aside
+      arms that strike): 2 of `TYPE_BAR` with 0.5 of
+      `METAL_SHINE.gamma_multiply(0.12 + 0.88 * streak(along, 12))` 0.6 mm aside
       across the fan. One helper for both, one width, one aside, one floor under the
       streak. Then light them like the rest of the machine: a stroke carrying a
       `Shade::Streak` needs `Solids::add` to take a shade per vertex, and the streak must
@@ -100,13 +100,13 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
       or the halo shines. A point light makes a streak baked once per bar wrong anyway,
       since it changes along the bar: do this with the lamp.
 - [ ] **Depth bias instead of offsets.** Things that lie on a face are set nearer by hand:
-      `eye::LYING_INCHES` with `lying_depth`, `carriage::UNDER_PAPER_INCHES`,
-      `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.002` on the wall marks in
+      `eye::LYING_MM` with `lying_depth`, `carriage::UNDER_PAPER_MM`,
+      `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.05` on the wall marks in
       `side_controls::paint_marks`. The guide's offset has a narrow window: in front of the
       print, its glass behind the ribbon (its test says so). Try a slope-scaled
       `DepthBiasState` on the decal pipeline. Depth is `1 - near / distance`, not linear, so a
-      fixed inch offset is a varying bias: check the platen's edges against the paper at 25 %
-      and 200 %. The snapshot rasterizer needs the same bias.
+      fixed millimetre offset is a varying bias: check the platen's edges against the paper at
+      25 % and 200 %. The snapshot rasterizer needs the same bias.
 - [ ] **Backface checks the depth buffer makes redundant.** These only skip hidden faces:
       - `case.rs`: `Eye::sees` for the inner walls and the case's front.
       - `carriage::paint_side_plate`: `eye.faces`, and its outlines.
@@ -118,10 +118,11 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
 
 ## 2. Larger: the GPU projects
 
-- [ ] **Positions in inches, projected on the GPU.** Today `Eye::at` projects every vertex
-      on the CPU and the shader gets screen positions. Interpolation in screen space is
-      affine, so the paper's texture and colours are not perspective-correct (hence the fine
-      sheet mesh). Send inch positions and the eye as a uniform (a view-projection matrix
+- [ ] **Positions in millimetres, projected on the GPU.** Today `Eye::at` projects every
+      vertex on the CPU and the shader gets screen positions. Interpolation in screen space
+      is affine, so the paper's texture and colours are not perspective-correct (hence the
+      fine sheet mesh). Send millimetre positions and the eye as a uniform (a
+      view-projection matrix
       with `w`), and the GPU interpolates correctly and does the divide. Needs section 1
       first; the machine's shadow on the desk and the panel's controls (`Panel::paint`, after
       the depth pass), still flat, line up with `Eye::at` on the CPU. The click rects (`Panel::rect`, knobs) still need `Eye::at` on the CPU. Large: do

@@ -14,26 +14,26 @@ use super::{ENGRAVED, METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM};
 
 /// In the gaps between the keys and the walls, `x` from the middle: the
 /// carriage lock by the far row, its green cap's half width and half depth.
-const LOCK_X: f32 = 5.5;
-const LOCK_CAP: (f32, f32) = (0.09, 0.12);
+const LOCK_X: f32 = 140.0;
+const LOCK_CAP: (f32, f32) = (2.0, 3.0);
 /// The lock's cap stands this far above the far row's tops, and this far
 /// behind them.
-const LOCK_RISE: f32 = 0.25;
-const LOCK_BACK: f32 = 0.12;
+const LOCK_RISE: f32 = 6.0;
+const LOCK_BACK: f32 = 3.0;
 /// The touch control and ribbon selectors by the third row: how far each
 /// bends toward the writer from its post, and its chrome paddle's half width
 /// and height.
-const SELECTOR_X: f32 = 5.66;
-const SELECTOR_REACH: f32 = 0.25;
-const PADDLE: (f32, f32) = (0.08, 0.35);
+const SELECTOR_X: f32 = 144.0;
+const SELECTOR_REACH: f32 = 6.0;
+const PADDLE: (f32, f32) = (2.0, 9.0);
 /// The paddles reach up to just under the walls' tops, level with their
 /// marks.
-const PADDLE_BELOW_WALL: f32 = 0.05;
+const PADDLE_BELOW_WALL: f32 = 1.0;
 /// How far the lock's post runs on below its cap, and the selectors' below
 /// their bends, before their rods run back into the machine: the selectors'
 /// rods well under the lock's.
-const LOCK_DROP: f32 = 0.4;
-const SELECTOR_DROP: f32 = 0.9;
+const LOCK_DROP: f32 = 10.0;
+const SELECTOR_DROP: f32 = 23.0;
 /// The ribbon colour selector's marks, back to front: blue (the ribbon's
 /// black half), white (stencil), red; and where each is from the third
 /// row's middle.
@@ -42,14 +42,14 @@ const RIBBON_MARKS: [Color32; 3] = [
     Color32::from_rgb(0xF2, 0xF2, 0xEE),
     Color32::from_rgb(0xB0, 0x30, 0x2A),
 ];
-const RIBBON_ALONG: [f32; 3] = [-0.25, 0.0, 0.25];
+const RIBBON_ALONG: [f32; 3] = [-6.0, 0.0, 6.0];
 /// Typing in black: the selector at blue.
 const RIBBON_SET: usize = 0;
 /// A ribbon mark's half size, rounding, and how far it stands proud.
-const RIBBON_MARK: (f32, f32, f32) = (0.055, 0.02, 0.02);
+const RIBBON_MARK: (f32, f32, f32) = (1.5, 0.5, 0.5);
 /// The touch control's less and more marks: where from the third row's
 /// middle, their half length and stroke.
-const TOUCH_MARKS: (f32, f32, f32) = (0.3, 0.1, 0.035);
+const TOUCH_MARKS: (f32, f32, f32) = (8.0, 3.0, 1.0);
 /// The dark outline round small raised marks.
 const MARK_EDGE: Color32 = Color32::from_rgb(0x30, 0x2C, 0x26);
 
@@ -79,7 +79,7 @@ pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
     let bar = |centre: f32, upright: bool| {
         let (dx, dy) = if upright { (0.0, half) } else { (half, 0.0) };
         [[-on_wall - dx, centre - dy], [-on_wall + dx, centre + dy]]
-            .map(|[x, y]| [x, y, wall_top(y) + 0.002])
+            .map(|[x, y]| [x, y, wall_top(y) + 0.05])
     };
     for part in [
         bar(y - along, false),
@@ -137,11 +137,11 @@ fn paint_selector(canvas: &Canvas, eye: &Eye, post: [f32; 3]) {
     let foot = [x, y, bend[2] - SELECTOR_DROP];
     paint_steel(canvas, eye, &[bend, foot, into_machine(foot)], post_shine());
     let paddle_y = y + SELECTOR_REACH;
-    eye.line(canvas, &[bend, [x, paddle_y, top - height]], 0.05, STEM);
+    eye.line(canvas, &[bend, [x, paddle_y, top - height]], 1.3, STEM);
     // Its top edge behind its face.
     let rim = [
-        [x - half, paddle_y - 0.03, top],
-        [x + half, paddle_y - 0.03, top],
+        [x - half, paddle_y - 1.0, top],
+        [x + half, paddle_y - 1.0, top],
         [x + half, paddle_y, top],
         [x - half, paddle_y, top],
     ];
@@ -203,7 +203,7 @@ mod tests {
         let lock_rod = row_top + LOCK_RISE - KEY_FRONT - LOCK_DROP;
         let (y, _) = key_row(2.0);
         let touch_rod = wall_top(y) - PADDLE_BELOW_WALL - PADDLE.1 - SELECTOR_DROP;
-        assert!(touch_rod < lock_rod - 0.3, "{touch_rod} {lock_rod}");
+        assert!(touch_rod < lock_rod - 8.0, "{touch_rod} {lock_rod}");
         // Both above the key bed.
         assert!(touch_rod > KEY_BED_Z);
     }

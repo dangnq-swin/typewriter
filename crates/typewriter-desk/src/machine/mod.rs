@@ -1,6 +1,6 @@
 //! The desk edition's typewriter, an Olympia SM9 seen from the chair.
 //!
-//! The machine is a model in inches, projected from a seated eye: `x` right
+//! The machine is a model in millimetres, projected from a seated eye: `x` right
 //! of the machine's centre, `y` toward the writer, `z` up, the origin at the
 //! printing point. There the projection's scale is the sheet's: the line
 //! being typed shows as on a sheet flat on screen.
@@ -80,7 +80,7 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
         TYPING_LINE_SITTING + (TYPING_LINE_LEANING - TYPING_LINE_SITTING) * leaning
     };
     let eye = Eye::new(view, metrics, 0.0);
-    let reach = KNOB_RADIUS * INDEX_MARKS.1 + 0.1;
+    let reach = KNOB_RADIUS * INDEX_MARKS.1 + 3.0;
     let readings = eye
         .at(panel_offset(on_panel(0.0, CONTROLS_Y), reach, 180.0))
         .y;
@@ -106,7 +106,7 @@ pub fn paint_behind(
     depth::begin(painter, light::frame());
     let canvas = Canvas::depth(painter);
     body::paint_deck(&canvas, &eye);
-    let middle = (carriage_x - eye.origin.x) / eye.ppi;
+    let middle = (carriage_x - eye.origin.x) / eye.ppmm;
     support::paint(&canvas, &eye, metrics, middle);
     carriage::paint(&canvas, &eye, middle);
     bail::paint(&canvas, &eye, middle);
@@ -146,12 +146,12 @@ pub fn paint_knobs(
     hovered: impl Fn(Rect) -> bool,
 ) -> [Rect; 2] {
     let eye = Eye::new(view, metrics, typing_y);
-    let middle = (carriage_x - eye.origin.x) / eye.ppi;
+    let middle = (carriage_x - eye.origin.x) / eye.ppmm;
     let ends = carriage::ends(middle);
     let eye = eye.about(carriage::platen_axis());
     let grips = knob::grips(&eye, ends);
     let canvas = Canvas::depth(painter);
-    let turned = rolled / eye.ppi / knob::DISC.1;
+    let turned = rolled / eye.ppmm / knob::DISC.1;
     knob::paint(&canvas, &eye, ends, turned, grips.map(hovered));
     canvas.finish();
     grips

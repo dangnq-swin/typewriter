@@ -16,9 +16,9 @@ const WINDOW_SECONDS: f64 = 0.05;
 /// fully turning (1).
 const STILL_DB: f32 = 36.0;
 const TURNING_DB: f32 = 20.0;
-/// Leading-edge curl at full strength, inches.
-const CURL_DEPTH_IN: f32 = 0.4;
-const CURL_INSET_IN: f32 = 0.06;
+/// Leading-edge curl at full strength, millimetres.
+const CURL_DEPTH_MM: f32 = 10.0;
+const CURL_INSET_MM: f32 = 2.0;
 /// A feed's timing: wind-out lasts as long as the clicks; wind-in moves only
 /// while the knob is heard.
 #[derive(Debug, Clone)]
@@ -186,8 +186,9 @@ pub fn paint_lifted_sheet(
     paint_sheet_shadow(painter, sheet, lift);
 
     // Curled back toward the platen, the edge foreshortens and narrows.
-    let depth = curl * CURL_DEPTH_IN * points_per_inch;
-    let inset = curl * CURL_INSET_IN * points_per_inch;
+    let per_mm = points_per_inch / super::MM_PER_INCH;
+    let depth = curl * CURL_DEPTH_MM * per_mm;
+    let inset = curl * CURL_INSET_MM * per_mm;
     let lip = [
         pos2(sheet.left() + inset, sheet.top()),
         pos2(sheet.right() - inset, sheet.top()),
