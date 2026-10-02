@@ -83,7 +83,7 @@ new scene gets added:
 TYPEWRITER_SNAPSHOT=<folder> cargo test -p typewriter --release -- --ignored snapshot
 ```
 
-How the scene *looks*, through a live wgpu device, is `depth::tests::gpu_snapshot`: one
+How the scene *looks*, through a live wgpu device, is `depth::gpu::tests::gpu_snapshot`: one
 `tall-<backend>.ppm` per backend that answers — driver-dependent, so not for CI:
 
 ```sh

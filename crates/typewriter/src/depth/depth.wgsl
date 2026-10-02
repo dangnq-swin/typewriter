@@ -11,7 +11,7 @@ struct VertexOutput {
     // What the vertex faces (matte, polished) or runs along (streak):
     // blended across the triangle, so not unit length.
     @location(2) vector: vec3<f32>,
-    // 0 unlit, 1 matte, 2 polished, 3 streak, 4 chrome. Keep in step with `Shade` in depth.rs.
+    // 0 unlit, 1 matte, 2 polished, 3 streak, 4 chrome. Keep in step with `Shade` in lighting.rs.
     @location(3) @interpolate(flat) material: u32,
     // Polished and streak: how narrow the highlight is. Chrome: how far down
     // the plate, 0 at its top.
@@ -56,7 +56,7 @@ fn linear_from_gamma_rgb(srgb: vec3<f32>) -> vec3<f32> {
 
 // Chrome mirroring the room, `t` of the way down: bright sky above, a band
 // where it turns to the light, the dark room below. The bands come from the
-// uniform, so `Shade::apply` in depth.rs shades the same plate.
+// uniform, so `Shade::apply` in lighting.rs shades the same plate.
 fn chrome(t: f32) -> vec3<f32> {
     let at = clamp(t, 0.0, 1.0);
     for (var i: u32 = 0u; i < 4u; i = i + 1u) {

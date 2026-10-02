@@ -13,10 +13,9 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
 
 ---
 
-
 ## The desk's foundations: restructure, no change of look
 
-- [ ] Split `depth.rs` (1600 lines, four contracts in one file): the pass's
+- [x] Split `depth.rs` (1600 lines, four contracts in one file): the pass's
       life (`begin`/`gather`/`end`), the vertex packing and pipelines, the CPU
       rasterizer, and the lighting math the shader mirrors. The "keep in step
       with `depth.wgsl`" twins become a reviewable surface; the WGSL parse test
