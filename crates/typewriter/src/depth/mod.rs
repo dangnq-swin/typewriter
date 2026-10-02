@@ -38,10 +38,12 @@ pub use solids::{Layer, Placing, Solid, Solids};
 
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use eframe::egui::epaint::PaintCallback;
 use eframe::egui::layers::ShapeIdx;
 use eframe::egui::{Context, Id, Painter, Pos2, Shape, Vec2};
 use eframe::egui_wgpu;
+use glam::{Vec3, Vec4};
 
 use gpu::Gpu;
 
@@ -56,7 +58,14 @@ pub const NEAR_MM: f32 = 25.4;
 
 /// The camera's four clip rows as `vec4`s: as many as the shader's
 /// `r_camera`.
-const CAMERA_BYTES: u64 = 4 * 16;
+const CAMERA_BYTES: u64 = std::mem::size_of::<CameraUniform>() as u64;
+
+/// The uniform the shader reads, laid out as `r_camera` in `depth.wgsl`.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct CameraUniform {
+    rows: [Vec4; 4],
+}
 
 /// The seated eye as clip rows — x, y, z, w — that project absolute
 /// machine millimetres into the window: the shader projects vertices with
@@ -66,7 +75,7 @@ const CAMERA_BYTES: u64 = 4 * 16;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Camera {
     /// The rows, in order x, y, z, w.
-    pub rows: [[f32; 4]; 4],
+    pub rows: [Vec4; 4],
     /// The window's size in points the rows project into: `on_screen`
     /// divides back out of them.
     pub points: Vec2,
@@ -74,9 +83,9 @@ pub struct Camera {
 
 impl Camera {
     /// Where the rows show `mm`: the shader's project and divide, by hand.
-    fn on_screen(&self, mm: [f32; 3]) -> Pos2 {
-        let p = [mm[0], mm[1], mm[2], 1.0];
-        let row = |i: usize| self.rows[i].iter().zip(p).map(|(a, b)| a * b).sum::<f32>();
+    fn on_screen(&self, mm: Vec3) -> Pos2 {
+        let mm = mm.extend(1.0);
+        let row = |i: usize| self.rows[i].dot(mm);
         let w = row(3).max(NEAR_MM);
         Pos2::new(
             (row(0) / w + 1.0) * 0.5 * self.points.x,
@@ -84,15 +93,9 @@ impl Camera {
         )
     }
 
-    /// The uniform the shader reads: the rows, one `vec4` each.
-    fn uniform(&self) -> [u8; CAMERA_BYTES as usize] {
-        let mut out = [0u8; CAMERA_BYTES as usize];
-        for (word, row) in out.chunks_mut(16).zip(self.rows) {
-            for (byte, value) in word.chunks_mut(4).zip(row) {
-                byte.copy_from_slice(&value.to_le_bytes());
-            }
-        }
-        out
+    /// The uniform the shader reads.
+    fn uniform(&self) -> CameraUniform {
+        CameraUniform { rows: self.rows }
     }
 }
 
@@ -265,7 +268,7 @@ mod tests {
             let mut solids = Solids::default();
             solids.add(Layer::Opaque, mesh, |_| {
                 Some(Placing {
-                    at: [x, 0.0, 0.0],
+                    at: Vec3::new(x, 0.0, 0.0),
                     shade: Shade::Unlit,
                 })
             });
@@ -302,9 +305,9 @@ mod tests {
         assert_eq!(opaque.len(), 1);
         assert_eq!(
             opaque[0].places,
-            [[12.7, 0.0, 0.0]; 3]
+            [Vec3::new(12.7, 0.0, 0.0); 3]
                 .into_iter()
-                .chain([[3.5, 0.0, 0.0]; 3])
+                .chain([Vec3::new(3.5, 0.0, 0.0); 3])
                 .collect::<Vec<_>>()
         );
     }

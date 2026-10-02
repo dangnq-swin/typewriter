@@ -6,6 +6,7 @@
 
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{Mesh, Painter, Pos2, Rect};
+use glam::Vec3;
 use typewriter_ui::draw::{FlatSheet, Metrics};
 
 use super::carriage::{PLATEN_DIAMETER_MM, STRIKE_DEGREES, platen_axis};
@@ -38,9 +39,9 @@ fn way(along: f32) -> ([f32; 2], [f32; 2]) {
     let wrap = support::wrap_mm();
     if along >= -wrap {
         let radius = PLATEN_DIAMETER_MM / 2.0;
-        let [_, axis_y, axis_z] = platen_axis();
+        let axis = platen_axis();
         let (sin, cos) = (strike + along / radius).sin_cos();
-        return ([axis_y + radius * cos, axis_z + radius * sin], [cos, sin]);
+        return ([axis.y + radius * cos, axis.z + radius * sin], [cos, sin]);
     }
     let [ny, nz] = support::facing();
     (support::way(-along - wrap), [-ny, -nz])
@@ -54,9 +55,9 @@ pub(super) fn face_y(z: f32) -> f32 {
     let strike = STRIKE_DEGREES.to_radians();
     if z < 0.0 {
         let radius = PLATEN_DIAMETER_MM / 2.0;
-        let [_, axis_y, axis_z] = platen_axis();
-        let up = (z - axis_z).clamp(-radius, radius);
-        return axis_y + (radius * radius - up * up).sqrt();
+        let axis = platen_axis();
+        let up = (z - axis.z).clamp(-radius, radius);
+        return axis.y + (radius * radius - up * up).sqrt();
     }
     let lean = support::LEAN_DEGREES.to_radians();
     let bent = BEND_MM * (strike.sin() - lean.sin());
@@ -69,7 +70,7 @@ pub(super) fn face_y(z: f32) -> f32 {
 /// The top of the sheet's front edge on screen, `along` millimetres up it.
 pub(super) fn front_at(eye: &Eye, along: f32) -> f32 {
     let ([y, z], _) = way(along.max(0.0));
-    eye.at([0.0, y, z]).y
+    eye.at(Vec3::new(0.0, y, z)).y
 }
 
 /// A point of a sheet on its way.
@@ -77,10 +78,10 @@ struct Placed {
     pos: Pos2,
     /// Where it stands, machine millimetres: the pass projects these, and
     /// the lamp lights it from there.
-    at: [f32; 3],
+    at: Vec3,
     /// Its seen side's normal: paper as a matte material, its take of the
     /// light the shader's, not a tint.
-    normal: [f32; 3],
+    normal: Vec3,
     /// Its printed side is turned toward the eye.
     facing: bool,
 }
@@ -100,10 +101,10 @@ pub fn paint_sheets(
     let per_mm = metrics.points_per_mm();
     let place = |at: Pos2| {
         let ([y, z], [ny, nz]) = way((typing_y - at.y) / per_mm);
-        let p = [(at.x - eye.origin.x) / per_mm, y, z];
-        let normal = [0.0, ny, nz];
+        let p = Vec3::new((at.x - eye.origin.x) / per_mm, y, z);
+        let normal = Vec3::new(0.0, ny, nz);
         let facing = Eye::sees(p, normal);
-        let seen = if facing { normal } else { normal.map(|c| -c) };
+        let seen = if facing { normal } else { -normal };
         Placed {
             pos: eye.at(p),
             at: p,
@@ -228,8 +229,8 @@ mod tests {
     fn the_printing_point_faces_the_eye_and_the_back_turns_away() {
         let ([y, z], [ny, nz]) = way(0.0);
         assert!(y.abs() < 2.5e-5 && z.abs() < 2.5e-5);
-        let [_, ey, ez] = toward_eye();
-        assert!((ny - ey).abs() < 1e-5 && (nz - ez).abs() < 1e-5);
+        let eye = toward_eye();
+        assert!((ny - eye.y).abs() < 1e-5 && (nz - eye.z).abs() < 1e-5);
         let behind = -support::wrap_mm() - 51.0;
         let (_, normal) = way(behind);
         assert!(normal[0] < 0.0, "{normal:?}");

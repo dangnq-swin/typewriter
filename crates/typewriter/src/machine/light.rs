@@ -7,10 +7,10 @@
 //! CPU still lights, one colour a frame.
 
 use eframe::egui::Color32;
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
-use super::geometry::{add, dot, normalized, scaled, sub};
 use super::{METAL, METAL_SHINE};
 use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
 
@@ -18,15 +18,15 @@ use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
 /// over the desk's left front, its head about 400 mm above the desk's
 /// top. Seen from the machine's middle it lies where the old direction
 /// pointed, so what the CPU lights keeps its look.
-pub(super) fn lamp() -> [f32; 3] {
-    [-254.0, 170.0, 297.0]
+pub(super) fn lamp() -> Vec3 {
+    Vec3::new(-254.0, 170.0, 297.0)
 }
 
 /// Toward the lamp from the machine's middle: for lines and cast shadows,
 /// which stand nowhere of their own. The shader reaches each fragment's own
 /// direction from [`lamp`] instead.
-pub(super) fn toward_light() -> [f32; 3] {
-    normalized(lamp())
+pub(super) fn toward_light() -> Vec3 {
+    lamp().normalize_or_zero()
 }
 
 /// The frame's lighting: this lamp, this eye, and the room chrome mirrors.
@@ -58,25 +58,25 @@ impl Paint {
     /// Lit at the machine's middle, for the parts the CPU still lights
     /// itself, one colour a frame.
     pub(super) fn lit(self) -> Color32 {
-        self.shade.colour(self.colour, &frame(), [0.0; 3])
+        self.shade.colour(self.colour, &frame(), Vec3::ZERO)
     }
 }
 
 /// Plastic facing `normal`: lit over an ambient floor (Lambert), per pixel.
-pub(super) fn matte(colour: Color32, normal: [f32; 3]) -> Paint {
+pub(super) fn matte(colour: Color32, normal: Vec3) -> Paint {
     Paint {
         colour,
-        shade: Shade::Matte(normalized(normal)),
+        shade: Shade::Matte(normal.normalize_or_zero()),
     }
 }
 
 /// Metal facing `normal`, polished to a `shine` whose highlight `sharpness`
 /// narrows: lit per pixel.
-pub(super) fn polished(colour: Color32, shine: Color32, normal: [f32; 3], sharpness: f32) -> Paint {
+pub(super) fn polished(colour: Color32, shine: Color32, normal: Vec3, sharpness: f32) -> Paint {
     Paint {
         colour,
         shade: Shade::Polished {
-            normal: normalized(normal),
+            normal: normal.normalize_or_zero(),
             shine,
             sharpness,
         },
@@ -85,11 +85,11 @@ pub(super) fn polished(colour: Color32, shine: Color32, normal: [f32; 3], sharpn
 
 /// Brushed metal running along `tangent`, streaked with `shine` across its
 /// grain, `sharpness` narrow: lit per pixel.
-pub(super) fn brushed(colour: Color32, shine: Color32, tangent: [f32; 3], sharpness: f32) -> Paint {
+pub(super) fn brushed(colour: Color32, shine: Color32, tangent: Vec3, sharpness: f32) -> Paint {
     Paint {
         colour,
         shade: Shade::Streak {
-            tangent: normalized(tangent),
+            tangent: tangent.normalize_or_zero(),
             shine,
             sharpness,
         },
@@ -100,9 +100,9 @@ pub(super) fn brushed(colour: Color32, shine: Color32, tangent: [f32; 3], sharpn
 /// 0..=1: brushed and milled metal streaks along its grain (Heidrich–Seidel).
 /// `sharpness` narrows the streak. For parts the CPU lights, one colour a
 /// frame: what stands in depth is [`brushed`] instead.
-pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
-    let tangent = normalized(tangent);
-    let (lt, vt) = (dot(toward_light(), tangent), dot(toward_eye(), tangent));
+pub(super) fn streak(tangent: Vec3, sharpness: i32) -> f32 {
+    let tangent = tangent.normalize_or_zero();
+    let (lt, vt) = (toward_light().dot(tangent), toward_eye().dot(tangent));
     let across = (1.0 - lt * lt).max(0.0).sqrt() * (1.0 - vt * vt).max(0.0).sqrt();
     (across - lt * vt).max(0.0).powi(sharpness)
 }
@@ -122,16 +122,16 @@ const BAR_HAIR_FLOOR: f32 = 0.2;
 pub(super) fn paint_steel(
     canvas: &Canvas,
     eye: &Eye,
-    path: &[[f32; 3]],
+    path: &[Vec3],
     body: Color32,
     shine: Color32,
 ) {
     for pair in path.windows(2) {
         let [a, b] = [pair[0], pair[1]];
         eye.line(canvas, &[a, b], BAR_MM, body);
-        let along = normalized(sub(b, a));
-        let aside = scaled(lit_side(along), BAR_HAIR_ASIDE_MM);
-        let hair = [add(a, aside), add(b, aside)];
+        let along = (b - a).normalize_or_zero();
+        let aside = lit_side(along) * BAR_HAIR_ASIDE_MM;
+        let hair = [a + aside, b + aside];
         let base = body.lerp_to_gamma(shine, BAR_HAIR_FLOOR);
         eye.line(
             canvas,
@@ -145,13 +145,9 @@ pub(super) fn paint_steel(
 /// The unit side of a bar running `along` that shows the lamp: squared off
 /// in the desk's plane and turned to the writer's left, where the lamp
 /// stands; of an upright bar, straight left.
-fn lit_side(along: [f32; 3]) -> [f32; 3] {
-    let aside = normalized([-along[1], along[0], 0.0]);
-    if aside[0] < 0.0 {
-        aside
-    } else {
-        [-1.0, 0.0, 0.0]
-    }
+fn lit_side(along: Vec3) -> Vec3 {
+    let aside = Vec3::new(-along.y, along.x, 0.0).normalize_or_zero();
+    if aside.x < 0.0 { aside } else { -Vec3::X }
 }
 
 /// An upright chrome plate facing the writer over `x` at depth `y`, from
@@ -173,10 +169,10 @@ pub(super) fn paint_chrome(
     };
     let bottom = top - height;
     let outline = [
-        [left, y, top],
-        [right, y, top],
-        [right, y, bottom],
-        [left, y, bottom],
+        Vec3::new(left, y, top),
+        Vec3::new(right, y, top),
+        Vec3::new(right, y, bottom),
+        Vec3::new(left, y, bottom),
     ];
     let mut solid = Solid::default();
     eye.quad(
@@ -208,7 +204,7 @@ fn chrome_bands() -> [(f32, Color32); CHROME_BANDS] {
 /// lies in no plate of its own, like the return lever, whose colour follows
 /// the way its seen side faces.
 pub(super) fn chrome_at(t: f32) -> Color32 {
-    Shade::Chrome(t).colour(Color32::WHITE, &frame(), [0.0; 3])
+    Shade::Chrome(t).colour(Color32::WHITE, &frame(), Vec3::ZERO)
 }
 
 /// `colour` lit `by` times as bright, alpha kept.
@@ -226,26 +222,25 @@ pub(super) fn brighten(colour: Color32, by: f32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::super::IVORY;
-    use super::super::geometry::{add, cross};
     use super::*;
 
     #[test]
     fn one_light_from_the_front_left() {
         let lit = |normal| matte(IVORY, normal).lit();
-        let (left, right) = (lit([-1.0, 0.0, 0.0]), lit([1.0, 0.0, 0.0]));
+        let (left, right) = (lit(-Vec3::X), lit(Vec3::X));
         assert!(left.r() > right.r());
-        assert!(lit([0.0, 0.0, 1.0]).r() > lit([0.0, 0.0, -1.0]).r());
+        assert!(lit(Vec3::Z).r() > lit(-Vec3::Z).r());
         for angle in 0..36 {
             let turn = (10.0 * angle as f32).to_radians();
-            let shine = streak([turn.cos(), turn.sin(), 0.0], 6);
+            let shine = streak(Vec3::new(turn.cos(), turn.sin(), 0.0), 6);
             assert!((0.0..=1.0).contains(&shine));
         }
     }
 
     #[test]
     fn polished_metal_shines_turned_between_the_light_and_the_eye() {
-        let between = normalized(add(toward_light(), toward_eye()));
-        let aside = [-between[1], between[0], 0.0];
+        let between = (toward_light() + toward_eye()).normalize_or_zero();
+        let aside = Vec3::new(-between.y, between.x, 0.0);
         let at = |normal, sharpness| polished(METAL, METAL_SHINE, normal, sharpness).lit();
         // Wholly the shine where it turns the light to the eye, and dimmer
         // turned aside.
@@ -253,7 +248,7 @@ mod tests {
         assert!(at(aside, 4.0).r() < METAL_SHINE.r());
         // A narrow highlight only reaches the faces turned nearest: the same
         // face, half turned, shines broad or not at all.
-        let half = normalized(add(between, aside));
+        let half = (between + aside).normalize_or_zero();
         assert!(at(half, 30.0).r() < at(half, 2.0).r());
     }
 
@@ -262,7 +257,7 @@ mod tests {
         let at = |tangent| brushed(METAL, METAL_SHINE, tangent, 6.0).lit();
         // The grain at right angles to both the light and the eye: the whole
         // streak. Along the light: none of it.
-        let across = cross(toward_light(), toward_eye());
+        let across = toward_light().cross(toward_eye());
         assert_eq!(at(across), METAL_SHINE);
         assert_eq!(at(toward_light()), METAL);
     }
@@ -283,12 +278,12 @@ mod tests {
         // Away from the writer, toward them, square across, and upright:
         // every bar shows its writer-left side, squared off the bar where
         // it runs flat.
-        let flat = [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.7, 0.7, 0.0]];
-        for along in flat.into_iter().chain([[0.0, 0.0, -1.0]]) {
+        let flat = [Vec3::Y, -Vec3::Y, Vec3::new(0.7, 0.7, 0.0), -Vec3::Z];
+        for along in flat {
             let side = lit_side(along);
-            assert!(side[0] <= 0.0, "{along:?} lit side {side:?}");
-            if dot([along[0], along[1], 0.0], [along[0], along[1], 0.0]) > 1e-6 {
-                assert!(dot(side, along).abs() < 1e-3);
+            assert!(side.x <= 0.0, "{along:?} lit side {side:?}");
+            if Vec3::new(along.x, along.y, 0.0).length_squared() > 1e-6 {
+                assert!(side.dot(along).abs() < 1e-3);
             }
         }
     }

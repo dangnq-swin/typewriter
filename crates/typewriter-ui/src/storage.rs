@@ -1,5 +1,5 @@
-//! The app's own folders (XDG; `%APPDATA%\typewriter` on Windows) and
-//! crash-safe writes.
+//! The app's own folders, in the desktop's project layout — XDG on Linux,
+//! `%APPDATA%\typewriter\{config,data}` on Windows — and crash-safe writes.
 //!
 //! A project lives wherever the user saved it; until then it is a draft in
 //! the data folder's `drafts/`, so nothing typed is lost.
@@ -8,6 +8,8 @@ use std::fs::{self, File, TryLockError};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use atomic_write_file::AtomicWriteFile;
+use directories::{BaseDirs, ProjectDirs};
 use jiff::Timestamp;
 
 /// A project file: a manila folder on screen, RON inside.
@@ -15,40 +17,18 @@ pub const EXTENSION: &str = ".typr";
 /// A draft's name.
 pub const UNTITLED: &str = "Untitled";
 
-/// `$<variable>/typewriter`, or `~/<fallback>/typewriter`. XDG says to
-/// ignore relative paths.
-#[cfg(not(windows))]
-fn xdg_dir(variable: &str, fallback: &str) -> Option<PathBuf> {
-    let base = std::env::var_os(variable)
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(fallback)))?;
-    Some(base.join("typewriter"))
+/// The app's own folders: the desktop's project layout for `typewriter`.
+fn folders() -> Option<ProjectDirs> {
+    ProjectDirs::from("", "", "typewriter")
 }
 
 /// Drafts, machine profiles and the app's markers.
-#[cfg(not(windows))]
 pub fn data_dir() -> Option<PathBuf> {
-    xdg_dir("XDG_DATA_HOME", ".local/share")
+    Some(folders()?.data_dir().to_path_buf())
 }
 
-#[cfg(not(windows))]
 fn config_dir() -> Option<PathBuf> {
-    xdg_dir("XDG_CONFIG_HOME", ".config")
-}
-
-/// `%APPDATA%\typewriter`, for config and data alike.
-#[cfg(windows)]
-pub fn data_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())?;
-    Some(base.join("typewriter"))
-}
-
-#[cfg(windows)]
-fn config_dir() -> Option<PathBuf> {
-    data_dir()
+    Some(folders()?.config_dir().to_path_buf())
 }
 
 pub fn config_path() -> Option<PathBuf> {
@@ -81,6 +61,43 @@ pub fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Whether `name` can be a file name: empty names and those characters are
+/// illegal somewhere among the app's platforms, so folders carrying projects
+/// around must never meet them.
+pub fn is_file_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '\0'])
+}
+
+/// The start of a run of unsaved changes: the pause both the project file
+/// and the settings wait out before writing. Marked on each change, the
+/// first mark of a run holds; the model's pulled clock does the timing.
+#[derive(Debug, Default)]
+pub struct Settle {
+    started_at: Option<f64>,
+}
+
+impl Settle {
+    /// A change at `now`.
+    pub fn mark(&mut self, now: f64) {
+        self.started_at.get_or_insert(now);
+    }
+
+    /// Changes are waiting.
+    pub fn is_pending(&self) -> bool {
+        self.started_at.is_some()
+    }
+
+    /// Nothing waits any more: written, or thrown away.
+    pub fn clear(&mut self) {
+        self.started_at = None;
+    }
+
+    /// True once `seconds` have passed since the run's first change.
+    pub fn rested(&self, seconds: f64, now: f64) -> bool {
+        self.started_at.is_some_and(|at| now - at >= seconds)
+    }
+}
+
 /// The project's name, as on the folder's tab.
 pub fn display_name(path: &Path) -> String {
     if is_draft(path) {
@@ -95,11 +112,12 @@ pub fn home_relative(path: &Path) -> String {
     if cfg!(windows) {
         return path.display().to_string();
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
-    match home
-        .as_deref()
-        .and_then(|home| path.strip_prefix(home).ok())
-    {
+    let home = BaseDirs::new().and_then(|dirs| {
+        path.strip_prefix(dirs.home_dir())
+            .ok()
+            .map(Path::to_path_buf)
+    });
+    match home {
         Some(rest) => format!("~/{}", rest.display()),
         None => path.display().to_string(),
     }
@@ -121,16 +139,14 @@ pub fn export_path(folder: &Path, extension: &str) -> PathBuf {
 }
 
 /// Writes a temp file beside `path`, then renames it over: a crash never
-/// leaves a half-written file.
+/// leaves a half-written file, and a failed write leaves the original.
 pub fn write_atomic(path: &Path, contents: impl AsRef<[u8]>) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let temporary = path.with_file_name(format!(".{}.tmp", file_name(path)));
-    let mut file = fs::File::create(&temporary)?;
+    let mut file = AtomicWriteFile::open(path)?;
     file.write_all(contents.as_ref())?;
-    file.sync_all()?;
-    fs::rename(&temporary, path)
+    file.commit()
 }
 
 /// Removed on a clean exit: found at start, the last run crashed.
@@ -241,6 +257,59 @@ mod tests {
             export_path(folder, "md"),
             PathBuf::from("/home/me/writing/novel.md")
         );
+    }
+
+    #[test]
+    fn file_names_fit_both_platforms() {
+        assert!(is_file_name("novel"));
+        assert!(is_file_name("act 1, revised"));
+        for bad in [
+            "",
+            "novel/twelve",
+            r"fold\page",
+            "act:1",
+            "star*?",
+            "quote\"x",
+            "<angle>",
+            "pipe|",
+            "nul\0",
+        ] {
+            assert!(!is_file_name(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn home_paths_shorten_to_tilde() {
+        if cfg!(windows) {
+            return; // shown whole on Windows, by design
+        }
+        let Some(dirs) = BaseDirs::new() else {
+            return; // a home the desktop cannot name is not this test's problem
+        };
+        assert_eq!(
+            home_relative(&dirs.home_dir().join("novel.typr")),
+            "~/novel.typr"
+        );
+        assert_eq!(
+            home_relative(Path::new("/elsewhere/novel.typr")),
+            "/elsewhere/novel.typr"
+        );
+    }
+
+    #[test]
+    fn changes_settle_after_a_pause() {
+        let mut settled = Settle::default();
+        assert!(!settled.is_pending() && !settled.rested(0.5, 10.0));
+        settled.mark(1.0);
+        settled.mark(2.0);
+        assert!(!settled.rested(0.5, 1.4));
+        assert!(settled.rested(0.5, 1.5));
+        assert!(
+            settled.rested(0.5, 2.4),
+            "later marks do not reset the pause"
+        );
+        settled.clear();
+        assert!(!settled.is_pending());
     }
 
     #[test]

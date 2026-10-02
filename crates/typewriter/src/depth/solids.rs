@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use eframe::egui::epaint::{TessellationOptions, Tessellator, Vertex};
 use eframe::egui::{Color32, CornerRadius, Mesh, Painter, Pos2, Shape, StrokeKind};
+use glam::Vec3;
 
 use super::Camera;
 use super::lighting::Shade;
@@ -33,14 +34,14 @@ pub struct Solid {
     /// Where each of `mesh`'s vertices stands, in absolute machine
     /// millimetres: the pass projects these into the window, and the lamp
     /// lights a fragment from them.
-    pub places: Vec<[f32; 3]>,
+    pub places: Vec<Vec3>,
     /// One for each of `mesh`'s vertices.
     pub shades: Vec<Shade>,
 }
 
 impl Solid {
     /// `mesh` standing at `places`, each vertex its colour as it is.
-    pub fn unlit(mesh: Mesh, places: Vec<[f32; 3]>) -> Self {
+    pub fn unlit(mesh: Mesh, places: Vec<Vec3>) -> Self {
         let shades = vec![Shade::Unlit; places.len()];
         Self {
             mesh,
@@ -54,7 +55,7 @@ impl Solid {
 /// at, and its take of the light.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Placing {
-    pub at: [f32; 3],
+    pub at: Vec3,
     pub shade: Shade,
 }
 
@@ -414,7 +415,7 @@ mod tests {
         ] {
             solids.add(layer, quad(texture), |v| {
                 Some(Placing {
-                    at: [v.pos.x, 0.0, 0.0],
+                    at: Vec3::new(v.pos.x, 0.0, 0.0),
                     shade: Shade::Unlit,
                 })
             });
@@ -469,7 +470,7 @@ mod tests {
         solids.add(Layer::Opaque, mesh, |v| {
             v.pos.y += 1.0;
             (v.pos.x < 2.5).then(|| Placing {
-                at: [v.pos.x / 10.0, 0.0, 0.0],
+                at: Vec3::new(v.pos.x / 10.0, 0.0, 0.0),
                 shade: Shade::Unlit,
             })
         });
@@ -479,7 +480,11 @@ mod tests {
         assert_eq!(solid.mesh.indices, [0, 1, 2]);
         assert_eq!(
             solid.places,
-            [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.2, 0.0, 0.0]]
+            [
+                Vec3::ZERO,
+                Vec3::new(0.1, 0.0, 0.0),
+                Vec3::new(0.2, 0.0, 0.0)
+            ]
         );
         assert_eq!(solid.mesh.vertices[1].pos, pos2(1.0, 1.0));
     }

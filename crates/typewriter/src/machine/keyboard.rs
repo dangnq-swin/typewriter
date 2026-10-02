@@ -1,11 +1,12 @@
 //! The keys, their levers, and the rod the levers rest on.
 
 use eframe::egui::{Align2, Color32, Pos2, Shape, Stroke, pos2};
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::case::{OPENING_HALF, PANEL_EDGE_MM, wall_top};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
-use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
+use super::geometry::{rounded_rect, soft};
 use super::light::{Paint, brighten, matte, paint_steel, polished, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
@@ -171,45 +172,45 @@ pub(super) fn key_row(row: f32) -> (f32, f32) {
 
 /// Under every cap, where its post starts: the keys, far row first, then the
 /// space bar's.
-pub(super) fn key_levers() -> Vec<[f32; 3]> {
+pub(super) fn key_levers() -> Vec<Vec3> {
     let (space_y, space_z) = SPACE_ROW;
     let keys = KEYS.iter().enumerate().flat_map(|(row, keys)| {
         let (y, z) = key_row(row as f32);
         keys.iter()
-            .map(move |key| [key.x(), y - 3.0, z - KEY_FRONT])
+            .map(move |key| Vec3::new(key.x(), y - 3.0, z - KEY_FRONT))
     });
-    let space = [-101.0, -46.0, 46.0, 99.0].map(|x| [x, space_y - 3.0, space_z - KEY_FRONT]);
+    let space =
+        [-101.0, -46.0, 46.0, 99.0].map(|x| Vec3::new(x, space_y - 3.0, space_z - KEY_FRONT));
     keys.chain(space).collect()
 }
 
 /// A lever's foot, where its post ends, and its end under the panel.
-fn lever_path(under_cap: [f32; 3]) -> [[f32; 3]; 2] {
-    let [x, y, z] = under_cap;
+fn lever_path(under_cap: Vec3) -> [Vec3; 2] {
     let (y0, z0) = PANEL_BOTTOM;
     [
-        [x, y, z - STEM_DROP],
-        [
-            x * LEVER_CONVERGE,
+        Vec3::new(under_cap.x, under_cap.y, under_cap.z - STEM_DROP),
+        Vec3::new(
+            under_cap.x * LEVER_CONVERGE,
             y0 - INTO_MACHINE,
             z0 - PANEL_EDGE_MM - 1.0,
-        ],
+        ),
     ]
 }
 
 /// Where the lever from `under_cap` crosses depth `y`, if it does.
-fn lever_at(under_cap: [f32; 3], y: f32) -> Option<[f32; 3]> {
+fn lever_at(under_cap: Vec3, y: f32) -> Option<Vec3> {
     let [foot, end] = lever_path(under_cap);
-    let t = (foot[1] - y) / (foot[1] - end[1]);
-    (0.0..=1.0).contains(&t).then(|| lerp3(foot, end, t))
+    let t = (foot.y - y) / (foot.y - end.y);
+    (0.0..=1.0).contains(&t).then(|| foot.lerp(end, t))
 }
 
 /// Where the rod the levers rest on lies at depth `y`: its axis's `z`, just
 /// under the lowest lever crossing there. `None` if none crosses.
-fn rod_axis(y: f32, levers: &[[f32; 3]]) -> Option<f32> {
+fn rod_axis(y: f32, levers: &[Vec3]) -> Option<f32> {
     let low = levers
         .iter()
         .filter_map(|&l| lever_at(l, y))
-        .map(|p| p[2])
+        .map(|p| p.z)
         .reduce(f32::min)?;
     Some(low - ROD_GAP - ROD_RADIUS)
 }
@@ -217,7 +218,7 @@ fn rod_axis(y: f32, levers: &[[f32; 3]]) -> Option<f32> {
 /// The steel rod behind the far row, across the well from wall to wall, under
 /// the `levers` crossing there: a cylinder lit round its curve, its top in
 /// the light, a highlight where it turns toward it, its underside in shade.
-pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
+pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[Vec3]) {
     let y = key_row(0.0).0 - ROD_BEHIND;
     let Some(z) = rod_axis(y, levers) else {
         return;
@@ -225,19 +226,19 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
     let half = OPENING_HALF;
     // Round the side the eye sees: from behind its top to under its front.
     let bands = 16u8;
-    let around: Vec<([f32; 3], Paint)> = (0..=bands)
+    let around: Vec<(Vec3, Paint)> = (0..=bands)
         .map(|i| {
             let angle = (-60.0 + 190.0 * f32::from(i) / f32::from(bands)).to_radians();
-            let normal = [0.0, angle.sin(), angle.cos()];
+            let normal = Vec3::new(0.0, angle.sin(), angle.cos());
             let polish = polished(ROD, METAL_SHINE, normal, 24.0);
-            let offset = [0.0, ROD_RADIUS * angle.sin(), ROD_RADIUS * angle.cos()];
-            (add([0.0, y, z], offset), polish)
+            let offset = Vec3::new(0.0, ROD_RADIUS * angle.sin(), ROD_RADIUS * angle.cos());
+            (Vec3::new(0.0, y, z) + offset, polish)
         })
         .collect();
     let mut solid = Solid::default();
     for pair in around.windows(2) {
         let [(a, colour_a), (b, colour_b)] = [pair[0], pair[1]];
-        let at = |p: [f32; 3], x: f32| [x, p[1], p[2]];
+        let at = |p: Vec3, x: f32| Vec3::new(x, p.y, p.z);
         eye.quad(
             &mut solid,
             [
@@ -279,8 +280,8 @@ fn paint_key_shadow(
     z: f32,
 ) {
     let light = toward_light();
-    let cast = KEY_SHADOW_DROP / light[2];
-    let (dx, dy) = (-light[0] * cast, -light[1] * cast);
+    let cast = KEY_SHADOW_DROP / light.z;
+    let (dx, dy) = (-light.x * cast, -light.y * cast);
     let z = z - KEY_SHADOW_DROP;
     // The foot's own shape, grown and rounded as the cap's is.
     let outline: Vec<Pos2> = rounded_rect(
@@ -290,23 +291,23 @@ fn paint_key_shadow(
         3.0 + 2.0 * KEY_FLARE,
     )
     .into_iter()
-    .map(|[x, y, _]| pos2(x, y))
+    .map(|p| pos2(p.x, p.y))
     .collect();
     let mesh = soft(&outline, 2.5, Color32::from_black_alpha(150));
     // Each vertex stands on the plane the shadow is drawn on, bending up
     // the wall's face where the plane runs past it — the blob keeps its
     // rounded feather where it reaches the wall. Whatever else comes
     // through the plane, the caps' own feet, hides the shadow there.
-    let fold = |p: Pos2| -> [f32; 3] {
+    let fold = |p: Pos2| -> Vec3 {
         let over = (p.x.abs() - OPENING_HALF).max(0.0);
         let top = wall_top(p.y);
         if over > 0.0 && z < top {
-            [p.x - p.x.signum() * over, p.y, (z + over).min(top)]
+            Vec3::new(p.x - p.x.signum() * over, p.y, (z + over).min(top))
         } else {
-            [p.x, p.y, z]
+            Vec3::new(p.x, p.y, z)
         }
     };
-    let on: Vec<[f32; 3]> = mesh.vertices.iter().map(|v| fold(v.pos)).collect();
+    let on: Vec<Vec3> = mesh.vertices.iter().map(|v| fold(v.pos)).collect();
     let places = on.iter().map(|&mm| eye.absolute(mm)).collect();
     let mut solid = Solid::unlit(mesh, places);
     for (vertex, &mm) in solid.mesh.vertices.iter_mut().zip(&on) {
@@ -316,7 +317,7 @@ fn paint_key_shadow(
 }
 
 /// Each key's post and its lever, from under its cap in `levers`.
-pub(super) fn paint_levers(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
+pub(super) fn paint_levers(canvas: &Canvas, eye: &Eye, levers: &[Vec3]) {
     for &lever in levers {
         paint_lever(canvas, eye, lever);
     }
@@ -326,16 +327,15 @@ pub(super) fn paint_levers(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
 /// round it, lit in front and dark behind; and its lever running back from
 /// the post under the rows behind, into the machine under the panel, a
 /// streak of light along it.
-fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: [f32; 3]) {
-    let [x, y, z] = under_cap;
+fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: Vec3) {
     let [foot, end] = lever_path(under_cap);
     paint_steel(canvas, eye, &[under_cap, foot, end], STEM, STEM_SHINE);
     let turns = 4u8;
-    let coil: Vec<[f32; 3]> = (0..=2 * turns)
+    let coil: Vec<Vec3> = (0..=2 * turns)
         .map(|i| {
             let t = 0.1 + 0.8 * f32::from(i) / f32::from(2 * turns);
             let out = if i % 2 == 0 { -2.0 } else { 2.0 };
-            [x + out, y, z - STEM_DROP * t]
+            Vec3::new(under_cap.x + out, under_cap.y, under_cap.z - STEM_DROP * t)
         })
         .collect();
     // Strands crossing in front go one way, those behind the other.
@@ -352,7 +352,7 @@ pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
     for (row, keys) in KEYS.iter().enumerate() {
         let (y, z) = key_row(row as f32);
         for key in keys.iter() {
-            paint_key(canvas, eye, key, [key.x(), y, z]);
+            paint_key(canvas, eye, key, Vec3::new(key.x(), y, z));
         }
     }
     for (left, right, name) in SPACE_BAR {
@@ -368,7 +368,7 @@ pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
         legend(
             canvas,
             eye,
-            [(left + right) / 2.0, space_y, space_z],
+            Vec3::new((left + right) / 2.0, space_y, space_z),
             name,
             "",
             0.55,
@@ -377,8 +377,7 @@ pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
 }
 
 /// A key's cap, its top's centre at `top`, with its legends.
-fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: [f32; 3]) {
-    let [x, y, z] = top;
+fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: Vec3) {
     let half = key.half_width();
     let depth = KEY_CAP.1 / 2.0;
     let colours = if key.shift {
@@ -389,9 +388,9 @@ fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: [f32; 3]) {
     paint_cap(
         canvas,
         eye,
-        [x - half, x + half],
-        [y - depth, y + depth],
-        z,
+        [top.x - half, top.x + half],
+        [top.y - depth, top.y + depth],
+        top.z,
         colours,
     );
     let size = if key.legend.chars().count() > 1 {
@@ -424,11 +423,11 @@ pub(super) fn paint_cap(
     let n = top.len();
     let lit: Vec<Paint> = (0..n)
         .map(|i| {
-            let along = sub(top[(i + 1) % n], top[(i + n - 1) % n]);
-            let out = normalized([along[1], -along[0], 0.0]);
+            let along = top[(i + 1) % n] - top[(i + n - 1) % n];
+            let out = Vec3::new(along.y, -along.x, 0.0).normalize_or_zero();
             matte(
                 front_colour,
-                [out[0] * KEY_FRONT, out[1] * KEY_FRONT, KEY_FLARE],
+                Vec3::new(out.x * KEY_FRONT, out.y * KEY_FRONT, KEY_FLARE),
             )
         })
         .collect();
@@ -449,21 +448,21 @@ pub(super) fn paint_cap(
     eye.outline_in(canvas, &foot, brighten(front_colour, 0.8));
     // Dished: its normals turn from the back's to the front's, so the lamp
     // strikes the front and leaves the back its own shade.
-    eye.fill(canvas, &top, |[_, py, _]| {
-        let tilt = -0.15 + 0.65 * (py - back) / (front - back);
-        matte(top_colour, [0.0, tilt, 1.0])
+    eye.fill(canvas, &top, |p| {
+        let tilt = -0.15 + 0.65 * (p.y - back) / (front - back);
+        matte(top_colour, Vec3::new(0.0, tilt, 1.0))
     });
     eye.outline_in(canvas, &top, brighten(front_colour, 0.85));
 }
 
 /// `main` printed on a key top at `centre`, `shifted` above it; `size` of a
 /// letter's. Laid flat on the top, it foreshortens with it.
-fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &str, size: f32) {
+fn legend(canvas: &Canvas, eye: &Eye, centre: Vec3, main: &str, shifted: &str, size: f32) {
     if main.is_empty() {
         return;
     }
-    let [x, y, z] = centre;
-    let on_top = |across: f32, down: f32| [x + across, y + down, z];
+    let (x, y, z) = (centre.x, centre.y, centre.z);
+    let on_top = |across: f32, down: f32| Vec3::new(x + across, y + down, z);
     if main == BACKSPACE {
         let (half, head) = (4.0, 2.0);
         let stroke = Stroke::new(0.76 * FLAT_TEXT, LEGEND);
@@ -533,7 +532,7 @@ mod tests {
         // Every lever runs back over it.
         for lever in &levers {
             let over = lever_at(*lever, y).unwrap();
-            assert!(over[2] > axis + ROD_RADIUS, "{lever:?}");
+            assert!(over.z > axis + ROD_RADIUS, "{lever:?}");
         }
         assert!(axis + ROD_RADIUS < key_row(0.0).1 - KEY_FRONT);
         assert!(axis - ROD_RADIUS > KEY_BED_Z);

@@ -4,7 +4,7 @@
 use std::f32::consts::PI;
 
 use eframe::egui::{
-    Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2,
+    Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape, Stroke, lerp, pos2, vec2,
 };
 use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
@@ -83,7 +83,7 @@ impl Scale {
     /// The same scale printed nearer or farther: stretched `by` across about
     /// `x`, its band from `top`, `height` high.
     pub fn stretched(self, x: f32, by: f32, top: f32, height: f32) -> Self {
-        let across = |at: f32| x + (at - x) * by;
+        let across = |at: f32| lerp(x..=at, by);
         Self {
             rect: Rect::from_x_y_ranges(
                 across(self.rect.left())..=across(self.rect.right()),

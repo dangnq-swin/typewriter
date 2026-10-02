@@ -7,10 +7,12 @@
 
 use std::sync::{Arc, Weak};
 
+use bytemuck::{Pod, Zeroable};
 use eframe::egui::mutex::RwLock;
 use eframe::egui::{Context, TextureId, Vec2};
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, Renderer, ScreenDescriptor};
 use eframe::wgpu;
+use glam::Vec3;
 
 use super::lighting::LIGHTING_BYTES;
 use super::solids::{Layer, Solids};
@@ -19,10 +21,26 @@ use super::{CAMERA_BYTES, Pass};
 pub(super) const SHADER: &str = include_str!("depth.wgsl");
 /// egui's font atlas, which text and plain fills (`WHITE_UV`) draw from.
 pub(super) const FONTS: TextureId = TextureId::Managed(0);
-/// The millimetres it stands at (3 floats), which the shader projects,
-/// uv (2), colour (4 bytes), the way it faces (3 floats), its material's
-/// parameter (1 float), material (4 bytes) and highlight (4 bytes).
-const VERTEX_BYTES: u64 = 48;
+
+/// One vertex, exactly as `vs_main` in `depth.wgsl` reads it: the
+/// millimetres it stands at, uv, colour, the way it faces, its material's
+/// parameter, material and highlight. The compiler keeps its size and order
+/// true to `vertex_attr_array` and the shader; little-endian bytes, like
+/// both backends read.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Pod, Zeroable)]
+struct DepthVertex {
+    at: Vec3,
+    uv: [f32; 2],
+    color: [u8; 4],
+    vector: Vec3,
+    spec: f32,
+    material: u32,
+    shine: [u8; 4],
+}
+
+/// What the GPU indexes vertices by, in bytes.
+const VERTEX_BYTES: u64 = std::mem::size_of::<DepthVertex>() as u64;
 
 /// The depth buffer's basic unit for [`super::DEPTH_BITS`], which is what a
 /// `wgpu::DepthBiasState` constant is counted in: what Vulkan and D3D take
@@ -30,7 +48,7 @@ const VERTEX_BYTES: u64 = 48;
 /// does for GL's `glPolygonOffset` units.
 #[cfg(test)]
 const DEPTH_UNIT: f32 = 1.0 / (1u32 << 24) as f32;
-/// The decal pass's constant bias, in [`DEPTH_UNIT`]s, negative to lift: a
+/// The decal pass's constant bias, negative to lift: a
 /// fragment's depth is biased by the sum *added* to it, so a negative one
 /// moves a decal toward the eye. Worth the old 0.25 mm at the paper's
 /// distance: enough for a decal's own mesh to show over the coarser mesh it
@@ -323,19 +341,18 @@ impl Buffers {
 }
 
 /// `solids` as the GPU takes them, for the font atlas `fonts` texels as it
-/// is once the frame is over: vertex and index bytes, and a draw for each
+/// is once the frame is over: vertices and indices, and a draw for each
 /// solid, opaque first. Positions go out in absolute machine millimetres;
 /// the `Camera` uniform projects them.
-fn pack(solids: &Solids, fonts: [usize; 2]) -> (Vec<u8>, Vec<u8>, Vec<Draw>) {
+fn pack(solids: &Solids, fonts: [usize; 2]) -> (Vec<DepthVertex>, Vec<u32>, Vec<Draw>) {
     let all = || {
         let layers = solids.layers().into_iter();
         layers.flat_map(|(layer, solids)| solids.iter().map(move |solid| (layer, solid)))
     };
     let vertex_count: usize = all().map(|(_, solid)| solid.mesh.vertices.len()).sum();
     let index_count: usize = all().map(|(_, solid)| solid.mesh.indices.len()).sum();
-    // Safe cast: a vertex's bytes.
-    let mut vertices = Vec::with_capacity(vertex_count * VERTEX_BYTES as usize);
-    let mut indices = Vec::with_capacity(index_count * 4);
+    let mut vertices = Vec::with_capacity(vertex_count);
+    let mut indices = Vec::with_capacity(index_count);
     let mut draws = Vec::new();
     let (mut first, mut base) = (0, 0);
     for (layer, solid) in all() {
@@ -344,22 +361,17 @@ fn pack(solids: &Solids, fonts: [usize; 2]) -> (Vec<u8>, Vec<u8>, Vec<Draw>) {
         for (vertex, (&at, shade)) in solid.mesh.vertices.iter().zip(placed) {
             let uv = vertex.uv.to_vec2() * texels;
             let (material, vector, spec, shine) = shade.parts();
-            for value in at {
-                vertices.extend_from_slice(&value.to_le_bytes());
-            }
-            for value in [uv.x, uv.y] {
-                vertices.extend_from_slice(&value.to_le_bytes());
-            }
-            vertices.extend_from_slice(&vertex.color.to_array());
-            for value in vector.into_iter().chain([spec]) {
-                vertices.extend_from_slice(&value.to_le_bytes());
-            }
-            vertices.extend_from_slice(&material.to_le_bytes());
-            vertices.extend_from_slice(&shine.to_array());
+            vertices.push(DepthVertex {
+                at,
+                uv: [uv.x, uv.y],
+                color: vertex.color.to_array(),
+                vector,
+                spec,
+                material,
+                shine: shine.to_array(),
+            });
         }
-        for index in &solid.mesh.indices {
-            indices.extend_from_slice(&index.to_le_bytes());
-        }
+        indices.extend_from_slice(&solid.mesh.indices);
         // Safe casts: a frame's vertices fit egui's own u32 indices, and
         // far fewer than i32 counts.
         let count = solid.mesh.indices.len() as u32;
@@ -409,16 +421,27 @@ impl CallbackTrait for Gpu {
         // The frame is over: the atlas is as large as it gets this frame.
         let fonts = self.ctx.fonts(|fonts| fonts.font_image_size());
         let (vertices, indices, draws) = pack(&self.pass.solids, fonts);
-        queue.write_buffer(&pipelines.lighting, 0, &self.pass.lighting.uniform());
+        queue.write_buffer(
+            &pipelines.lighting,
+            0,
+            bytemuck::bytes_of(&self.pass.lighting.uniform()),
+        );
         // Safe casts: byte counts.
-        let (vertex_bytes, index_bytes) = (vertices.len() as u64, indices.len() as u64);
+        let (vertex_bytes, index_bytes) = (
+            vertices.len() as u64 * VERTEX_BYTES,
+            indices.len() as u64 * 4,
+        );
         let buffers = match pipelines.buffers.take() {
             Some(buffers) if buffers.holds(vertex_bytes, index_bytes) => buffers,
             _ => Buffers::new(device, &pipelines.camera_layout, vertex_bytes, index_bytes),
         };
-        queue.write_buffer(&buffers.camera, 0, &self.pass.camera.uniform());
-        queue.write_buffer(&buffers.vertices, 0, &vertices);
-        queue.write_buffer(&buffers.indices, 0, &indices);
+        queue.write_buffer(
+            &buffers.camera,
+            0,
+            bytemuck::bytes_of(&self.pass.camera.uniform()),
+        );
+        queue.write_buffer(&buffers.vertices, 0, bytemuck::cast_slice(&vertices));
+        queue.write_buffer(&buffers.indices, 0, bytemuck::cast_slice(&indices));
         pipelines.buffers = Some(buffers);
         pipelines.draws = draws;
         Vec::new()
@@ -501,44 +524,33 @@ mod tests {
             mesh.add_triangle(0, 1, 2);
             mesh
         };
-        let mut lit = Solid::unlit(triangle(Color32::RED), vec![[1.0, 2.0, 3.5]; 3]);
-        lit.shades = vec![Shade::Matte([0.0, 0.0, 1.0]); 3];
+        let mut lit = Solid::unlit(triangle(Color32::RED), vec![Vec3::new(1.0, 2.0, 3.5); 3]);
+        lit.shades = vec![Shade::Matte(Vec3::Z); 3];
         solids.push(Layer::Opaque, lit);
         solids.add(Layer::Decal, triangle(Color32::BLUE), |_| {
             Some(Placing::default())
         });
         let (vertices, indices, draws) = pack(&solids, [64, 32]);
-        assert_eq!(vertices.len(), 6 * VERTEX_BYTES as usize);
-        assert_eq!(indices.len(), 6 * 4);
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(indices.len(), 6);
         let runs: Vec<_> = draws
             .iter()
             .map(|d| (d.layer, d.indices.clone(), d.base))
             .collect();
         assert_eq!(runs, [(Layer::Opaque, 0..3, 0), (Layer::Decal, 3..6, 3)]);
-        let float = |at: usize| f32::from_le_bytes(vertices[at..at + 4].try_into().unwrap());
         // Where each lit vertex stands, in machine millimetres: the shader
         // projects these, and the camera's matrix decides the depth.
-        assert_eq!([float(0), float(4), float(8)], [1.0, 2.0, 3.5]);
-        assert_eq!(
-            [
-                float(VERTEX_BYTES as usize),
-                float(VERTEX_BYTES as usize + 4),
-                float(VERTEX_BYTES as usize + 8)
-            ],
-            [1.0, 2.0, 3.5]
-        );
-        assert_eq!(vertices[20..24], Color32::RED.to_array());
-        // Its normal, parameters, material and shine, then the unlit
-        // decal's, standing at the printing point.
-        assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
-        assert_eq!(float(36), 0.0);
-        assert_eq!(vertices[40..44], 1u32.to_le_bytes());
-        let next = 3 * VERTEX_BYTES as usize;
-        assert_eq!(
-            [float(next), float(next + 4), float(next + 8)],
-            [0.0, 0.0, 0.0]
-        );
-        assert_eq!(vertices[next + 40..next + 44], 0u32.to_le_bytes());
+        assert_eq!(vertices[0].at, Vec3::new(1.0, 2.0, 3.5));
+        assert_eq!(vertices[2].at, Vec3::new(1.0, 2.0, 3.5));
+        assert_eq!(vertices[0].color, Color32::RED.to_array());
+        // Its normal, parameter, material and shine.
+        assert_eq!(vertices[0].vector, Vec3::Z);
+        assert_eq!(vertices[0].spec, 0.0);
+        assert_eq!(vertices[0].material, 1);
+        assert_eq!(vertices[0].shine, Color32::WHITE.to_array());
+        // The unlit decal, standing at the printing point.
+        assert_eq!(vertices[3].at, Vec3::ZERO);
+        assert_eq!(vertices[3].material, 0);
     }
 
     #[test]
@@ -561,29 +573,27 @@ mod tests {
         mesh.add_triangle(0, 1, 2);
         let shine = Color32::from_rgb(0xDC, 0xDE, 0xDA);
         let polished = Shade::Polished {
-            normal: [0.0, 0.0, 1.0],
+            normal: Vec3::Z,
             shine,
             sharpness: 24.0,
         };
         let mut solids = Solids::default();
-        let mut lit = Solid::unlit(mesh.clone(), vec![[0.0; 3]; 3]);
+        let mut lit = Solid::unlit(mesh.clone(), vec![Vec3::ZERO; 3]);
         lit.shades = vec![polished; 3];
         solids.push(Layer::Opaque, lit);
-        let mut down = Solid::unlit(mesh, vec![[0.0; 3]; 3]);
+        let mut down = Solid::unlit(mesh, vec![Vec3::ZERO; 3]);
         down.shades = vec![Shade::Chrome(0.75); 3];
         solids.push(Layer::Opaque, down);
         let (vertices, _, _) = pack(&solids, [64, 32]);
-        let float = |at: usize| f32::from_le_bytes(vertices[at..at + 4].try_into().unwrap());
         // A polished vertex: its normal, its sharpness, its material, its shine.
-        assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
-        assert_eq!(float(36), 24.0);
-        assert_eq!(vertices[40..44], 2u32.to_le_bytes());
-        assert_eq!(vertices[44..48], shine.to_array());
+        assert_eq!(vertices[0].vector, Vec3::Z);
+        assert_eq!(vertices[0].spec, 24.0);
+        assert_eq!(vertices[0].material, 2);
+        assert_eq!(vertices[0].shine, shine.to_array());
         // A chrome one: how far down it lies, and no shine of its own.
-        let next = VERTEX_BYTES as usize * 3;
-        assert_eq!(float(next + 36), 0.75);
-        assert_eq!(vertices[next + 40..next + 44], 4u32.to_le_bytes());
-        assert_eq!(vertices[next + 44..next + 48], Color32::WHITE.to_array());
+        assert_eq!(vertices[3].spec, 0.75);
+        assert_eq!(vertices[3].material, 4);
+        assert_eq!(vertices[3].shine, Color32::WHITE.to_array());
     }
 
     #[test]
@@ -763,13 +773,21 @@ mod tests {
         let buffers = Buffers::new(
             &device,
             &pipelines.camera_layout,
-            vertices.len() as u64,
-            indices.len() as u64,
+            vertices.len() as u64 * VERTEX_BYTES,
+            indices.len() as u64 * 4,
         );
-        queue.write_buffer(&pipelines.lighting, 0, &pass.lighting.uniform());
-        queue.write_buffer(&buffers.camera, 0, &pass.camera.uniform());
-        queue.write_buffer(&buffers.vertices, 0, &vertices);
-        queue.write_buffer(&buffers.indices, 0, &indices);
+        queue.write_buffer(
+            &pipelines.lighting,
+            0,
+            bytemuck::bytes_of(&pass.lighting.uniform()),
+        );
+        queue.write_buffer(
+            &buffers.camera,
+            0,
+            bytemuck::bytes_of(&pass.camera.uniform()),
+        );
+        queue.write_buffer(&buffers.vertices, 0, bytemuck::cast_slice(&vertices));
+        queue.write_buffer(&buffers.indices, 0, bytemuck::cast_slice(&indices));
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gpu_snapshot_target"),
             size: wgpu::Extent3d {

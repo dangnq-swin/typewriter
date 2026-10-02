@@ -5,7 +5,7 @@
 use eframe::egui::epaint::Shadow;
 use eframe::egui::{
     Color32, CornerRadius, FontFamily, FontId, Id, Key, Modifiers, Painter, Pos2, Rect, Stroke,
-    StrokeKind, Ui, Vec2, pos2, vec2,
+    StrokeKind, Ui, Vec2, lerp, pos2, vec2,
 };
 use typewriter_core::Notebook;
 use typewriter_core::notebook::{self as book, SPREADS};
@@ -53,7 +53,7 @@ impl Pad {
         let half = BOOK_MM * points_per_mm;
         let up = view.bottom() - GAP - half.y;
         let down = view.bottom() + GAP;
-        let top = down + (up - down) * smoothstep(shown);
+        let top = lerp(down..=up, smoothstep(shown));
         // The right half stays put as leaves turn.
         let right = Rect::from_min_size(pos2(view.right() - GAP - half.x, top), half);
         let font_size = SIZE_MM * points_per_mm;

@@ -3,11 +3,12 @@
 use std::f32::consts::PI;
 
 use crate::depth::{Layer, Placing, Shade, Solid};
-use eframe::egui::{Color32, Shape};
+use eframe::egui::{Color32, Shape, lerp};
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{fillet, normalized, sub};
+use super::geometry::fillet;
 use super::light::{Paint, brighten, brushed, matte, paint_steel};
 use super::{IVORY, IVORY_SHADE, METAL, METAL_SHINE};
 use typewriter_ui::draw::{splitmix64, unit};
@@ -45,32 +46,32 @@ const TEAL_LIGHT: Color32 = Color32::from_rgb(0x5A, 0x8A, 0x84);
 const PALE_RING: Color32 = Color32::from_rgb(0xCC, 0xC6, 0xB2);
 
 /// A point on the ribbon cover's slope.
-pub(super) fn on_cover(x: f32, y: f32) -> [f32; 3] {
+pub(super) fn on_cover(x: f32, y: f32) -> Vec3 {
     let t = (y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
-    [x, y, COVER_BACK.1 + t * (COVER_FRONT.1 - COVER_BACK.1)]
+    Vec3::new(x, y, COVER_BACK.1 + t * (COVER_FRONT.1 - COVER_BACK.1))
 }
 
 /// Out of the cover's slope, square to it, unit length.
-fn cover_normal() -> [f32; 3] {
+fn cover_normal() -> Vec3 {
     let dy = COVER_FRONT.0 - COVER_BACK.0;
     let dz = COVER_FRONT.1 - COVER_BACK.1;
-    normalized([0.0, -dz, dy])
+    Vec3::new(0.0, -dz, dy).normalize()
 }
 
 /// The opening's corners: the plates' tips at the back, left and right,
 /// then its front corners, right and left.
-fn opening() -> [[f32; 3]; 4] {
+fn opening() -> [Vec3; 4] {
     inset_opening(0.0, 0.0)
 }
 
 /// The opening with its sides moved in `side` millimetres across and its
 /// front `front` millimetres back, corners as [`opening`]'s.
-fn inset_opening(side: f32, front: f32) -> [[f32; 3]; 4] {
+fn inset_opening(side: f32, front: f32) -> [Vec3; 4] {
     let (ob, of) = (OPENING_BACK, OPENING_FRONT);
     let front_y = of.0 - front;
     // The sides slant: their half width where the front now is.
     let t = (front_y - ob.0) / (of.0 - ob.0);
-    let (back_half, front_half) = (ob.1 - side, ob.1 + (of.1 - ob.1) * t - side);
+    let (back_half, front_half) = (ob.1 - side, lerp(ob.1..=of.1, t) - side);
     [
         on_cover(-back_half, ob.0),
         on_cover(back_half, ob.0),
@@ -81,7 +82,7 @@ fn inset_opening(side: f32, front: f32) -> [[f32; 3]; 4] {
 
 /// Along `opening`'s left side, round its front, `rounding` its front
 /// corners, and up its right side.
-fn round_the_front(opening: [[f32; 3]; 4], rounding: f32) -> Vec<[f32; 3]> {
+fn round_the_front(opening: [Vec3; 4], rounding: f32) -> Vec<Vec3> {
     let [bl, br, fr, fl] = opening;
     std::iter::once(bl)
         .chain(fillet(bl, fl, fr, rounding))
@@ -99,10 +100,10 @@ pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
     let floor = TYPE_BAR_REACH.1 - 3.0;
     let (wide, back, front) = (half + 51.0, back - 76.0, front + 13.0);
     let insides = [
-        [-wide, back, floor],
-        [wide, back, floor],
-        [wide, front, floor],
-        [-wide, front, floor],
+        Vec3::new(-wide, back, floor),
+        Vec3::new(wide, back, floor),
+        Vec3::new(wide, front, floor),
+        Vec3::new(-wide, front, floor),
     ];
     eye.fill(canvas, &insides, |_| INSIDE);
     paint_type_basket(canvas, eye);
@@ -122,20 +123,20 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     let [tip_l, tip_r, ofr, ofl] = opening();
 
     // The plates' inner edges: round each tip, then down to the front.
-    let left_edge: Vec<[f32; 3]> = fillet(bl, tip_l, ofl, PLATE_TIP)
+    let left_edge: Vec<Vec3> = fillet(bl, tip_l, ofl, PLATE_TIP)
         .into_iter()
         .chain([ofl])
         .collect();
-    let right_edge: Vec<[f32; 3]> = fillet(br, tip_r, ofr, PLATE_TIP)
+    let right_edge: Vec<Vec3> = fillet(br, tip_r, ofr, PLATE_TIP)
         .into_iter()
         .chain([ofr])
         .collect();
     // Round the opening's front corners, as the cover fills them in.
-    let left_wall: Vec<[f32; 3]> = fillet(bl, tip_l, ofl, PLATE_TIP)
+    let left_wall: Vec<Vec3> = fillet(bl, tip_l, ofl, PLATE_TIP)
         .into_iter()
         .chain(fillet(tip_l, ofl, ofr, OPENING_CORNER))
         .collect();
-    let right_wall: Vec<[f32; 3]> = fillet(br, tip_r, ofr, PLATE_TIP)
+    let right_wall: Vec<Vec3> = fillet(br, tip_r, ofr, PLATE_TIP)
         .into_iter()
         .chain(fillet(tip_r, ofr, ofl, OPENING_CORNER))
         .collect();
@@ -144,12 +145,12 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     }
     // One slope, one normal: the lamp washes it the way the gradient faked.
     let lit = |_| matte(IVORY, cover_normal());
-    let left: Vec<[f32; 3]> = fillet(fl, bl, tip_l, 6.0)
+    let left: Vec<Vec3> = fillet(fl, bl, tip_l, 6.0)
         .into_iter()
         .chain(left_edge.iter().copied())
         .chain([fl])
         .collect();
-    let right: Vec<[f32; 3]> = fillet(fr, br, tip_r, 6.0)
+    let right: Vec<Vec3> = fillet(fr, br, tip_r, 6.0)
         .into_iter()
         .chain(right_edge.iter().copied())
         .chain([fr])
@@ -160,7 +161,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     }
     // The opening's front corners rounded: cover fills them in.
     for (corner, before, after) in [(ofl, tip_l, ofr), (ofr, tip_r, ofl)] {
-        let fill: Vec<[f32; 3]> = std::iter::once(corner)
+        let fill: Vec<Vec3> = std::iter::once(corner)
             .chain(fillet(before, corner, after, OPENING_CORNER))
             .collect();
         eye.fill(canvas, &fill, lit);
@@ -180,19 +181,18 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
 
 /// A plate's thickness under its inner `edge`, facing into the opening
 /// (`facing` +1 right, -1 left): lit as it faces.
-fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[[f32; 3]], facing: f32) {
+fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[Vec3], facing: f32) {
     let mut solid = Solid::default();
     for pair in edge.windows(2) {
         let [a, b] = [pair[0], pair[1]];
-        let along = sub(b, a);
         // Across the edge, the way it faces: each edge runs back to front.
-        let across = [facing * along[1], -facing * along[0]];
-        let normal = [across[0], across[1], 0.2];
+        let along = b - a;
+        let normal = Vec3::new(facing * along.y, -facing * along.x, 0.2);
         let (colour, foot) = (
             matte(IVORY_SHADE, normal),
             matte(brighten(IVORY_SHADE, 0.7), normal),
         );
-        let down = |p: [f32; 3]| [p[0], p[1], p[2] - PLATE_THICKNESS];
+        let down = |p: Vec3| p - Vec3::Z * PLATE_THICKNESS;
         eye.quad(
             &mut solid,
             [(a, colour), (b, colour), (down(b), foot), (down(a), foot)],
@@ -233,8 +233,9 @@ fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
 /// is under the panel, out of sight.
 fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     let centre = OPENING_BACK.0 - 4.0;
-    let at =
-        |angle: f32, radius: f32, z: f32| [radius * angle.sin(), centre + radius * angle.cos(), z];
+    let at = |angle: f32, radius: f32, z: f32| {
+        Vec3::new(radius * angle.sin(), centre + radius * angle.cos(), z)
+    };
     let bars = 53u16;
     let (reach, low) = TYPE_BAR_REACH;
     for i in 0..bars {
@@ -250,7 +251,14 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
         eye,
         centre,
         [SEGMENT_CORE, SEGMENT_RIM],
-        |angle, _| brushed(METAL, METAL_SHINE, [angle.cos(), -angle.sin(), 0.0], 6.0),
+        |angle, _| {
+            brushed(
+                METAL,
+                METAL_SHINE,
+                Vec3::new(angle.cos(), -angle.sin(), 0.0),
+                6.0,
+            )
+        },
     );
     ring(canvas, eye, centre, [0.0, SEGMENT_CORE], |_, radius| {
         TEAL_LIGHT.lerp_to_gamma(TEAL, radius / SEGMENT_CORE)
@@ -258,7 +266,7 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     speckle(canvas, eye, 90, 0x7E_A1, |u, v| {
         at((u - 0.5) * PI, v.sqrt() * SEGMENT_CORE * 0.97, SEGMENT_Z)
     });
-    let edge: Vec<[f32; 3]> = (0..=36u8)
+    let edge: Vec<Vec3> = (0..=36u8)
         .map(|i| {
             at(
                 (-90.0 + 5.0 * f32::from(i)).to_radians(),
@@ -280,11 +288,11 @@ fn ring<P: Into<Paint>>(
     colour: impl Fn(f32, f32) -> P,
 ) {
     let at = |angle: f32, radius: f32| {
-        [
+        Vec3::new(
             radius * angle.sin(),
             centre_y + radius * angle.cos(),
             SEGMENT_Z,
-        ]
+        )
     };
     let steps = 40u8;
     let mut solid = Solid::default();
@@ -307,13 +315,7 @@ fn ring<P: Into<Paint>>(
 
 /// `count` specks of grain, light and dark, at `place(u, v)` for seeded
 /// `u` and `v` in 0..=1.
-fn speckle(
-    canvas: &Canvas,
-    eye: &Eye,
-    count: u64,
-    seed: u64,
-    place: impl Fn(f32, f32) -> [f32; 3],
-) {
+fn speckle(canvas: &Canvas, eye: &Eye, count: u64, seed: u64, place: impl Fn(f32, f32) -> Vec3) {
     for i in 0..count {
         let bits = splitmix64(seed ^ i);
         let p = place(unit(bits, 0), unit(bits, 16));

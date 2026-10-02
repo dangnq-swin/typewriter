@@ -1,6 +1,6 @@
 //! A sheet scrunched into a ball and tossed off the desk.
 
-use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, Vec2, vec2};
+use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, Vec2, lerp, vec2};
 
 use super::{SHADOW, SHEET, SHEET_EDGE, smoothstep, splitmix64, unit};
 
@@ -42,7 +42,7 @@ pub fn paint(painter: &Painter, quad: [Pos2; 4], t: f64, seed: u64) {
             let lumpy = ball * (0.75 + 0.5 * noise(0));
             // Folds bite in and out mid-crush, gone at both ends.
             let wrinkle = (std::f32::consts::PI * crumple).sin() * 0.18 * flat * (noise(16) - 0.5);
-            let radius = flat + (lumpy - flat) * crumple + wrinkle;
+            let radius = lerp(flat..=lumpy, crumple) + wrinkle;
             centre + direction * radius.max(1.0)
         })
         .collect();

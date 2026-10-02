@@ -2,7 +2,7 @@
 //! clicks; the new one rises in step with the knob turns heard in its sound.
 
 use eframe::egui::epaint::{Mesh, Shadow, Vertex};
-use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
+use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, lerp, pos2};
 
 use super::background::Background;
 use super::smoothstep;
@@ -135,7 +135,7 @@ impl FeedMotion {
             return 1.0;
         };
         let start = i.checked_sub(1).map_or(0.0, |j| self.progress[j]);
-        start + (end - start) * (at - at.floor()) as f32
+        lerp(start..=end, (at - at.floor()) as f32)
     }
 
     /// When the new sheet stops for good.

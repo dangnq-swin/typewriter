@@ -3,7 +3,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use anyhow::Context as _;
@@ -14,7 +13,7 @@ use typewriter_core::page::Page;
 use crate::render::pdf;
 use crate::storage;
 
-/// Viewers that failed after starting, told once each.
+/// Openings that failed, told once each.
 pub struct Printing {
     failed: Sender<String>,
     failures: Receiver<String>,
@@ -49,23 +48,19 @@ impl Printing {
         }
     }
 
-    /// A viewer that failed after it started, if one did.
+    /// A viewer that could not be started for the last printout, if one
+    /// failed.
     pub fn failure(&self) -> Option<String> {
         self.failures.try_recv().ok()
     }
 
     fn open(&self, ctx: &Context, path: &Path) -> anyhow::Result<()> {
-        let mut child = viewer(path).spawn().context("starting the PDF viewer")?;
-        let (failed, ctx) = (self.failed.clone(), ctx.clone());
+        // Ask the desktop, off the UI thread: the opener can take a moment
+        // to find the viewer.
+        let (failed, ctx, path) = (self.failed.clone(), ctx.clone(), path.to_path_buf());
         std::thread::spawn(move || {
-            // Explorer's exit status means nothing: only xdg-open's tells.
-            if let Ok(status) = child.wait()
-                && !status.success()
-                && cfg!(not(windows))
-            {
-                let _ = failed.send(format!(
-                    "Could not print: no PDF viewer opened it ({status})"
-                ));
+            if let Err(err) = open::that(&path) {
+                let _ = failed.send(format!("Could not print: no PDF viewer opened it ({err})"));
                 ctx.request_repaint();
             }
         });
@@ -76,6 +71,10 @@ impl Printing {
 /// `title`.pdf in the print folder, emptied of earlier printouts first:
 /// their viewers have them open already.
 fn fresh_path(title: &str) -> anyhow::Result<PathBuf> {
+    anyhow::ensure!(
+        storage::is_file_name(title),
+        "the project's name is not a file name"
+    );
     let dir = storage::data_dir()
         .context("no data folder to put the PDF in")?
         .join("print");
@@ -85,18 +84,4 @@ fn fresh_path(title: &str) -> anyhow::Result<PathBuf> {
         }
     }
     Ok(dir.join(format!("{title}.pdf")))
-}
-
-#[cfg(not(windows))]
-fn viewer(path: &Path) -> Command {
-    let mut command = Command::new("xdg-open");
-    command.arg(path);
-    command
-}
-
-#[cfg(windows)]
-fn viewer(path: &Path) -> Command {
-    let mut command = Command::new("explorer");
-    command.arg(path);
-    command
 }

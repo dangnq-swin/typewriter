@@ -3,12 +3,14 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use eframe::egui::Color32;
+use eframe::egui::{Color32, lerp};
+use glam::Vec3;
+use typewriter_ui::draw::smoothstep;
 
 use super::body::DESK_Z;
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{fillet, rounded, sub};
+use super::geometry::{fillet, rounded};
 use super::light::{brighten, matte};
 use super::panel::{PANEL_BOTTOM, PANEL_HALF_BOTTOM};
 use super::{EDGE, IVORY, IVORY_SHADE};
@@ -52,20 +54,20 @@ pub(super) fn wall_top(y: f32) -> f32 {
     let (start, end) = WALL_SWOOP;
     if y <= start {
         let t = ((y - y0) / (start - y0)).clamp(0.0, 1.0);
-        z0 + (WALL_EASE_Z - z0) * t
+        lerp(z0..=WALL_EASE_Z, t)
     } else {
         let t = ((y - start) / (end - start)).clamp(0.0, 1.0);
-        WALL_EASE_Z + (SHELF_Z - WALL_EASE_Z) * t * t * (3.0 - 2.0 * t)
+        WALL_EASE_Z + (SHELF_Z - WALL_EASE_Z) * smoothstep(t)
     }
 }
 
 /// The case's outer top edge on the right, back to front: straight along
 /// the wall, then round its front corner by angle, so the curve is as fine
 /// at its end as at its start. Its `x` alone: mirror it for the left.
-fn case_side() -> Vec<[f32; 3]> {
+fn case_side() -> Vec<Vec3> {
     let (y0, _) = PANEL_BOTTOM;
     let (front, r, outer) = (CASE_FRONT, FRAME_ROUNDING, PANEL_HALF_BOTTOM);
-    let straight = (0..64u8).map(|i| y0 + (front - r - y0) * f32::from(i) / 64.0);
+    let straight = (0..64u8).map(|i| lerp(y0..=front - r, f32::from(i) / 64.0));
     let straight = straight.map(|y| (outer, y));
     let corner = (0..=24u8).map(|i| {
         let angle = FRAC_PI_2 * f32::from(i) / 24.0;
@@ -73,28 +75,28 @@ fn case_side() -> Vec<[f32; 3]> {
     });
     straight
         .chain(corner)
-        .map(|(x, y)| [x, y, wall_top(y)])
+        .map(|(x, y)| Vec3::new(x, y, wall_top(y)))
         .collect()
 }
 
 /// The case's front edge, right to left, round its rounded front corners
 /// at the walls' height: never its back edge.
-fn case_front_edge() -> Vec<[f32; 3]> {
-    let corner: Vec<[f32; 3]> = case_side()
+fn case_front_edge() -> Vec<Vec3> {
+    let corner: Vec<Vec3> = case_side()
         .into_iter()
-        .filter(|p| p[1] >= CASE_FRONT - FRAME_ROUNDING - 2.5e-3)
+        .filter(|p| p.y >= CASE_FRONT - FRAME_ROUNDING - 2.5e-3)
         .collect();
-    let left = corner.iter().rev().map(|&[x, y, z]| [-x, y, z]);
+    let left = corner.iter().rev().map(|&p| Vec3::new(-p.x, p.y, p.z));
     corner.iter().copied().chain(left).collect()
 }
 
 /// The top of a well wall's inner face, back to front, `from` to `to` (`y`):
 /// `side` -1 left, +1 right.
-fn inner_edge(side: f32, from: f32, to: f32) -> Vec<[f32; 3]> {
+fn inner_edge(side: f32, from: f32, to: f32) -> Vec<Vec3> {
     (0..=16u8)
         .map(|i| {
-            let y = from + (to - from) * f32::from(i) / 16.0;
-            [side * OPENING_HALF, y, wall_top(y)]
+            let y = lerp(from..=to, f32::from(i) / 16.0);
+            Vec3::new(side * OPENING_HALF, y, wall_top(y))
         })
         .collect()
 }
@@ -107,21 +109,21 @@ pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
     let half = OPENING_HALF;
     let bed = KEY_BED_Z;
     let floor = [
-        [-half, y0, bed],
-        [half, y0, bed],
-        [half, NOTCH_FRONT, bed],
-        [-half, NOTCH_FRONT, bed],
+        Vec3::new(-half, y0, bed),
+        Vec3::new(half, y0, bed),
+        Vec3::new(half, NOTCH_FRONT, bed),
+        Vec3::new(-half, NOTCH_FRONT, bed),
     ];
-    eye.fill(canvas, &floor, |[_, y, _]| {
-        KEY_BED.lerp_to_gamma(KEY_BED_FRONT, (y - y0) / (NOTCH_FRONT - y0))
+    eye.fill(canvas, &floor, |p| {
+        KEY_BED.lerp_to_gamma(KEY_BED_FRONT, (p.y - y0) / (NOTCH_FRONT - y0))
     });
     // The machine's insides under the panel's edge.
     let under = z0 - PANEL_EDGE_MM;
     let inside = [
-        [-half, y0, under],
-        [half, y0, under],
-        [half, y0, bed],
-        [-half, y0, bed],
+        Vec3::new(-half, y0, under),
+        Vec3::new(half, y0, under),
+        Vec3::new(half, y0, bed),
+        Vec3::new(-half, y0, bed),
     ];
     eye.fill(canvas, &inside, |_| KEY_BED);
     paint_well_shade(canvas, eye);
@@ -138,7 +140,7 @@ fn paint_well_shade(canvas: &Canvas, eye: &Eye) {
         ((-half, y0), (-half, SHELF_BACK), (reach, 0.0)),
         ((half, y0), (half, SHELF_BACK), (-reach, 0.0)),
     ] {
-        let at = |(x, y): (f32, f32)| [x, y, bed];
+        let at = |(x, y): (f32, f32)| Vec3::new(x, y, bed);
         let inside = |(x, y): (f32, f32)| at((x + inward.0, y + inward.1));
         eye.quad(
             &mut solid,
@@ -162,8 +164,8 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
     let mut solid = Solid::default();
     for side in [-1.0, 1.0] {
         // The notch's side follows the shelf's edge round its rounded lip.
-        let at = |x: f32, y: f32| [x, y, SHELF_Z];
-        let notch_side: Vec<[f32; 3]> = std::iter::once(at(side * half, SHELF_BACK))
+        let at = |x: f32, y: f32| Vec3::new(x, y, SHELF_Z);
+        let notch_side: Vec<Vec3> = std::iter::once(at(side * half, SHELF_BACK))
             .chain(fillet(
                 at(side * half, SHELF_BACK),
                 at(side * NOTCH_HALF, SHELF_BACK),
@@ -186,8 +188,8 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
         ] {
             for pair in path.windows(2) {
                 let [a, b] = [pair[0], pair[1]];
-                let along = sub(b, a);
-                let facing = [-side * along[1], side * along[0], 0.0];
+                let along = b - a;
+                let facing = Vec3::new(-side * along.y, side * along.x, 0.0);
                 // Culling, not ordering: a face turned away only costs; the
                 // depth buffer hides it anyway.
                 if !Eye::sees(a, facing) {
@@ -199,8 +201,8 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
                     [
                         (a, colour),
                         (b, colour),
-                        ([b[0], b[1], bed], low),
-                        ([a[0], a[1], bed], low),
+                        (Vec3::new(b.x, b.y, bed), low),
+                        (Vec3::new(a.x, a.y, bed), low),
                     ],
                 );
             }
@@ -214,10 +216,10 @@ pub(super) fn paint_panel_edge(canvas: &Canvas, eye: &Eye) {
     let (y0, z0) = PANEL_BOTTOM;
     let (half, under) = (OPENING_HALF, z0 - PANEL_EDGE_MM);
     let edge = [
-        [-half, y0, z0],
-        [half, y0, z0],
-        [half, y0, under],
-        [-half, y0, under],
+        Vec3::new(-half, y0, z0),
+        Vec3::new(half, y0, z0),
+        Vec3::new(half, y0, under),
+        Vec3::new(-half, y0, under),
     ];
     eye.fill(canvas, &edge, |_| IVORY_SHADE);
 }
@@ -230,28 +232,34 @@ pub(super) fn paint_frame(canvas: &Canvas, eye: &Eye) {
     paint_shelf(canvas, eye);
     paint_case_front(canvas, eye);
     for side in [-1.0, 1.0] {
-        let edge: Vec<[f32; 3]> = outline.iter().map(|&[x, y, z]| [side * x, y, z]).collect();
+        let edge: Vec<Vec3> = outline
+            .iter()
+            .map(|&p| Vec3::new(side * p.x, p.y, p.z))
+            .collect();
         eye.line(canvas, &edge, 0.3, EDGE);
     }
 }
 
 /// The walls' tops, lit as they swoop down to the case's front corners:
 /// across from each point of the case's outer edge `outline` to the well.
-fn paint_wall_tops(canvas: &Canvas, eye: &Eye, outline: &[[f32; 3]]) {
+fn paint_wall_tops(canvas: &Canvas, eye: &Eye, outline: &[Vec3]) {
     let half = OPENING_HALF;
     let mut solid = Solid::default();
     for side in [-1.0, 1.0] {
         for pair in outline.windows(2) {
             let [a, b] = [pair[0], pair[1]];
-            let colour = matte(IVORY, [0.0, a[2] - b[2], b[1] - a[1]]);
-            let (outer_a, outer_b) = ([side * a[0], a[1], a[2]], [side * b[0], b[1], b[2]]);
+            let colour = matte(IVORY, Vec3::new(0.0, a.z - b.z, b.y - a.y));
+            let (outer_a, outer_b) = (
+                Vec3::new(side * a.x, a.y, a.z),
+                Vec3::new(side * b.x, b.y, b.z),
+            );
             eye.quad(
                 &mut solid,
                 [
-                    ([side * half, a[1], a[2]], colour),
+                    (Vec3::new(side * half, a.y, a.z), colour),
                     (outer_a, colour),
                     (outer_b, colour),
-                    ([side * half, b[1], b[2]], colour),
+                    (Vec3::new(side * half, b.y, b.z), colour),
                 ],
             );
         }
@@ -263,8 +271,8 @@ fn paint_wall_tops(canvas: &Canvas, eye: &Eye, outline: &[[f32; 3]]) {
 /// well beside the notch, and the strip in front of the notch.
 fn paint_shelf(canvas: &Canvas, eye: &Eye) {
     let (half, notch) = (OPENING_HALF, NOTCH_HALF);
-    let shelf_colour = matte(IVORY, [0.0, 0.0, 1.0]);
-    let at = |x: f32, y: f32| [x, y, SHELF_Z];
+    let shelf_colour = matte(IVORY, Vec3::Z);
+    let at = |x: f32, y: f32| Vec3::new(x, y, SHELF_Z);
     for side in [-1.0, 1.0] {
         let block = rounded(&[
             (at(side * half, SHELF_BACK), 0.0),
@@ -274,7 +282,7 @@ fn paint_shelf(canvas: &Canvas, eye: &Eye) {
         ]);
         eye.fill(canvas, &block, |_| shelf_colour);
         let corner = at(side * notch, NOTCH_FRONT);
-        let fill: Vec<[f32; 3]> = std::iter::once(corner)
+        let fill: Vec<Vec3> = std::iter::once(corner)
             .chain(fillet(
                 at(side * notch, SHELF_BACK),
                 corner,
@@ -299,12 +307,12 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
     let front = case_front_edge();
     // Each point faces between its two neighbours: the shading blends round
     // the corners instead of stepping.
-    let facing: Vec<[f32; 3]> = (0..front.len())
+    let facing: Vec<Vec3> = (0..front.len())
         .map(|i| {
             let before = front[i.saturating_sub(1)];
             let after = front[(i + 1).min(front.len() - 1)];
-            let along = sub(after, before);
-            [along[1], -along[0], 0.0]
+            let along = after - before;
+            Vec3::new(along.y, -along.x, 0.0)
         })
         .collect();
     let mut solid = Solid::default();
@@ -312,14 +320,14 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
         let (a, b) = (front[i], front[i + 1]);
         // Round the corners it turns away onto the sides: skip that. Only
         // cost, not ordering: the depth buffer hides a turned face anyway.
-        let along = sub(b, a);
-        if !Eye::sees(a, [along[1], -along[0], 0.0]) {
+        let along = b - a;
+        if !Eye::sees(a, Vec3::new(along.y, -along.x, 0.0)) {
             continue;
         }
         let [top_a, top_b] = [i, i + 1].map(|k| matte(IVORY, facing[k]));
         let [low_a, low_b] = [i, i + 1].map(|k| matte(brighten(IVORY_SHADE, 0.85), facing[k]));
         let [base_a, base_b] = [i, i + 1].map(|k| matte(PLINTH, facing[k]));
-        let at = |p: [f32; 3], z: f32| [p[0], p[1], z];
+        let at = |p: Vec3, z: f32| Vec3::new(p.x, p.y, z);
         eye.quad(
             &mut solid,
             [
@@ -365,34 +373,34 @@ mod tests {
                 .iter()
                 .all(|&(left, right, _)| -NOTCH_HALF < left && right < NOTCH_HALF)
         );
-        let bar = eye.at([0.0, space_y + 5.0, space_z]).y;
-        let shelf = eye.at([0.0, CASE_FRONT, SHELF_Z]).y;
+        let bar = eye.at(Vec3::new(0.0, space_y + 5.0, space_z)).y;
+        let shelf = eye.at(Vec3::new(0.0, CASE_FRONT, SHELF_Z)).y;
         assert!(bar < shelf, "{bar} {shelf}");
         assert!(key_row(3.0).0 + KEY_CAP.1 / 2.0 < SHELF_BACK);
     }
 
     #[test]
     fn the_case_corner_is_sampled_finely_to_its_end() {
-        let corner: Vec<[f32; 3]> = case_side()
+        let corner: Vec<Vec3> = case_side()
             .into_iter()
-            .filter(|p| p[1] >= CASE_FRONT - FRAME_ROUNDING - 2.5e-3)
+            .filter(|p| p.y >= CASE_FRONT - FRAME_ROUNDING - 2.5e-3)
             .collect();
         // No step cuts across the curve: every one short, the last too.
         for pair in corner.windows(2) {
-            let step = sub(pair[1], pair[0]);
-            assert!(step[0].hypot(step[1]) < FRAME_ROUNDING / 10.0, "{pair:?}");
+            let step = pair[1] - pair[0];
+            assert!(step.x.hypot(step.y) < FRAME_ROUNDING / 10.0, "{pair:?}");
         }
         let last = corner[corner.len() - 1];
-        assert!((last[1] - CASE_FRONT).abs() < 2.5e-3);
-        assert!((last[0] - (PANEL_HALF_BOTTOM - FRAME_ROUNDING)).abs() < 2.5e-3);
+        assert!((last.y - CASE_FRONT).abs() < 2.5e-3);
+        assert!((last.x - (PANEL_HALF_BOTTOM - FRAME_ROUNDING)).abs() < 2.5e-3);
     }
 
     #[test]
     fn the_case_front_faces_the_writer_or_the_sides() {
         for pair in case_front_edge().windows(2) {
-            let along = sub(pair[1], pair[0]);
+            let along = pair[1] - pair[0];
             // Outward, right to left: never back into the well.
-            assert!(-along[0] >= -1e-4, "{pair:?}");
+            assert!(-along.x >= -1e-4, "{pair:?}");
         }
     }
 }

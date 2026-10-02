@@ -6,9 +6,9 @@
 
 use eframe::egui::epaint::PaintCallback;
 use eframe::egui::{Mesh, Rect};
+use glam::Vec3;
 
 use super::gpu::{FONTS, decal_bias, texel_scale};
-use super::lighting::unit;
 use super::{Layer, NEAR_MM, Pass, Shade};
 
 /// Fills `callback`'s pass inside `clip` in a snapshot, with a depth buffer
@@ -44,14 +44,11 @@ pub fn rasterize(
             // The shader's twin: the camera's rows on each vertex's
             // millimetres. `w` clamps at the near plane as `Eye::distance`
             // does; the hardware would clip such a vertex instead, unseen.
-            let row = |k: usize, [x, y, z]: [f32; 3]| {
-                let row = camera.rows[k];
-                row[0] * x + row[1] * y + row[2] * z + row[3]
-            };
             let mut inv_w = Vec::with_capacity(solid.places.len());
             let mut depths = Vec::with_capacity(solid.places.len());
             for &at in &solid.places {
-                let w = row(3, at).max(NEAR_MM);
+                let at = at.extend(1.0);
+                let w = camera.rows[3].dot(at).max(NEAR_MM);
                 inv_w.push(1.0 / w);
                 depths.push(1.0 - NEAR_MM / w);
             }
@@ -91,7 +88,7 @@ pub fn rasterize(
                 // triangle perspective-correctly, through the divide: so
                 // this, to find the fragment's place on the lamp.
                 let sum = divide(weights, triangle);
-                let at = [0, 1, 2].map(|k| {
+                let along = |k: usize| {
                     (0..3)
                         .map(|c| {
                             let vertex = triangle[c] as usize;
@@ -99,7 +96,8 @@ pub fn rasterize(
                         })
                         .sum::<f32>()
                         / sum
-                });
+                };
+                let at = Vec3::new(along(0), along(1), along(2));
                 pixel_shade(&solid.shades, triangle, weights, &inv_w).apply(rgba, lighting, at)
             };
             raster.fill_projected(&mesh, clip, &inv_w, keep, shade);
@@ -141,17 +139,15 @@ fn pixel_shade(shades: &[Shade], triangle: [u32; 3], weights: [f32; 3], inv_w: &
     let sum: f32 = (0..3)
         .map(|k| weights[k] * inv_w[triangle[k] as usize])
         .sum();
-    let mut vector = [0.0; 3];
+    let mut vector = Vec3::ZERO;
     let mut spec = 0.0;
     for (k, (shade, weight)) in corners.into_iter().zip(weights).enumerate() {
         let blend = weight * inv_w[triangle[k] as usize] / sum;
         let (_, faced, param, _) = shade.parts();
-        for j in 0..3 {
-            vector[j] += faced[j] * blend;
-        }
+        vector += faced * blend;
         spec += param * blend;
     }
-    vector = unit(vector);
+    let vector = vector.normalize_or_zero();
     let (sharpness, down) = (spec, spec);
     match first {
         Shade::Matte(_) => Shade::Matte(vector),

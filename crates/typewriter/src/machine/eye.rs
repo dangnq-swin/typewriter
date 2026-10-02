@@ -4,10 +4,11 @@
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
+use glam::{Vec3, Vec4};
 
 use super::EDGE;
 use super::canvas::Canvas;
-use super::geometry::{add, convex_grid, dot, lerp3, sub};
+use super::geometry::convex_grid;
 use super::light::Paint;
 use crate::depth::{Camera, Layer, NEAR_MM, Placing, Shade, Solid};
 use typewriter_ui::draw::{Metrics, convex_mesh};
@@ -22,15 +23,15 @@ pub(super) const EYE_TILT_DEGREES: f32 = 35.0;
 pub(super) const FLAT_TEXT: f32 = 160.0 / 25.4;
 
 /// Toward the seated eye from the machine, unit length.
-pub(super) fn toward_eye() -> [f32; 3] {
+pub(super) fn toward_eye() -> Vec3 {
     let (sin, cos) = EYE_TILT_DEGREES.to_radians().sin_cos();
-    [0.0, cos, sin]
+    Vec3::new(0.0, cos, sin)
 }
 
 /// How high `p` shows above the printing point, in millimetres at its scale:
 /// what stands above what on screen, whatever the view.
 #[cfg(test)]
-pub(super) fn screen_up(p: [f32; 3]) -> f32 {
+pub(super) fn screen_up(p: Vec3) -> f32 {
     -Eye::at_origin(Pos2::ZERO, 1.0, vec2(1.0, 1.0)).at(p).y
 }
 
@@ -45,7 +46,7 @@ pub(super) struct Eye {
     /// The tilt's sine and cosine.
     tilt: (f32, f32),
     /// Where points are measured from, from the printing point.
-    anchor: [f32; 3],
+    anchor: Vec3,
 }
 
 impl Eye {
@@ -63,7 +64,7 @@ impl Eye {
             ppmm,
             view,
             tilt: EYE_TILT_DEGREES.to_radians().sin_cos(),
-            anchor: [0.0; 3],
+            anchor: Vec3::ZERO,
         }
     }
 
@@ -72,70 +73,66 @@ impl Eye {
     /// millimetres its vertices carry, this offset folded in at build time:
     /// a moving part will want a per-draw model matrix instead, and nothing
     /// here is baked that cannot move.
-    pub(super) fn about(self, anchor: [f32; 3]) -> Self {
+    pub(super) fn about(self, anchor: Vec3) -> Self {
         Self { anchor, ..self }
     }
 
     /// `p`, measured from the eye's anchor, in absolute machine
     /// millimetres.
-    pub(super) fn absolute(&self, p: [f32; 3]) -> [f32; 3] {
-        add(p, self.anchor)
+    pub(super) fn absolute(&self, p: Vec3) -> Vec3 {
+        p + self.anchor
     }
 
     /// The absolute millimetres showing at screen `at`, beside `p` and
     /// across the view from it: for marks and specks drawn in screen
     /// points, whose vertices know no millimetres of their own.
-    pub(super) fn mm_under(&self, p: [f32; 3], at: Pos2) -> [f32; 3] {
+    pub(super) fn mm_under(&self, p: Vec3, at: Pos2) -> Vec3 {
         let off = at - self.at(p);
         let scale = self.scale(p);
-        let [_, cos, sin] = toward_eye();
+        let eye = toward_eye();
         // Across the view is [1, 0, 0]; down it, with the view tipped up
         // this far, [0, sin, -cos].
-        add(
-            self.absolute(p),
-            [off.x / scale, off.y * sin / scale, -off.y * cos / scale],
-        )
+        self.absolute(p) + Vec3::new(off.x / scale, off.y * eye.z / scale, -off.y * eye.y / scale)
     }
 
     /// Whether a face at `p` from the anchor, facing `normal`, is turned
     /// toward the eye.
-    pub(super) fn faces(&self, p: [f32; 3], normal: [f32; 3]) -> bool {
-        Self::sees(add(p, self.anchor), normal)
+    pub(super) fn faces(&self, p: Vec3, normal: Vec3) -> bool {
+        Self::sees(p + self.anchor, normal)
     }
 
     /// Whether a face at `p` facing `normal` is turned toward the eye.
-    pub(super) fn sees(p: [f32; 3], normal: [f32; 3]) -> bool {
-        let eye = toward_eye().map(|c| EYE_MM * c);
-        dot(sub(eye, p), normal) > 0.0
+    pub(super) fn sees(p: Vec3, normal: Vec3) -> bool {
+        (toward_eye() * EYE_MM - p).dot(normal) > 0.0
     }
 
     /// Millimetres from the eye to `p`, along its line of sight.
-    pub(super) fn distance(&self, p: [f32; 3]) -> f32 {
-        let [_, y, z] = add(p, self.anchor);
+    pub(super) fn distance(&self, p: Vec3) -> f32 {
+        let p = p + self.anchor;
         let (sin, cos) = self.tilt;
-        (EYE_MM - y * cos - z * sin).max(NEAR_MM)
+        (EYE_MM - p.y * cos - p.z * sin).max(NEAR_MM)
     }
 
     /// `p`'s depth: 0 at the eye to 1 far off, as the pass's `Camera` rows
     /// give it. Only tests need it on this side: what shows where, and how
     /// steeply a decal's face lies.
     #[cfg(test)]
-    pub(super) fn depth(&self, p: [f32; 3]) -> f32 {
+    pub(super) fn depth(&self, p: Vec3) -> f32 {
         depth_at(self.distance(p))
     }
 
     /// Screen points per millimetre at `p`: `ppmm` at the printing point.
-    pub(super) fn scale(&self, p: [f32; 3]) -> f32 {
+    pub(super) fn scale(&self, p: Vec3) -> f32 {
         self.ppmm * EYE_MM / self.distance(p)
     }
 
     /// Where `p` shows on screen.
-    pub(super) fn at(&self, p: [f32; 3]) -> Pos2 {
-        let [x, y, z] = add(p, self.anchor);
+    pub(super) fn at(&self, p: Vec3) -> Pos2 {
+        let a = p + self.anchor;
         let (sin, cos) = self.tilt;
-        let up = z * cos - y * sin;
+        let up = a.z * cos - a.y * sin;
         let scale = self.scale(p);
-        self.origin + vec2(x * scale, -up * scale)
+        self.origin + vec2(a.x * scale, -up * scale)
     }
 
     /// The depth pass's camera: the clip rows that fold the same `at` and
@@ -148,28 +145,26 @@ impl Eye {
         let (width, height) = (self.view.x.max(1.0), self.view.y.max(1.0));
         let (ox, oy) = (self.origin.x, self.origin.y);
         // The `w` row: the distance from the eye before the near clamp.
-        let w = [0.0, -cos, -sin, EYE_MM];
-        let row = |mut parts: [f32; 4], along: f32| {
-            for (part, edge) in parts.iter_mut().zip(w) {
-                *part += along * edge;
-            }
-            parts
-        };
+        let w = Vec4::new(0.0, -cos, -sin, EYE_MM);
+        let row = |parts: Vec4, along: f32| parts + along * w;
         Camera {
-            points: [width, height].into(),
+            points: vec2(width, height),
             rows: [
-                row([2.0 * f / width, 0.0, 0.0, 0.0], 2.0 * ox / width - 1.0),
                 row(
-                    [0.0, -2.0 * f * sin / height, 2.0 * f * cos / height, 0.0],
+                    Vec4::new(2.0 * f / width, 0.0, 0.0, 0.0),
+                    2.0 * ox / width - 1.0,
+                ),
+                row(
+                    Vec4::new(0.0, -2.0 * f * sin / height, 2.0 * f * cos / height, 0.0),
                     1.0 - 2.0 * oy / height,
                 ),
-                [0.0, -cos, -sin, EYE_MM - NEAR_MM],
+                Vec4::new(0.0, -cos, -sin, EYE_MM - NEAR_MM),
                 w,
             ],
         }
     }
 
-    pub(super) fn polygon(&self, points: &[[f32; 3]]) -> Vec<Pos2> {
+    pub(super) fn polygon(&self, points: &[Vec3]) -> Vec<Pos2> {
         points.iter().map(|&p| self.at(p)).collect()
     }
 
@@ -178,8 +173,8 @@ impl Eye {
     pub(super) fn fill<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
-        points: &[[f32; 3]],
-        colour: impl Fn([f32; 3]) -> P,
+        points: &[Vec3],
+        colour: impl Fn(Vec3) -> P,
     ) {
         self.fill_on(canvas, points, colour, false);
     }
@@ -188,8 +183,8 @@ impl Eye {
     pub(super) fn fill_lying<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
-        points: &[[f32; 3]],
-        colour: impl Fn([f32; 3]) -> P,
+        points: &[Vec3],
+        colour: impl Fn(Vec3) -> P,
     ) {
         self.fill_on(canvas, points, colour, true);
     }
@@ -197,8 +192,8 @@ impl Eye {
     fn fill_on<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
-        points: &[[f32; 3]],
-        colour: impl Fn([f32; 3]) -> P,
+        points: &[Vec3],
+        colour: impl Fn(Vec3) -> P,
         lying: bool,
     ) {
         let paints: Vec<Paint> = points.iter().map(|&p| colour(p).into()).collect();
@@ -219,8 +214,8 @@ impl Eye {
         &self,
         canvas: &Canvas,
         outline: &[Pos2],
-        place: impl Fn(Pos2) -> [f32; 3],
-        colour: impl Fn([f32; 3]) -> P,
+        place: impl Fn(Pos2) -> Vec3,
+        colour: impl Fn(Vec3) -> P,
     ) {
         let mut mesh = convex_grid(outline, BENT_MM);
         let on: Vec<_> = mesh.vertices.iter().map(|v| place(v.pos)).collect();
@@ -240,7 +235,7 @@ impl Eye {
         &self,
         canvas: &Canvas,
         mesh: Mesh,
-        points: &[[f32; 3]],
+        points: &[Vec3],
         shades: Vec<Shade>,
         lying: bool,
     ) {
@@ -264,7 +259,7 @@ impl Eye {
     /// Adds a quad of `corners`, in order round it, each in its paint, to
     /// `solid`: what lies on a face goes in the same solid, and the decal
     /// pass lifts it.
-    pub(super) fn quad<P: Into<Paint>>(&self, solid: &mut Solid, corners: [([f32; 3], P); 4]) {
+    pub(super) fn quad<P: Into<Paint>>(&self, solid: &mut Solid, corners: [(Vec3, P); 4]) {
         let first = solid.mesh.vertices.len() as u32;
         for (p, paint) in corners {
             let paint = paint.into();
@@ -281,7 +276,7 @@ impl Eye {
     pub(super) fn line<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
-        points: &[[f32; 3]],
+        points: &[Vec3],
         width_mm: f32,
         paint: P,
     ) {
@@ -294,12 +289,12 @@ impl Eye {
         self.stroke_laid(canvas, points, shape, paint.shade);
     }
 
-    pub(super) fn outline(&self, canvas: &Canvas, points: &[[f32; 3]]) {
+    pub(super) fn outline(&self, canvas: &Canvas, points: &[Vec3]) {
         self.outline_in(canvas, points, EDGE);
     }
 
     /// A point-wide line round `points`, lying on them.
-    pub(super) fn outline_in(&self, canvas: &Canvas, points: &[[f32; 3]], colour: Color32) {
+    pub(super) fn outline_in(&self, canvas: &Canvas, points: &[Vec3], colour: Color32) {
         let mut closed = points.to_vec();
         closed.extend(points.first());
         let shape = Shape::closed_line(self.polygon(points), Stroke::new(1.0, colour));
@@ -308,14 +303,14 @@ impl Eye {
 
     /// `shape`, drawn on screen along `points`, lying on them: each of its
     /// vertices as deep as the nearest place along them.
-    pub(super) fn stroke(&self, canvas: &Canvas, points: &[[f32; 3]], shape: Shape) {
+    pub(super) fn stroke(&self, canvas: &Canvas, points: &[Vec3], shape: Shape) {
         self.stroke_laid(canvas, points, shape, Shade::Unlit);
     }
 
     /// `shape` along `points` as [`Eye::stroke`], its vertices taking
     /// `shade` from the millimetres they stand at.
-    fn stroke_laid(&self, canvas: &Canvas, points: &[[f32; 3]], shape: Shape, shade: Shade) {
-        let on: Vec<(Pos2, [f32; 3])> = points.iter().map(|&p| (self.at(p), p)).collect();
+    fn stroke_laid(&self, canvas: &Canvas, points: &[Vec3], shape: Shape, shade: Shade) {
+        let on: Vec<(Pos2, Vec3)> = points.iter().map(|&p| (self.at(p), p)).collect();
         let eye = *self;
         canvas.lay(vec![shape], move |vertex| {
             // The millimetres under the vertex itself, not the path's:
@@ -340,15 +335,18 @@ fn depth_at(distance: f32) -> f32 {
 /// The millimetres along `path` nearest `at`, points on screen with the
 /// millimetres they stand at, from the eye's anchor: those, between the
 /// two ends of the nearest stretch.
-fn nearest_place(path: &[(Pos2, [f32; 3])], at: Pos2) -> [f32; 3] {
-    let mut best = (f32::INFINITY, path.first().map_or([0.0; 3], |&(_, mm)| mm));
+fn nearest_place(path: &[(Pos2, Vec3)], at: Pos2) -> Vec3 {
+    let mut best = (
+        f32::INFINITY,
+        path.first().map_or(Vec3::ZERO, |&(_, mm)| mm),
+    );
     for pair in path.windows(2) {
         let [(a, ma), (b, mb)] = [pair[0], pair[1]];
         let along = b - a;
         let t = ((at - a).dot(along) / along.length_sq().max(1e-6)).clamp(0.0, 1.0);
         let off = (a + along * t - at).length_sq();
         if off < best.0 {
-            best = (off, lerp3(ma, mb, t));
+            best = (off, ma.lerp(mb, t));
         }
     }
     best.1
@@ -364,7 +362,7 @@ pub(super) fn paint_flat_text(
     size: f32,
     colour: Color32,
     anchor: Align2,
-    place: impl Fn(f32, f32) -> [f32; 3],
+    place: impl Fn(f32, f32) -> Vec3,
 ) {
     let galley = canvas.painter().layout_no_wrap(
         text.to_owned(),
@@ -396,7 +394,7 @@ impl Eye {
     /// `p`, whose triangles run at `slope` depth a screen point: what a face
     /// must stay clear of among the decals on it. Keep in step with
     /// `depth::decal_bias`.
-    pub(super) fn lift_mm(&self, p: [f32; 3], slope: f32) -> f32 {
+    pub(super) fn lift_mm(&self, p: Vec3, slope: f32) -> f32 {
         let d = self.distance(p);
         d - NEAR_MM / (NEAR_MM / d + crate::depth::decal_bias(slope))
     }
@@ -413,40 +411,39 @@ mod tests {
     #[test]
     fn the_printing_point_is_at_the_sheets_scale() {
         let eye = Eye::testing(500.0, 96.0);
-        assert_eq!(eye.at([0.0, 0.0, 0.0]), eye.origin);
-        assert!((eye.scale([0.0, 0.0, 0.0]) - 96.0 / 25.4).abs() < 2.5e-3);
+        assert_eq!(eye.at(Vec3::ZERO), eye.origin);
+        assert!((eye.scale(Vec3::ZERO) - 96.0 / 25.4).abs() < 2.5e-3);
         // Nearer the writer: lower on screen, and larger.
-        let key = [0.0, KEY_ROW.0, KEY_ROW.1];
+        let key = Vec3::new(0.0, KEY_ROW.0, KEY_ROW.1);
         assert!(eye.at(key).y > eye.at(on_cover(0.0, COVER_FRONT.0)).y);
-        assert!(eye.scale(key) > eye.scale([0.0; 3]));
+        assert!(eye.scale(key) > eye.scale(Vec3::ZERO));
     }
 
     #[test]
     fn the_eye_sees_faces_turned_toward_it_only() {
-        let front = [0.0, CASE_FRONT, SHELF_Z];
-        assert!(Eye::sees(front, [0.0, 1.0, 0.0]));
-        assert!(!Eye::sees(front, [0.0, -1.0, 0.0]));
+        let front = Vec3::new(0.0, CASE_FRONT, SHELF_Z);
+        assert!(Eye::sees(front, Vec3::Y));
+        assert!(!Eye::sees(front, -Vec3::Y));
         // A left-hand side face, turned away from the middle.
-        let side = [-PANEL_HALF_BOTTOM, CASE_FRONT - 2.54, SHELF_Z];
-        assert!(!Eye::sees(side, [-1.0, 0.0, 0.0]));
-        assert!(Eye::sees(side, [1.0, 0.0, 0.0]));
+        let side = Vec3::new(-PANEL_HALF_BOTTOM, CASE_FRONT - 2.54, SHELF_Z);
+        assert!(!Eye::sees(side, -Vec3::X));
+        assert!(Eye::sees(side, Vec3::X));
     }
 
     #[test]
     fn the_camera_projects_where_the_eye_looks() {
         let eye = Eye::testing(500.0, 96.0);
         let camera = eye.camera();
-        let project =
-            |row: [f32; 4], [x, y, z]: [f32; 3]| row[0] * x + row[1] * y + row[2] * z + row[3];
+        let project = |row: Vec4, p: Vec3| row.dot(p.extend(1.0));
         // The printing point, off-centre, near, far, and on real parts.
         let samples = [
-            [0.0, 0.0, 0.0],
-            [0.0, 20.0, 40.0],
-            [12.7, KEY_ROW.0, KEY_ROW.1],
-            [-60.0, CASE_FRONT, SHELF_Z],
-            [-220.0, 90.0, -110.0],
-            [175.0, -140.0, 260.0],
-            [300.0, -600.0, 200.0],
+            Vec3::ZERO,
+            Vec3::new(0.0, 20.0, 40.0),
+            Vec3::new(12.7, KEY_ROW.0, KEY_ROW.1),
+            Vec3::new(-60.0, CASE_FRONT, SHELF_Z),
+            Vec3::new(-220.0, 90.0, -110.0),
+            Vec3::new(175.0, -140.0, 260.0),
+            Vec3::new(300.0, -600.0, 200.0),
         ];
         let [width, height] = eye.view.into();
         for &p in &samples {
@@ -474,14 +471,17 @@ mod tests {
     fn an_anchored_eye_shows_the_same_camera() {
         // Solids stand in absolute millimetres: the rows do not move with
         // the anchor, only the points going through them.
-        let anchor = [-7.5, -20.0, 3.0];
+        let anchor = Vec3::new(-7.5, -20.0, 3.0);
         let eye = Eye::testing(500.0, 96.0).about(anchor);
         assert_eq!(eye.camera().rows, Eye::testing(500.0, 96.0).camera().rows);
         let rows = eye.camera().rows;
-        let project =
-            |row: [f32; 4], [x, y, z]: [f32; 3]| row[0] * x + row[1] * y + row[2] * z + row[3];
+        let project = |row: Vec4, p: Vec3| row.dot(p.extend(1.0));
         let [width, height] = eye.view.into();
-        for p in [[0.0; 3], [40.0, 30.0, -60.0], [-150.0, 120.0, 90.0]] {
+        for p in [
+            Vec3::ZERO,
+            Vec3::new(40.0, 30.0, -60.0),
+            Vec3::new(-150.0, 120.0, 90.0),
+        ] {
             let absolute = eye.absolute(p);
             let w = project(rows[3], absolute);
             let at = eye.at(p);

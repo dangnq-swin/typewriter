@@ -7,7 +7,8 @@
 
 use std::f32::consts::PI;
 
-use eframe::egui::{Color32, Pos2, Shape, Stroke, pos2};
+use eframe::egui::{Color32, Pos2, Shape, Stroke, lerp, pos2};
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::eye::Eye;
@@ -75,35 +76,35 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
 }
 
 /// `points` round again to the first.
-fn closed(points: &[[f32; 3]]) -> Vec<[f32; 3]> {
+fn closed(points: &[Vec3]) -> Vec<Vec3> {
     points.iter().chain(points.first()).copied().collect()
 }
 
 /// The top of the guide's face, in its middle: what the bail's rollers
 /// clear.
 #[cfg(test)]
-pub(super) fn guide_top() -> [f32; 3] {
+pub(super) fn guide_top() -> Vec3 {
     on_guide(0.0, 1.0)
 }
 
 /// A point on the guide's face, `t` from its foot (0) to its top (1).
-fn on_guide(x: f32, t: f32) -> [f32; 3] {
+fn on_guide(x: f32, t: f32) -> Vec3 {
     let (z0, z1) = GUIDE_Z;
-    let z = z0 + (z1 - z0) * t;
-    [x, face_y(z) + GUIDE_OFF_PAPER, z]
+    let z = lerp(z0..=z1, t);
+    Vec3::new(x, face_y(z) + GUIDE_OFF_PAPER, z)
 }
 
 /// A point on the guide's face, flat millimetres across and up it.
-fn to_guide(p: Pos2) -> [f32; 3] {
+fn to_guide(p: Pos2) -> Vec3 {
     on_guide(p.x, p.y / guide_height())
 }
 
 /// Corners `((x, t), rounding)` round the guide's face, flat millimetres.
 fn guide_outline(corners: [((f32, f32), f32); 4]) -> Vec<Pos2> {
-    let corners = corners.map(|((x, t), r)| ([x, t * guide_height(), 0.0], r));
+    let corners = corners.map(|((x, t), r)| (Vec3::new(x, t * guide_height(), 0.0), r));
     rounded(&corners)
         .into_iter()
-        .map(|[x, y, _]| pos2(x, y))
+        .map(|p| pos2(p.x, p.y))
         .collect()
 }
 
@@ -200,30 +201,26 @@ fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
 
 /// The ribbon's top edge, left spool to right: out of sight under the cover
 /// at its ends, straight across through the vibrator.
-fn ribbon_path() -> [[f32; 3]; 4] {
+fn ribbon_path() -> [Vec3; 4] {
     let (y, top, _) = RIBBON;
     let (out_x, out_y, drop) = RIBBON_OUT;
     [
-        [-out_x, out_y, top - drop],
-        [-RIBBON_ACROSS, y, top],
-        [RIBBON_ACROSS, y, top],
-        [out_x, out_y, top - drop],
+        Vec3::new(-out_x, out_y, top - drop),
+        Vec3::new(-RIBBON_ACROSS, y, top),
+        Vec3::new(RIBBON_ACROSS, y, top),
+        Vec3::new(out_x, out_y, top - drop),
     ]
 }
 
 /// The two-colour ribbon on edge, black over red, each run lit as it faces.
 fn paint_ribbon(canvas: &Canvas, eye: &Eye) {
     let width = RIBBON.2;
-    let down = |p: [f32; 3], by: f32| [p[0], p[1], p[2] - by];
+    let down = |p: Vec3, by: f32| p - Vec3::Z * by;
     for pair in ribbon_path().windows(2) {
         let [a, b] = [pair[0], pair[1]];
         // Toward the writer, square to the run.
-        let facing = [a[1] - b[1], b[0] - a[0], 0.0];
-        let facing = if facing[1] < 0.0 {
-            facing.map(|c| -c)
-        } else {
-            facing
-        };
+        let facing = Vec3::new(a.y - b.y, b.x - a.x, 0.0);
+        let facing = if facing.y < 0.0 { -facing } else { facing };
         for (colour, from, to) in [
             (RIBBON_INK, 0.0, width / 2.0),
             (RIBBON_RED, width / 2.0, width),
@@ -242,22 +239,22 @@ fn paint_card_holder(canvas: &Canvas, eye: &Eye) {
     let (y, top, _) = VIBRATOR;
     // Just proud of the guide's face.
     let on_face = |x: f32, t: f32| {
-        let [px, py, pz] = on_guide(x, t);
-        [px, py + 1.0, pz]
+        let p = on_guide(x, t);
+        Vec3::new(p.x, p.y + 1.0, p.z)
     };
     let bend = 1.0 - half / guide_height();
     let arch = (0..=16u8).map(|i| {
         let angle = PI * f32::from(i) / 16.0;
-        on_face(-half * angle.cos(), bend + (1.0 - bend) * angle.sin())
+        on_face(-half * angle.cos(), lerp(bend..=1.0, angle.sin()))
     });
-    let wire: Vec<[f32; 3]> = [[-half, y, top], on_face(-half, scale_t())]
+    let wire: Vec<Vec3> = [Vec3::new(-half, y, top), on_face(-half, scale_t())]
         .into_iter()
         .chain(arch)
-        .chain([on_face(half, scale_t()), [half, y, top]])
+        .chain([on_face(half, scale_t()), Vec3::new(half, y, top)])
         .collect();
     eye.line(canvas, &wire, 1.65, EDGE);
     eye.line(canvas, &wire, 1.15, METAL_SHINE);
-    let glint: Vec<[f32; 3]> = wire.iter().map(|&[x, y, z]| [x - 0.2, y, z]).collect();
+    let glint: Vec<Vec3> = wire.iter().map(|&p| p - Vec3::X * 0.2).collect();
     eye.line(canvas, &glint, 0.35, Color32::WHITE);
 }
 
@@ -270,12 +267,12 @@ fn paint_vibrator(canvas: &Canvas, eye: &Eye) {
     paint_chrome(canvas, eye, [-half, half], y, top, height);
     let (slot_half, slot_height) = VIBRATOR_SLOT;
     let slot = rounded(&[
-        ([-slot_half, y, bottom], 0.0),
-        ([slot_half, y, bottom], 0.0),
-        ([slot_half, y, bottom + slot_height], slot_half),
-        ([-slot_half, y, bottom + slot_height], slot_half),
+        (Vec3::new(-slot_half, y, bottom), 0.0),
+        (Vec3::new(slot_half, y, bottom), 0.0),
+        (Vec3::new(slot_half, y, bottom + slot_height), slot_half),
+        (Vec3::new(-slot_half, y, bottom + slot_height), slot_half),
     ]);
-    eye.fill_lying(canvas, &slot, |_| matte(RIBBON_RED, [0.0, 1.0, 0.0]));
+    eye.fill_lying(canvas, &slot, |_| matte(RIBBON_RED, Vec3::Y));
     let (inner, outer) = LUGS;
     for side in [-1.0, 1.0] {
         let [a, b] = [side * inner, side * outer];
@@ -301,8 +298,8 @@ mod tests {
         // The descenders show above the ribbon and the vibrator.
         let (y, top, _) = RIBBON;
         let (vy, vtop, _) = VIBRATOR;
-        assert!(eye.at([0.0, y, top]).y > LINE_FOOT);
-        assert!(eye.at([0.0, vy, vtop]).y > LINE_FOOT + 1.0);
+        assert!(eye.at(Vec3::new(0.0, y, top)).y > LINE_FOOT);
+        assert!(eye.at(Vec3::new(0.0, vy, vtop)).y > LINE_FOOT + 1.0);
     }
 
     #[test]
@@ -312,10 +309,10 @@ mod tests {
         // upright. The pass lifts every decal toward the eye: the plates
         // must stand further proud of the paper than the print is lifted,
         // and the lift must not carry the glass through the ribbon.
-        let up = toward_eye()[1];
+        let up = toward_eye().y;
         let eye = Eye::testing(0.0, 96.0);
-        assert!(GUIDE_OFF_PAPER * up > eye.lift_mm([0.0; 3], 0.0));
-        let front = platen_axis()[1] + PLATEN_DIAMETER_MM / 2.0;
+        assert!(GUIDE_OFF_PAPER * up > eye.lift_mm(Vec3::ZERO, 0.0));
+        let front = platen_axis().y + PLATEN_DIAMETER_MM / 2.0;
         let (foot, above) = (on_guide(0.0, 0.0), on_guide(0.0, 0.2));
         let slope = (eye.depth(foot) - eye.depth(above)) / (eye.at(above) - eye.at(foot)).length();
         let glass = eye.lift_mm(foot, slope);
@@ -326,9 +323,9 @@ mod tests {
     fn the_tape_s_top_meets_the_cover_s_back_edge_the_ribbon_under_it() {
         let eye = Eye::testing(0.0, 96.0);
         let (back_y, back_z) = COVER_BACK;
-        let edge = eye.at([51.0, back_y, back_z]).y;
+        let edge = eye.at(Vec3::new(51.0, back_y, back_z)).y;
         let (y, top, _) = RIBBON;
-        assert!(edge < eye.at([51.0, y, top]).y);
+        assert!(edge < eye.at(Vec3::new(51.0, y, top)).y);
         let tape = eye.at(on_guide(51.0, scale_t())).y;
         assert!((edge - tape).abs() < 1.5, "{edge} {tape}");
     }
@@ -336,6 +333,6 @@ mod tests {
     #[test]
     fn the_ribbon_runs_under_the_cover_to_its_spools() {
         let [end, ..] = ribbon_path();
-        assert!(end[2] < on_cover(end[0], end[1])[2]);
+        assert!(end.z < on_cover(end.x, end.y).z);
     }
 }

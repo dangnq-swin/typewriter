@@ -1,5 +1,5 @@
 //! User settings in `$XDG_CONFIG_HOME/typewriter/config.toml`
-//! (`%APPDATA%\typewriter\config.toml` on Windows).
+//! (`%APPDATA%\typewriter\config\config.toml` on Windows).
 //!
 //! Give every field a default: missing keys must load, unknown ones are
 //! ignored.
@@ -335,7 +335,7 @@ pub struct SettingsFile {
     /// What this run believes is in the file.
     written: Settings,
     /// When the settings started differing from `written`.
-    changed_at: Option<f64>,
+    changed_at: storage::Settle,
     /// Unreadable file: move it aside before the first write, never overwrite.
     unreadable: bool,
 }
@@ -347,7 +347,7 @@ impl SettingsFile {
         let mut file = Self {
             path: path.clone(),
             written: Settings::default(),
-            changed_at: None,
+            changed_at: storage::Settle::default(),
             unreadable: false,
         };
         let Some(path) = path else {
@@ -387,7 +387,7 @@ impl SettingsFile {
         Self {
             path: None,
             written: Settings::default(),
-            changed_at: None,
+            changed_at: storage::Settle::default(),
             unreadable: false,
         }
     }
@@ -395,14 +395,14 @@ impl SettingsFile {
     /// Writes `settings` once settled. `force` writes now (on quit).
     pub fn keep(&mut self, settings: &Settings, now: f64, force: bool) -> Result<(), String> {
         if *settings == self.written {
-            self.changed_at = None;
+            self.changed_at.clear();
             return Ok(());
         }
-        let since = *self.changed_at.get_or_insert(now);
-        if !force && now - since < WRITE_AFTER_SECONDS {
+        self.changed_at.mark(now);
+        if !force && !self.changed_at.rested(WRITE_AFTER_SECONDS, now) {
             return Ok(());
         }
-        self.changed_at = None;
+        self.changed_at.clear();
         // On failure, retry only after the next change.
         self.written = settings.clone();
         let Some(path) = &self.path else {
@@ -420,7 +420,7 @@ impl SettingsFile {
     }
 
     pub fn is_pending(&self) -> bool {
-        self.changed_at.is_some()
+        self.changed_at.is_pending()
     }
 }
 

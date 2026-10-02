@@ -8,6 +8,7 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::Color32;
+use glam::Vec3;
 use typewriter_core::carriage::Carriage;
 use typewriter_ui::draw::ruler::{self, Scale};
 
@@ -180,7 +181,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
         let flat = [z - STEM_HALF.1, z + STEM_HALF.1];
         paint_box(canvas, eye, [end.stem(), stem, flat], CHROME);
         // From behind the plate, outside it.
-        let rod = [platen_axis()[1] + SIDE_PLATE_BACK, y - STEM_HALF.0];
+        let rod = [platen_axis().y + SIDE_PLATE_BACK, y - STEM_HALF.0];
         paint_box(
             canvas,
             eye,
@@ -196,46 +197,46 @@ fn paint_bar(canvas: &Canvas, eye: &Eye, [x0, x1]: [f32; 2]) {
     let (front, [top, foot]) = front();
     let back = front - DEPTH;
     let mut solid = Solid::default();
-    let face = matte(BAR_FRONT, [0.0, 1.0, 0.0]);
+    let face = matte(BAR_FRONT, Vec3::Y);
     eye.quad(
         &mut solid,
         [
-            ([x0, front, top], face),
-            ([x1, front, top], face),
-            ([x1, front, foot], face),
-            ([x0, front, foot], face),
+            (Vec3::new(x0, front, top), face),
+            (Vec3::new(x1, front, top), face),
+            (Vec3::new(x1, front, foot), face),
+            (Vec3::new(x0, front, foot), face),
         ],
     );
-    let lid = matte(BAR_FRONT, [0.0, 0.0, 1.0]);
-    let under = matte(BAR_LOW, [0.0, 0.0, -1.0]);
+    let lid = matte(BAR_FRONT, Vec3::Z);
+    let under = matte(BAR_LOW, -Vec3::Z);
     for (z, colour) in [(top, lid), (foot, under)] {
         eye.quad(
             &mut solid,
             [
-                ([x0, back, z], colour),
-                ([x1, back, z], colour),
-                ([x1, front, z], colour),
-                ([x0, front, z], colour),
+                (Vec3::new(x0, back, z), colour),
+                (Vec3::new(x1, back, z), colour),
+                (Vec3::new(x1, front, z), colour),
+                (Vec3::new(x0, front, z), colour),
             ],
         );
     }
     canvas.mesh(Layer::Opaque, solid);
     let outline = [
-        [x0, front, top],
-        [x1, front, top],
-        [x1, front, foot],
-        [x0, front, foot],
+        Vec3::new(x0, front, top),
+        Vec3::new(x1, front, top),
+        Vec3::new(x1, front, foot),
+        Vec3::new(x0, front, foot),
     ];
     eye.outline(canvas, &outline);
 }
 
 /// The circle round the bar's axis at `x`, `radius` millimetres.
-fn round_axis(x: f32, radius: f32) -> Vec<[f32; 3]> {
+fn round_axis(x: f32, radius: f32) -> Vec<Vec3> {
     let (y, z) = axis();
     (0..ROUND)
         .map(|i| {
             let (sin, cos) = (TAU * f32::from(i) / f32::from(ROUND)).sin_cos();
-            [x, y + radius * sin, z + radius * cos]
+            Vec3::new(x, y + radius * sin, z + radius * cos)
         })
         .collect()
 }
@@ -248,15 +249,20 @@ fn paint_disc(canvas: &Canvas, eye: &Eye, end: End) {
     cylinder(eye, &mut solid, rim, ROUND, [METAL, METAL_SHINE]);
     canvas.mesh(Layer::Opaque, solid);
     for (x, out) in [(x0, -1.0), (x1, 1.0)] {
-        let lit = matte(CHROME, [out, 0.0, 0.0]);
+        let lit = matte(CHROME, Vec3::X * out);
         eye.fill(canvas, &round_axis(x, DISC_RADIUS), |_| lit);
     }
     let (y, z) = axis();
     for knurl in 0..KNURLS {
         let (sin, cos) = (TAU * f32::from(knurl) / f32::from(KNURLS)).sin_cos();
         let (ky, kz) = (y + DISC_RADIUS * sin, z + DISC_RADIUS * cos);
-        let colour = matte(METAL, [0.0, sin, cos]).lit();
-        eye.line(canvas, &[[x0, ky, kz], [x1, ky, kz]], KNURL_WIDTH, colour);
+        let colour = matte(METAL, Vec3::new(0.0, sin, cos)).lit();
+        eye.line(
+            canvas,
+            &[Vec3::new(x0, ky, kz), Vec3::new(x1, ky, kz)],
+            KNURL_WIDTH,
+            colour,
+        );
     }
 }
 
@@ -269,28 +275,58 @@ fn paint_box(
 ) {
     let faces = [
         (
-            [0.0, 1.0, 0.0],
-            [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]],
+            Vec3::Y,
+            [
+                Vec3::new(x0, y1, z1),
+                Vec3::new(x1, y1, z1),
+                Vec3::new(x1, y1, z0),
+                Vec3::new(x0, y1, z0),
+            ],
         ),
         (
-            [0.0, -1.0, 0.0],
-            [[x0, y0, z1], [x1, y0, z1], [x1, y0, z0], [x0, y0, z0]],
+            -Vec3::Y,
+            [
+                Vec3::new(x0, y0, z1),
+                Vec3::new(x1, y0, z1),
+                Vec3::new(x1, y0, z0),
+                Vec3::new(x0, y0, z0),
+            ],
         ),
         (
-            [0.0, 0.0, 1.0],
-            [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+            Vec3::Z,
+            [
+                Vec3::new(x0, y0, z1),
+                Vec3::new(x1, y0, z1),
+                Vec3::new(x1, y1, z1),
+                Vec3::new(x0, y1, z1),
+            ],
         ),
         (
-            [0.0, 0.0, -1.0],
-            [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]],
+            -Vec3::Z,
+            [
+                Vec3::new(x0, y0, z0),
+                Vec3::new(x1, y0, z0),
+                Vec3::new(x1, y1, z0),
+                Vec3::new(x0, y1, z0),
+            ],
         ),
         (
-            [-1.0, 0.0, 0.0],
-            [[x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0]],
+            -Vec3::X,
+            [
+                Vec3::new(x0, y0, z1),
+                Vec3::new(x0, y1, z1),
+                Vec3::new(x0, y1, z0),
+                Vec3::new(x0, y0, z0),
+            ],
         ),
         (
-            [1.0, 0.0, 0.0],
-            [[x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [x1, y0, z0]],
+            Vec3::X,
+            [
+                Vec3::new(x1, y0, z1),
+                Vec3::new(x1, y1, z1),
+                Vec3::new(x1, y1, z0),
+                Vec3::new(x1, y0, z0),
+            ],
         ),
     ];
     for (normal, face) in faces {
@@ -314,19 +350,19 @@ pub(super) fn print_scale(canvas: &Canvas, eye: &Eye, scale: &Scale, carriage: &
     let flat = scale.stretched(origin, FLAT_TEXT / eye.ppmm, 0.0, (top - foot) * FLAT_TEXT);
     let marks = ruler::scale_marks(canvas.painter(), &flat, carriage);
     canvas.lay(marks, |vertex| {
-        let on = [
+        let on = Vec3::new(
             (vertex.pos.x - origin) / FLAT_TEXT,
             front,
             top - vertex.pos.y / FLAT_TEXT,
-        ];
+        );
         vertex.pos = eye.at(on);
         Some(Placing {
             at: eye.absolute(on),
             shade: Shade::Unlit,
         })
     });
-    let [top_y, foot_y] = [top, foot].map(|z| eye.at([0.0, front, z]).y);
-    let by = eye.scale([0.0, front, (top + foot) / 2.0]) / eye.ppmm;
+    let [top_y, foot_y] = [top, foot].map(|z| eye.at(Vec3::new(0.0, front, z)).y);
+    let by = eye.scale(Vec3::new(0.0, front, (top + foot) / 2.0)) / eye.ppmm;
     scale.stretched(origin, by, top_y, foot_y - top_y)
 }
 
@@ -347,14 +383,21 @@ mod tests {
         let guide = screen_up(guide_top());
         let lowest = (0..36)
             .map(|i| (i as f32 * 10.0).to_radians().sin_cos())
-            .map(|(sin, cos)| screen_up([0.0, y + ROLLER_RADIUS * sin, z + ROLLER_RADIUS * cos]))
+            .map(|(sin, cos)| {
+                screen_up(Vec3::new(
+                    0.0,
+                    y + ROLLER_RADIUS * sin,
+                    z + ROLLER_RADIUS * cos,
+                ))
+            })
             .fold(f32::INFINITY, f32::min);
         assert!(lowest > guide, "{lowest}");
     }
 
     #[test]
     fn its_ends_float_beside_the_side_plates_pockets() {
-        let [_, axis_y, axis_z] = platen_axis();
+        let platen = platen_axis();
+        let (axis_y, axis_z) = (platen.y, platen.z);
         let Pocket {
             back: pocket_back,
             front: pocket_front,
@@ -399,10 +442,10 @@ mod tests {
         let printed = printed.unwrap();
         let (front, [top, _]) = front();
         let stop = printed.stop(&Carriage::new(0, 80, 0), typewriter_core::Side::Left);
-        assert!((stop.top() - eye.at([0.0, front, top]).y).abs() < 1e-3);
+        assert!((stop.top() - eye.at(Vec3::new(0.0, front, top)).y).abs() < 1e-3);
         // Nearer than the sheet, so wider on screen: the same millimetres out
         // on the bar as on the sheet are the same column.
-        let on_bar = printed.column_at(eye.at([51.0, front, axis().1]).x);
+        let on_bar = printed.column_at(eye.at(Vec3::new(51.0, front, axis().1)).x);
         let on_sheet = scale.column_at(eye.origin.x + 2.0 * metrics.points_per_inch);
         assert_eq!(on_bar, on_sheet);
     }

@@ -57,6 +57,10 @@ pub struct TypewriterApp {
     /// When fullscreen was last switched. Until the window catches up, its
     /// state must not overrule the setting.
     fullscreen_sent: Option<f64>,
+    /// The window opened fullscreen, which asks for no `inner_size` (see
+    /// `crate::run`): the first exit from fullscreen restores a window of
+    /// the default size.
+    window_size_pending: bool,
     /// Everything was answered: let the window close.
     quitting: bool,
     settings_file: SettingsFile,
@@ -78,6 +82,7 @@ impl TypewriterApp {
         // No Ctrl shortcuts, egui's zoom keys included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
+        let opened_fullscreen = settings.look.fullscreen;
         let machines = Machines::load()?;
         let (machine, filing, trouble) = first_project(&machines, &settings.machine)?;
         let audio = Audio::new(machine.profile().sounds.clone(), settings.sound.clone())
@@ -117,6 +122,7 @@ impl TypewriterApp {
             scrunching: None,
             // Grace for the desktop to show the window as built.
             fullscreen_sent: Some(0.0),
+            window_size_pending: opened_fullscreen,
             quitting: false,
             settings_file,
             running,
@@ -261,6 +267,12 @@ impl TypewriterApp {
         if ctx.input(|i| i.viewport().fullscreen) != Some(fullscreen) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(fullscreen));
             self.fullscreen_sent = Some(now);
+            if !fullscreen && self.window_size_pending {
+                // The fullscreen launch asked for no window size (see
+                // `crate::run`); the desktop restores whatever winit kept.
+                self.window_size_pending = false;
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(crate::DEFAULT_WINDOW));
+            }
         }
     }
 
@@ -301,6 +313,7 @@ impl TypewriterApp {
             pulled: None,
             scrunching: None,
             fullscreen_sent: None,
+            window_size_pending: false,
             quitting: false,
             settings_file: SettingsFile::nowhere(),
             running: storage::Running::nowhere(),

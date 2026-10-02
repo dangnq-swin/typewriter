@@ -4,43 +4,11 @@ use std::collections::HashMap;
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{Color32, Mesh, Pos2, Rect, Vec2, vec2};
-
-pub(super) fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-pub(super) fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-pub(super) fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-pub(super) fn scaled(v: [f32; 3], by: f32) -> [f32; 3] {
-    v.map(|c| c * by)
-}
-
-pub(super) fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-pub(super) fn normalized(v: [f32; 3]) -> [f32; 3] {
-    let length = dot(v, v).sqrt().max(1e-6);
-    [v[0] / length, v[1] / length, v[2] / length]
-}
-
-pub(super) fn lerp3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    [0, 1, 2].map(|k| a[k] + (b[k] - a[k]) * t)
-}
+use glam::Vec3;
 
 /// Corners `(point, rounding)` of a flat convex polygon, each rounded by a
 /// curve tangent to both sides.
-pub(super) fn rounded(corners: &[([f32; 3], f32)]) -> Vec<[f32; 3]> {
+pub(super) fn rounded(corners: &[(Vec3, f32)]) -> Vec<Vec3> {
     let n = corners.len();
     let mut outline = Vec::new();
     for (i, &(corner, rounding)) in corners.iter().enumerate() {
@@ -57,39 +25,34 @@ pub(super) fn rounded_rect(
     [back, front]: [f32; 2],
     z: f32,
     rounding: f32,
-) -> Vec<[f32; 3]> {
+) -> Vec<Vec3> {
     rounded(&[
-        ([left, back, z], rounding),
-        ([right, back, z], rounding),
-        ([right, front, z], rounding),
-        ([left, front, z], rounding),
+        (Vec3::new(left, back, z), rounding),
+        (Vec3::new(right, back, z), rounding),
+        (Vec3::new(right, front, z), rounding),
+        (Vec3::new(left, front, z), rounding),
     ])
 }
 
 /// `corner` rounded between the sides to `before` and `after`: a curve
 /// tangent to both, from the side toward `before`. The corner alone if
 /// `rounding` is zero.
-pub(super) fn fillet(
-    before: [f32; 3],
-    corner: [f32; 3],
-    after: [f32; 3],
-    rounding: f32,
-) -> Vec<[f32; 3]> {
+pub(super) fn fillet(before: Vec3, corner: Vec3, after: Vec3, rounding: f32) -> Vec<Vec3> {
     const STEPS: u16 = 6;
     if rounding <= 0.0 {
         return vec![corner];
     }
-    let toward = |other: [f32; 3]| {
-        let d = sub(other, corner);
+    let toward = |other: Vec3| {
+        let d = other - corner;
         // At most halfway: neighbouring roundings never cross.
-        let t = (rounding / dot(d, d).sqrt().max(1e-6)).min(0.5);
-        add(corner, [d[0] * t, d[1] * t, d[2] * t])
+        let t = (rounding / d.length().max(1e-6)).min(0.5);
+        corner + d * t
     };
     let (from, to) = (toward(before), toward(after));
     (0..=STEPS)
         .map(|step| {
             let t = f32::from(step) / f32::from(STEPS);
-            lerp3(lerp3(from, corner, t), lerp3(corner, to, t), t)
+            from.lerp(corner, t).lerp(corner.lerp(to, t), t)
         })
         .collect()
 }
@@ -212,11 +175,11 @@ mod tests {
     #[test]
     fn a_grid_covers_its_outline_in_small_cells() {
         // A rounded plate, wide and low, as the alignment guide's.
-        let corners =
-            [(0.0, 0.0), (3.0, 0.0), (3.0, 0.8), (0.0, 0.8)].map(|(x, y)| ([x, y, 0.0], 0.2));
+        let corners = [(0.0, 0.0), (3.0, 0.0), (3.0, 0.8), (0.0, 0.8)]
+            .map(|(x, y)| (Vec3::new(x, y, 0.0), 0.2));
         let outline: Vec<Pos2> = rounded(&corners)
             .into_iter()
-            .map(|[x, y, _]| pos2(x, y))
+            .map(|p| pos2(p.x, p.y))
             .collect();
         let step = 0.05;
         let mesh = convex_grid(&outline, step);

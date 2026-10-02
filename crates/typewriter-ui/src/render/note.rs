@@ -7,9 +7,10 @@ use eframe::egui::{
     self, Color32, FontFamily, FontId, Galley, Id, Painter, Pos2, Rect, Response, Stroke, Ui, pos2,
     vec2,
 };
+use emath::Rot2;
 use typewriter_core::profile::Margins;
 
-use super::{Metrics, rotate, splitmix64, unit};
+use super::{Metrics, splitmix64, unit};
 
 pub const PENCIL_FAMILY: &str = "pencil";
 pub const CAVEAT: &[u8] = include_bytes!("../../../../assets/fonts/caveat/Caveat-Regular.ttf");
@@ -76,12 +77,15 @@ impl NoteArea {
 
     /// Top-left of line `line`, turned with the note, on a sheet at `paper`.
     pub fn line_origin(&self, paper: Pos2, line: usize) -> Pos2 {
-        paper + self.origin.to_vec2() + rotate(vec2(0.0, line as f32 * self.pitch), self.angle)
+        paper
+            + self.origin.to_vec2()
+            + Rot2::from_angle(self.angle) * vec2(0.0, line as f32 * self.pitch)
     }
 
     /// Start of line `line`'s baseline.
     pub fn baseline(&self, paper: Pos2, line: usize) -> Pos2 {
-        self.line_origin(paper, line) + rotate(vec2(0.0, ASCENT_EM * self.size), self.angle)
+        self.line_origin(paper, line)
+            + Rot2::from_angle(self.angle) * vec2(0.0, ASCENT_EM * self.size)
     }
 
     /// The whole top margin: clicking it starts a note.
@@ -215,13 +219,14 @@ mod tests {
 
     #[test]
     fn caveat_metrics_match_the_font() {
-        // hhea: ascender, descender, line gap at offsets 4, 6, 8. head:
-        // units per em at 18.
-        let int = |at: usize| f32::from(i16::from_be_bytes([CAVEAT[at], CAVEAT[at + 1]]));
-        let head = super::super::font_table(CAVEAT, b"head").unwrap();
-        let hhea = super::super::font_table(CAVEAT, b"hhea").unwrap();
-        let em = f32::from(u16::from_be_bytes([CAVEAT[head + 18], CAVEAT[head + 19]]));
-        assert_eq!(int(hhea + 4) / em, ASCENT_EM);
-        assert!(((int(hhea + 4) - int(hhea + 6) + int(hhea + 8)) / em - LINE_EM).abs() < 1e-6);
+        let face = ttf_parser::Face::parse(CAVEAT, 0).unwrap();
+        let em = f32::from(face.units_per_em());
+        let (ascender, descender, gap) = (
+            f32::from(face.ascender()),
+            f32::from(face.descender()),
+            f32::from(face.line_gap()),
+        );
+        assert_eq!(ascender / em, ASCENT_EM);
+        assert!(((ascender - descender + gap) / em - LINE_EM).abs() < 1e-6);
     }
 }

@@ -2,6 +2,7 @@
 //! selector, and their marks on the walls.
 
 use eframe::egui::Color32;
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::case::{OPENING_HALF, wall_top};
@@ -60,12 +61,16 @@ const MARK_EDGE: Color32 = Color32::from_rgb(0x30, 0x2C, 0x26);
 /// with its marks on the wall.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     let (y, z) = key_row(0.0);
-    paint_lock(canvas, eye, [-LOCK_X, y - LOCK_BACK, z + LOCK_RISE]);
+    paint_lock(
+        canvas,
+        eye,
+        Vec3::new(-LOCK_X, y - LOCK_BACK, z + LOCK_RISE),
+    );
     let (y, _) = key_row(2.0);
     let ribbon = y + RIBBON_ALONG[RIBBON_SET];
     for (x, paddle_y) in [(-SELECTOR_X, y), (SELECTOR_X, ribbon)] {
         let top = wall_top(paddle_y) - PADDLE_BELOW_WALL;
-        paint_selector(canvas, eye, [x, paddle_y - SELECTOR_REACH, top]);
+        paint_selector(canvas, eye, Vec3::new(x, paddle_y - SELECTOR_REACH, top));
     }
 }
 
@@ -78,8 +83,10 @@ pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
     let (along, half, stroke) = TOUCH_MARKS;
     let bar = |centre: f32, upright: bool| {
         let (dx, dy) = if upright { (0.0, half) } else { (half, 0.0) };
-        [[-on_wall - dx, centre - dy], [-on_wall + dx, centre + dy]]
-            .map(|[x, y]| [x, y, wall_top(y)])
+        [
+            Vec3::new(-on_wall - dx, centre - dy, wall_top(centre - dy)),
+            Vec3::new(-on_wall + dx, centre + dy, wall_top(centre + dy)),
+        ]
     };
     for part in [
         bar(y - along, false),
@@ -95,24 +102,24 @@ pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
         // Its front standing off the case, then its face.
         let foot = z - proud;
         let front = [
-            [x - size, y + size, z],
-            [x + size, y + size, z],
-            [x + size, y + size, foot],
-            [x - size, y + size, foot],
+            Vec3::new(x - size, y + size, z),
+            Vec3::new(x + size, y + size, z),
+            Vec3::new(x + size, y + size, foot),
+            Vec3::new(x - size, y + size, foot),
         ];
         eye.fill(canvas, &front, |_| brighten(colour, 0.6));
         let face = rounded_rect([x - size, x + size], [y - size, y + size], z, round);
-        eye.fill(canvas, &face, |_| matte(colour, [0.0, 0.0, 1.0]));
+        eye.fill(canvas, &face, |_| matte(colour, Vec3::Z));
         eye.outline_in(canvas, &face, MARK_EDGE);
     }
 }
 
 /// The carriage lock: a lever whose green cap's top is at `top`, its post
 /// running on down below the cap, then back into the machine.
-fn paint_lock(canvas: &Canvas, eye: &Eye, top: [f32; 3]) {
-    let [x, y, z] = top;
-    let foot = [x, y, z - KEY_FRONT - LOCK_DROP];
-    let path = [[x, y, z - KEY_FRONT], foot, into_machine(foot)];
+fn paint_lock(canvas: &Canvas, eye: &Eye, top: Vec3) {
+    let (x, y, z) = (top.x, top.y, top.z);
+    let foot = Vec3::new(x, y, z - KEY_FRONT - LOCK_DROP);
+    let path = [Vec3::new(x, y, z - KEY_FRONT), foot, into_machine(foot)];
     paint_steel(canvas, eye, &path, STEM, STEM_SHINE);
     let (half, depth) = LOCK_CAP;
     let colours = [SHIFT_CAP, SHIFT_FRONT];
@@ -129,12 +136,12 @@ fn paint_lock(canvas: &Canvas, eye: &Eye, top: [f32; 3]) {
 /// A selector: a post at `post` (its paddle's top level) up from a rod out
 /// of the machine, bending toward the writer to an upright chrome paddle
 /// facing them, lit in bands as polished metal is.
-fn paint_selector(canvas: &Canvas, eye: &Eye, post: [f32; 3]) {
-    let [x, y, top] = post;
+fn paint_selector(canvas: &Canvas, eye: &Eye, post: Vec3) {
+    let (x, y, top) = (post.x, post.y, post.z);
     let (half, height) = PADDLE;
-    let bend = [x, y, top - height];
+    let bend = Vec3::new(x, y, top - height);
     // Its post runs well down, then back into the machine under the lock's.
-    let foot = [x, y, bend[2] - SELECTOR_DROP];
+    let foot = Vec3::new(x, y, bend.z - SELECTOR_DROP);
     paint_steel(
         canvas,
         eye,
@@ -143,21 +150,26 @@ fn paint_selector(canvas: &Canvas, eye: &Eye, post: [f32; 3]) {
         STEM_SHINE,
     );
     let paddle_y = y + SELECTOR_REACH;
-    eye.line(canvas, &[bend, [x, paddle_y, top - height]], 1.3, STEM);
+    eye.line(
+        canvas,
+        &[bend, Vec3::new(x, paddle_y, top - height)],
+        1.3,
+        STEM,
+    );
     // Its top edge behind its face.
     let rim = [
-        [x - half, paddle_y - 1.0, top],
-        [x + half, paddle_y - 1.0, top],
-        [x + half, paddle_y, top],
-        [x - half, paddle_y, top],
+        Vec3::new(x - half, paddle_y - 1.0, top),
+        Vec3::new(x + half, paddle_y - 1.0, top),
+        Vec3::new(x + half, paddle_y, top),
+        Vec3::new(x - half, paddle_y, top),
     ];
     eye.fill(canvas, &rim, |_| METAL_SHINE);
     paint_chrome(canvas, eye, [x - half, x + half], paddle_y, top, height);
 }
 
 /// From `foot` straight back, level, into the machine under the panel.
-fn into_machine(foot: [f32; 3]) -> [f32; 3] {
-    [foot[0], PANEL_BOTTOM.0 - INTO_MACHINE, foot[2]]
+fn into_machine(foot: Vec3) -> Vec3 {
+    Vec3::new(foot.x, PANEL_BOTTOM.0 - INTO_MACHINE, foot.z)
 }
 
 #[cfg(test)]
@@ -188,12 +200,16 @@ mod tests {
         let eye = Eye::testing(300.0, 48.0);
         let (y, _) = key_row(2.0);
         let mark_y = y + RIBBON_ALONG[RIBBON_SET];
-        let mark = eye.at([SELECTOR_X, mark_y, wall_top(mark_y)]).y;
+        let mark = eye.at(Vec3::new(SELECTOR_X, mark_y, wall_top(mark_y))).y;
         let paddle = eye
-            .at([SELECTOR_X, mark_y, wall_top(mark_y) - PADDLE_BELOW_WALL])
+            .at(Vec3::new(
+                SELECTOR_X,
+                mark_y,
+                wall_top(mark_y) - PADDLE_BELOW_WALL,
+            ))
             .y;
         let next = y + RIBBON_ALONG[RIBBON_SET + 1];
-        let next_mark = eye.at([SELECTOR_X, next, wall_top(next)]).y;
+        let next_mark = eye.at(Vec3::new(SELECTOR_X, next, wall_top(next))).y;
         assert!((paddle - mark).abs() < (paddle - next_mark).abs());
         assert_eq!(RIBBON_SET, 0, "blue, for black");
     }

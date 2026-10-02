@@ -2,6 +2,7 @@
 //! the carriage.
 
 use eframe::egui::{Color32, Painter, Pos2, Shape};
+use glam::Vec3;
 
 use super::IVORY_SHADE;
 use super::canvas::Canvas;
@@ -45,10 +46,10 @@ pub(super) fn paint_shadow(painter: &Painter, eye: &Eye) {
 fn footprint(eye: &Eye, (dx, dy): (f32, f32)) -> Vec<Pos2> {
     let (half, back, front) = (PANEL_HALF_BOTTOM, BODY_BACK, CASE_FRONT);
     eye.polygon(&rounded(&[
-        ([-half + dx, back + dy, DESK_Z], 0.0),
-        ([half + dx, back + dy, DESK_Z], 0.0),
-        ([half + dx, front + dy, DESK_Z], FRAME_ROUNDING),
-        ([-half + dx, front + dy, DESK_Z], FRAME_ROUNDING),
+        (Vec3::new(-half + dx, back + dy, DESK_Z), 0.0),
+        (Vec3::new(half + dx, back + dy, DESK_Z), 0.0),
+        (Vec3::new(half + dx, front + dy, DESK_Z), FRAME_ROUNDING),
+        (Vec3::new(-half + dx, front + dy, DESK_Z), FRAME_ROUNDING),
     ]))
 }
 
@@ -57,15 +58,15 @@ fn footprint(eye: &Eye, (dx, dy): (f32, f32)) -> Vec<Pos2> {
 pub(super) fn paint_deck(canvas: &Canvas, eye: &Eye) {
     let ((back, front), half) = (DECK, COVER_HALF.0);
     let deck = [
-        [-half, back, DECK_Z],
-        [half, back, DECK_Z],
-        [half, front, DECK_Z],
-        [-half, front, DECK_Z],
+        Vec3::new(-half, back, DECK_Z),
+        Vec3::new(half, back, DECK_Z),
+        Vec3::new(half, front, DECK_Z),
+        Vec3::new(-half, front, DECK_Z),
     ];
-    eye.fill(canvas, &deck, |[_, y, _]| {
+    eye.fill(canvas, &deck, |p| {
         let shaded =
-            brighten(IVORY_SHADE, 0.7).lerp_to_gamma(IVORY_SHADE, (y - back) / (front - back));
-        matte(shaded, [0.0, 0.0, 1.0])
+            brighten(IVORY_SHADE, 0.7).lerp_to_gamma(IVORY_SHADE, (p.y - back) / (front - back));
+        matte(shaded, Vec3::Z)
     });
 }
 

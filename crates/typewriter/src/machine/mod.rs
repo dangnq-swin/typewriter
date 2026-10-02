@@ -33,7 +33,7 @@ pub use panel::{Control, Panel};
 pub use sheet::paint_sheets;
 pub use support::paper_table;
 
-use eframe::egui::{Color32, Painter, Rect};
+use eframe::egui::{Color32, Painter, Rect, lerp};
 
 use crate::depth;
 use canvas::Canvas;
@@ -74,10 +74,10 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     let zoom = f32::from(zoom_percent);
     let wanted = if zoom < 50.0 {
         let far = ((50.0 - zoom) / 25.0).clamp(0.0, 1.0);
-        TYPING_LINE_SITTING + (TYPING_LINE_FAR - TYPING_LINE_SITTING) * far
+        lerp(TYPING_LINE_SITTING..=TYPING_LINE_FAR, far)
     } else {
         let leaning = ((zoom - 50.0) / 50.0).clamp(0.0, 1.0);
-        TYPING_LINE_SITTING + (TYPING_LINE_LEANING - TYPING_LINE_SITTING) * leaning
+        lerp(TYPING_LINE_SITTING..=TYPING_LINE_LEANING, leaning)
     };
     let eye = Eye::new(view, metrics, 0.0);
     let reach = KNOB_RADIUS * INDEX_MARKS.1 + 3.0;
@@ -190,6 +190,7 @@ mod tests {
     use super::case::CASE_FRONT;
     use super::*;
     use eframe::egui::{Pos2, vec2};
+    use glam::Vec3;
 
     fn metrics(zoom_percent: u16) -> Metrics {
         let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
@@ -240,7 +241,7 @@ mod tests {
     fn the_whole_machine_fits_below_the_typing_line_sitting_back() {
         // 50 %: 48 points an inch, in a view 1000 points high.
         let eye = Eye::testing(1000.0 * TYPING_LINE_SITTING, 48.0);
-        let front = eye.at([0.0, CASE_FRONT, DESK_Z]);
+        let front = eye.at(Vec3::new(0.0, CASE_FRONT, DESK_Z));
         assert!(front.y < 1000.0, "{front:?}");
     }
 

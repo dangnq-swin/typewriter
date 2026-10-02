@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 typewriter-core.workspace = true
 eframe.workspace = true
+emath.workspace = true
 anyhow.workspace = true
 image.workspace = true
 rodio.workspace = true
@@ -19,6 +20,11 @@ serde.workspace = true
 toml.workspace = true
 zip.workspace = true
 quick-xml.workspace = true
+ttf-parser.workspace = true
+directories.workspace = true
+interprocess.workspace = true
+open.workspace = true
+atomic-write-file.workspace = true
 
 [features]
 # The typing view drawn to an image, without a window: for looking at a

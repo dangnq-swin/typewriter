@@ -3,6 +3,7 @@
 //! a glow and its count turning over.
 
 use eframe::egui::{Pos2, Vec2, pos2, vec2};
+use emath::easing;
 
 use crate::render::smoothstep;
 
@@ -242,21 +243,18 @@ fn steady_then_stopping(t: f32) -> f32 {
     pace * (tail_from + into - into * into / (2.0 * ROLL_TAIL))
 }
 
+/// Cubic easing, the three from `emath` with a clamp: frame timing runs
+/// past the ends of `t`.
 fn ease_out(t: f32) -> f32 {
-    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+    easing::cubic_out(t.clamp(0.0, 1.0))
 }
 
 fn ease_in(t: f32) -> f32 {
-    t.clamp(0.0, 1.0).powi(3)
+    easing::cubic_in(t.clamp(0.0, 1.0))
 }
 
 fn ease_in_out(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    if t < 0.5 {
-        4.0 * t.powi(3)
-    } else {
-        1.0 - (2.0 - 2.0 * t).powi(3) / 2.0
-    }
+    easing::cubic_in_out(t.clamp(0.0, 1.0))
 }
 
 #[cfg(test)]

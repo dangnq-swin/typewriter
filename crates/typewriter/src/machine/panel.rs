@@ -1,13 +1,13 @@
 //! The front panel falling to the keyboard, and its controls where the
 //! maker's badge would be: spacing, zoom, correction, goal and save.
 
-use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke};
+use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke, lerp};
+use glam::Vec3;
 use typewriter_core::{EraseMode, LineSpacing};
 
 use super::canvas::Canvas;
 use super::cover::{COVER_FRONT, COVER_HALF};
 use super::eye::{Eye, paint_flat_text};
-use super::geometry::{add, dot};
 use super::light::{matte, toward_light};
 use super::{CHROME, ENGRAVED, IVORY, SHIFT_CAP, SHIFT_FRONT};
 use typewriter_ui::draw::{Controls, HIGHLIGHT, Metrics, ruler};
@@ -48,57 +48,55 @@ pub(super) fn paint_face(canvas: &Canvas, eye: &Eye) {
     let (y1, z1) = PANEL_BOTTOM;
     let (top, bottom) = (COVER_HALF.1, PANEL_HALF_BOTTOM);
     let outline = [
-        [-top, y0, z0],
-        [top, y0, z0],
-        [bottom, y1, z1],
-        [-bottom, y1, z1],
+        Vec3::new(-top, y0, z0),
+        Vec3::new(top, y0, z0),
+        Vec3::new(bottom, y1, z1),
+        Vec3::new(-bottom, y1, z1),
     ];
     // One slope, one normal: the lamp washes it the way the gradient faked.
     eye.fill(canvas, &outline, |_| matte(IVORY, panel_normal()));
 }
 
 /// A point on the front panel's slope.
-pub(super) fn on_panel(x: f32, y: f32) -> [f32; 3] {
+pub(super) fn on_panel(x: f32, y: f32) -> Vec3 {
     let (y0, z0) = COVER_FRONT;
     let (y1, z1) = PANEL_BOTTOM;
-    [x, y, z0 + (y - y0) / (y1 - y0) * (z1 - z0)]
+    Vec3::new(x, y, lerp(z0..=z1, (y - y0) / (y1 - y0)))
 }
 
 /// Down the panel's slope, toward the writer, unit length.
-fn panel_down() -> [f32; 3] {
+fn panel_down() -> Vec3 {
     let (y0, z0) = COVER_FRONT;
     let (y1, z1) = PANEL_BOTTOM;
     let (dy, dz) = (y1 - y0, z1 - z0);
     let length = (dy * dy + dz * dz).sqrt();
-    [0.0, dy / length, dz / length]
+    Vec3::new(0.0, dy / length, dz / length)
 }
 
 /// Out of the panel, square to it, unit length.
-fn panel_normal() -> [f32; 3] {
-    let [_, dy, dz] = panel_down();
-    [0.0, -dz, dy]
+fn panel_normal() -> Vec3 {
+    let down = panel_down();
+    Vec3::new(0.0, -down.z, down.y)
 }
 
 /// On the panel's plane from `centre`, `radius` millimetres toward `turn`
 /// degrees clockwise from the top, the top being up the slope.
-pub(super) fn panel_offset(centre: [f32; 3], radius: f32, turn: f32) -> [f32; 3] {
+pub(super) fn panel_offset(centre: Vec3, radius: f32, turn: f32) -> Vec3 {
     let down = panel_down();
     let (sin, cos) = turn.to_radians().sin_cos();
-    [0, 1, 2].map(|k| {
-        let right = if k == 0 { 1.0 } else { 0.0 };
-        centre[k] + radius * (sin * right - cos * down[k])
-    })
+    // Across the panel is [1, 0, 0]; its down is `panel_down`.
+    centre + Vec3::new(radius * sin, -radius * cos * down.y, -radius * cos * down.z)
 }
 
 /// Where the light casts `point`, `height` millimetres off the panel, onto it.
-fn cast_on_panel(point: [f32; 3], height: f32) -> [f32; 3] {
+fn cast_on_panel(point: Vec3, height: f32) -> Vec3 {
     let light = toward_light();
-    let along = height / dot(light, panel_normal());
-    [0, 1, 2].map(|k| point[k] - light[k] * along)
+    let along = height / light.dot(panel_normal());
+    point - light * along
 }
 
 /// A circle on the panel's plane.
-fn circle(centre: [f32; 3], radius: f32) -> Vec<[f32; 3]> {
+fn circle(centre: Vec3, radius: f32) -> Vec<Vec3> {
     (0..32u8)
         .map(|i| panel_offset(centre, radius, 360.0 * f32::from(i) / 32.0))
         .collect()
@@ -299,24 +297,24 @@ impl Panel {
     fn paint_cylinder(
         &self,
         canvas: &Canvas,
-        base: [f32; 3],
+        base: Vec3,
         height: f32,
         lit: bool,
         [top_colour, side_colour]: [Color32; 2],
-    ) -> [f32; 3] {
+    ) -> Vec3 {
         let eye = &self.eye;
         let normal = panel_normal();
-        let top = [0, 1, 2].map(|k| base[k] + normal[k] * height);
+        let top = base + normal * height;
         let shadow = circle(cast_on_panel(top, height), KNOB_RADIUS);
         eye.fill(canvas, &shadow, |_| Color32::from_black_alpha(60));
         // The side: the base's near half, the top's far half.
         let steps = 24u8;
-        let at = |centre: [f32; 3], i: u8| {
+        let at = |centre: Vec3, i: u8| {
             let turn = 90.0 + 360.0 * f32::from(i) / f32::from(steps);
             panel_offset(centre, KNOB_RADIUS, turn)
         };
         let half = steps / 2;
-        let side: Vec<[f32; 3]> = (0..=half)
+        let side: Vec<Vec3> = (0..=half)
             .map(|i| at(base, i))
             .chain((half..=steps).map(|i| at(top, i)))
             .collect();
@@ -342,10 +340,7 @@ impl Panel {
         let on = |line: f32| {
             let start = on_panel(control.label_x(), CONTROLS_Y + line);
             move |across: f32, down: f32| {
-                add(
-                    add(start, [across, 0.0, 0.0]),
-                    panel_offset([0.0; 3], down, 180.0),
-                )
+                start + Vec3::new(across, 0.0, 0.0) + panel_offset(Vec3::ZERO, down, 180.0)
             }
         };
         let left = Align2::LEFT_CENTER;
@@ -389,16 +384,12 @@ mod tests {
     #[test]
     fn shadows_clear_of_the_lamp_and_labels() {
         let shadow = |height: f32| {
-            let top = add(
-                on_panel(0.0, CONTROLS_Y),
-                panel_normal().map(|n| n * height),
-            );
+            let top = on_panel(0.0, CONTROLS_Y) + panel_normal() * height;
             cast_on_panel(top, height)
         };
         let lamp = on_panel(LAMP_OUT, CONTROLS_Y);
-        let apart = [0, 1, 2].map(|k| lamp[k] - shadow(BUTTON_HEIGHT)[k]);
-        let gap = dot(apart, apart).sqrt();
+        let gap = (lamp - shadow(BUTTON_HEIGHT)).length();
         assert!(gap > KNOB_RADIUS + LAMP_RIM, "{gap}");
-        assert!(shadow(KNOB_HEIGHT)[0] + KNOB_RADIUS < LABEL_GAP);
+        assert!(shadow(KNOB_HEIGHT).x + KNOB_RADIUS < LABEL_GAP);
     }
 }

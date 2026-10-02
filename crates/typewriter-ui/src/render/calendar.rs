@@ -6,10 +6,10 @@ use std::collections::BTreeMap;
 use eframe::egui::epaint::Shadow;
 use eframe::egui::{
     Align2, Color32, CursorIcon, FontFamily, FontId, Id, Painter, Pos2, Rect, Shape, Stroke,
-    StrokeKind, Ui, Vec2, pos2, vec2,
+    StrokeKind, Ui, Vec2, lerp, pos2, vec2,
 };
-use jiff::ToSpan;
 use jiff::civil::Date;
+use jiff::{ToSpan, Unit};
 use typewriter_core::WritingLog;
 
 use super::note::{GRAPHITE, PENCIL_FAMILY};
@@ -91,9 +91,11 @@ impl Month {
     }
 }
 
+/// Whole months from `from` to `to`, both month firsts; 0 if `to` is earlier.
 fn months_between(from: Date, to: Date) -> u32 {
-    let index = |d: Date| i32::from(d.year()) * 12 + i32::from(d.month());
-    u32::try_from(index(to) - index(from)).unwrap_or(0)
+    to.since((Unit::Month, from))
+        .map(|span| u32::try_from(span.get_months()).unwrap_or(0))
+        .unwrap_or(0)
 }
 
 /// What the pointer is over on the calendar.
@@ -289,7 +291,7 @@ pub fn up_close(view: Rect, shown: f32) -> Rect {
     let size = vec2(height * aspect, height);
     let up = view.center().y - size.y / 2.0;
     let down = view.bottom() + 0.1 * height;
-    let top = down + (up - down) * smoothstep(shown);
+    let top = lerp(down..=up, smoothstep(shown));
     Rect::from_min_size(pos2(view.center().x - size.x / 2.0, top), size)
 }
 
@@ -410,6 +412,14 @@ mod tests {
             log.add(day, words);
         }
         log
+    }
+
+    #[test]
+    fn months_between_are_whole_calendar_months() {
+        assert_eq!(months_between(date(2026, 1, 1), date(2026, 10, 1)), 9);
+        assert_eq!(months_between(date(2025, 12, 1), date(2026, 2, 1)), 2);
+        assert_eq!(months_between(date(2026, 3, 1), date(2026, 3, 1)), 0);
+        assert_eq!(months_between(date(2026, 5, 1), date(2026, 4, 1)), 0);
     }
 
     #[test]

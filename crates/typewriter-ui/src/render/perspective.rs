@@ -6,8 +6,9 @@
 
 use eframe::egui::epaint::{TessellationOptions, Tessellator};
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
+use emath::Rot2;
 
-use super::{SHADOW, rotate};
+use super::SHADOW;
 
 const TILT_DEGREES: f32 = 38.0;
 
@@ -63,7 +64,7 @@ impl Placement {
     /// A sheet point (`y` down the page) on the desk plane.
     pub fn on_plane(&self, size: Vec2, local: Vec2) -> Vec2 {
         let d = vec2(local.x - size.x / 2.0, size.y / 2.0 - local.y);
-        self.centre + rotate(d, self.angle)
+        self.centre + Rot2::from_angle(self.angle) * d
     }
 
     /// The part `min..max` of a sheet `size`, on screen at height `lift`.
@@ -132,7 +133,7 @@ impl<'a> OnDesk<'a> {
                 }
             }
         };
-        (self.centre + rotate(d, self.angle), lift)
+        (self.centre + Rot2::from_angle(self.angle) * d, lift)
     }
 
     fn to_screen(&self, p: Pos2) -> Pos2 {
@@ -168,7 +169,7 @@ impl<'a> OnDesk<'a> {
     /// only the inside shows, past the card's open side.
     fn paint_stand(&self, painter: &Painter, lean: f32) {
         let point = |across: f32, back: f32, lift: f32| {
-            let plane = self.centre + rotate(vec2(across, back), self.angle);
+            let plane = self.centre + Rot2::from_angle(self.angle) * vec2(across, back);
             self.camera.project(plane, lift)
         };
         let half = 0.5 * self.size.x;

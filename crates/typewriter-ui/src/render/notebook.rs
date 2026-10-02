@@ -1,12 +1,14 @@
 //! The notebook closed: a kraft-covered pocket memo book, an icon on the
 //! desk and lying beside the folder. Open, it is [`super::pad`].
 
+use emath::Rot2;
+
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
     Align, Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Ui, Vec2, pos2, vec2,
 };
 
-use super::{DeskIcon, HIGHLIGHT, rotate};
+use super::{DeskIcon, HIGHLIGHT};
 
 pub const COVER_FAMILY: &str = "cover";
 pub const JOST: &[u8] = include_bytes!("../../../../assets/fonts/jost/Jost-Bold.ttf");
@@ -123,7 +125,7 @@ fn sticker(centre: Pos2, width: f32, degrees: f32, flag: Flag) -> Vec<Shape> {
     let turned = |points: &[Vec2]| {
         points
             .iter()
-            .map(|&p| centre + rotate(p, angle))
+            .map(|&p| centre + Rot2::from_angle(angle) * p)
             .collect::<Vec<_>>()
     };
     let quad = |min: Vec2, max: Vec2| turned(&[min, vec2(max.x, min.y), max, vec2(min.x, max.y)]);

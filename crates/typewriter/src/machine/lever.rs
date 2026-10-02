@@ -9,11 +9,11 @@
 
 use std::f32::consts::{FRAC_PI_2, PI};
 
-use eframe::egui::{Shape, Stroke};
+use eframe::egui::{self, Shape, Stroke};
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{add, cross, normalized, scaled, sub};
 use super::light::{brighten, chrome_at, paint_chrome, streak, toward_light};
 use super::{EDGE, METAL, METAL_SHINE};
 use typewriter_ui::draw::{glide_seconds, smoothstep};
@@ -116,21 +116,21 @@ fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
     let ((x0, x1), (back, front), (bottom, top)) = (BRACKET_X, BRACKET_Y, BRACKET_Z);
     let (x0, x1) = (x0 + left, x1 + left);
     let inner = [
-        [x1, back, top],
-        [x1, front, top],
-        [x1, front, bottom],
-        [x1, back, bottom],
+        Vec3::new(x1, back, top),
+        Vec3::new(x1, front, top),
+        Vec3::new(x1, front, bottom),
+        Vec3::new(x1, back, bottom),
     ];
     // Culling, not ordering: turned away only costs; depth hides it anyway.
-    if eye.faces(inner[0], [1.0, 0.0, 0.0]) {
+    if eye.faces(inner[0], Vec3::X) {
         eye.fill(canvas, &inner, |_| METAL);
     }
     paint_chrome(canvas, eye, [x0, x1], front, top, top - bottom);
     let lid = [
-        [x0, back, top],
-        [x1, back, top],
-        [x1, front, top],
-        [x0, front, top],
+        Vec3::new(x0, back, top),
+        Vec3::new(x1, back, top),
+        Vec3::new(x1, front, top),
+        Vec3::new(x0, front, top),
     ];
     eye.fill(canvas, &lid, |_| brighten(METAL_SHINE, 0.9));
     eye.outline(canvas, &lid);
@@ -138,13 +138,13 @@ fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
 
 /// The slotless screw's head, standing proud at `at`: its rim toward the
 /// eye, then its face, brightest toward the light.
-fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
-    let round = |z: f32| -> Vec<[f32; 3]> {
+fn paint_screw(canvas: &Canvas, eye: &Eye, at: Vec3) {
+    let round = |z: f32| -> Vec<Vec3> {
         (0..SCREW_STEPS)
             .map(|step| {
                 let turn = std::f32::consts::TAU * f32::from(step) / f32::from(SCREW_STEPS);
                 let (sin, cos) = turn.sin_cos();
-                add(at, [SCREW_RADIUS * cos, SCREW_RADIUS * sin, z])
+                at + Vec3::new(SCREW_RADIUS * cos, SCREW_RADIUS * sin, z)
             })
             .collect()
     };
@@ -152,7 +152,7 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
     let n = base.len();
     for i in 0..n {
         let j = (i + 1) % n;
-        let outward = sub(add(base[i], base[j]), scaled(at, 2.0));
+        let outward = base[i] + base[j] - at * 2.0;
         // Culling, not ordering: the rim's far side only costs; depth hides it.
         if eye.faces(base[i], outward) {
             eye.fill(canvas, &[face[i], face[j], base[j], base[i]], |_| METAL);
@@ -160,8 +160,8 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
     }
     let light = toward_light();
     eye.fill(canvas, &face, |p| {
-        let toward = normalized(sub(p, at));
-        let lit = 0.5 + 0.5 * (toward[0] * light[0] + toward[1] * light[1]);
+        let toward = (p - at).normalize_or_zero();
+        let lit = 0.5 + 0.5 * (toward.x * light.x + toward.y * light.y);
         brighten(METAL, 0.9).lerp_to_gamma(METAL_SHINE, lit)
     });
     eye.outline(canvas, &face);
@@ -171,27 +171,27 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
 /// for the way its seen side faces. Then its two edges, as single strokes no
 /// join can spike, and its tip's cut, showing the fold and curl.
 fn paint_strap(canvas: &Canvas, eye: &Eye, frames: &[Frame]) {
-    let stroke = |a: [f32; 3], b: [f32; 3]| {
+    let stroke = |a: Vec3, b: Vec3| {
         let edge = Shape::line_segment([eye.at(a), eye.at(b)], Stroke::new(1.0, EDGE));
         eye.stroke(canvas, &[a, b], edge);
     };
     for pair in frames.windows(2) {
         let (a, b) = (&pair[0], &pair[1]);
-        let shine = 0.85 + 0.3 * streak(sub(b.middle, a.middle), 4);
+        let shine = 0.85 + 0.3 * streak(b.middle - a.middle, 4);
         for k in 0..ACROSS - 1 {
             let strip = [a.across[k], a.across[k + 1], b.across[k + 1], b.across[k]];
-            let normal = cross(sub(strip[2], strip[0]), sub(strip[3], strip[1]));
+            let normal = (strip[2] - strip[0]).cross(strip[3] - strip[1]);
             // Not yet folded: no area.
-            if normal.iter().map(|c| c * c).sum::<f32>() < 1e-10 {
+            if normal.length_squared() < 1e-10 {
                 continue;
             }
             let seen = if eye.faces(strip[0], normal) {
                 normal
             } else {
-                scaled(normal, -1.0)
+                -normal
             };
             // Up to the sky bright, sideways to the light's band, down dark.
-            let colour = brighten(chrome_at((1.0 - normalized(seen)[2]) / 2.0), shine);
+            let colour = brighten(chrome_at((1.0 - seen.normalize_or_zero().z) / 2.0), shine);
             eye.fill(canvas, &strip, |_| colour);
         }
         stroke(a.across[0], b.across[0]);
@@ -242,23 +242,26 @@ fn profile(formed: f32) -> [(f32, f32); ACROSS] {
 /// curl is there: flat on the bracket, the swoop up over the knob, then the
 /// run straight toward the writer. Each part starts level with the last, so
 /// the bends are smooth.
-fn path() -> Vec<([f32; 3], f32)> {
+fn path() -> Vec<(Vec3, f32)> {
     let lid = BRACKET_Z.1 + ABOVE_LID;
-    let lerp = |(from, to): (f32, f32), t: f32| from + (to - from) * t;
     let swoop = (0..=SWOOP_STEPS).map(|step| {
         let t = f32::from(step) / f32::from(SWOOP_STEPS);
-        let z = lerp((lid, RUN_Z.0), smoothstep(t));
-        [LEVER_X, lerp(SWOOP_Y, t), z]
+        let z = egui::lerp(lid..=RUN_Z.0, smoothstep(t));
+        Vec3::new(LEVER_X, egui::lerp(SWOOP_Y.0..=SWOOP_Y.1, t), z)
     });
     let run = (1..=RUN_STEPS).map(|step| {
         let s = f32::from(step) / f32::from(RUN_STEPS);
-        [LEVER_X, lerp((SWOOP_Y.1, TIP_Y), s), lerp(RUN_Z, s)]
+        Vec3::new(
+            LEVER_X,
+            egui::lerp(SWOOP_Y.1..=TIP_Y, s),
+            egui::lerp(RUN_Z.0..=RUN_Z.1, s),
+        )
     });
-    std::iter::once([LEVER_X, BACK_Y, lid])
+    std::iter::once(Vec3::new(LEVER_X, BACK_Y, lid))
         .chain(swoop)
         .chain(run)
         .map(|p| {
-            let formed = smoothstep((p[1] - CURL_Y.0) / (CURL_Y.1 - CURL_Y.0));
+            let formed = smoothstep((p.y - CURL_Y.0) / (CURL_Y.1 - CURL_Y.0));
             (p, formed)
         })
         .collect()
@@ -267,16 +270,16 @@ fn path() -> Vec<([f32; 3], f32)> {
 /// The lever at one point of its path.
 #[derive(Debug, Clone, Copy)]
 struct Frame {
-    middle: [f32; 3],
+    middle: Vec3,
     /// Its [`profile`] there, in the machine.
-    across: [[f32; 3]; ACROSS],
+    across: [Vec3; ACROSS],
 }
 
 /// The lever along its path, in the machine's millimetres.
 struct Strap {
     frames: Vec<Frame>,
     /// Its screw's head, on top of its base.
-    screw: [f32; 3],
+    screw: Vec3,
 }
 
 impl Strap {
@@ -284,30 +287,30 @@ impl Strap {
     fn new(left: f32, amount: f32) -> Self {
         let swing = (THROW_DEGREES * amount.clamp(0.0, 1.0)).to_radians();
         let (sin, cos) = swing.sin_cos();
-        let pivot = [SCREW.0, SCREW.1, 0.0];
-        let turn = |p: [f32; 3]| {
-            let [x, y, z] = sub(p, pivot);
-            let turned = [x * cos + y * sin, y * cos - x * sin, z];
-            add(add(turned, pivot), [left, 0.0, 0.0])
+        let pivot = Vec3::new(SCREW.0, SCREW.1, 0.0);
+        let shift = Vec3::new(left, 0.0, 0.0);
+        let turn = |p: Vec3| {
+            let d = p - pivot;
+            let turned = Vec3::new(d.x * cos + d.y * sin, d.y * cos - d.x * sin, d.z);
+            turned + pivot + shift
         };
         let resting = path();
-        let points: Vec<[f32; 3]> = resting.iter().map(|&(p, _)| turn(p)).collect();
+        let points: Vec<Vec3> = resting.iter().map(|&(p, _)| turn(p)).collect();
         let last = points.len() - 1;
         let frames = (0..=last)
             .map(|i| {
                 let (before, after) = (points[i.saturating_sub(1)], points[(i + 1).min(last)]);
-                let along = normalized(sub(after, before));
-                let inward = normalized([along[1], -along[0], 0.0]);
-                let up = normalized(cross(inward, along));
-                let across = profile(resting[i].1)
-                    .map(|(u, v)| add(points[i], add(scaled(inward, u), scaled(up, v))));
+                let along = (after - before).normalize_or_zero();
+                let inward = Vec3::new(along.y, -along.x, 0.0).normalize_or_zero();
+                let up = inward.cross(along).normalize_or_zero();
+                let across = profile(resting[i].1).map(|(u, v)| points[i] + inward * u + up * v);
                 Frame {
                     middle: points[i],
                     across,
                 }
             })
             .collect();
-        let screw = turn([SCREW.0, SCREW.1, BRACKET_Z.1 + 2.0 * ABOVE_LID]);
+        let screw = turn(Vec3::new(SCREW.0, SCREW.1, BRACKET_Z.1 + 2.0 * ABOVE_LID));
         Self { frames, screw }
     }
 }
@@ -317,7 +320,6 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::super::carriage::{ends, platen_axis};
-    use super::super::geometry::dot;
     use super::super::knob::{self, COLLAR, DISC};
     use super::*;
 
@@ -368,7 +370,7 @@ mod tests {
         let [knob, _] = knob::grips(&eye, ends(0.0));
         // The knob hides its outer front.
         for z in [BRACKET_Z.0, BRACKET_Z.1] {
-            let corner = eye.at([end + BRACKET_X.0, BRACKET_Y.1, z]);
+            let corner = eye.at(Vec3::new(end + BRACKET_X.0, BRACKET_Y.1, z));
             assert!(knob.contains(corner), "{corner:?} outside {knob:?}");
         }
     }
@@ -380,15 +382,16 @@ mod tests {
             let flat = strap
                 .frames
                 .iter()
-                .filter(|f| f.middle[1] < SWOOP_Y.0 + 0.03);
+                .filter(|f| f.middle.y < SWOOP_Y.0 + 0.03);
             for frame in flat {
-                for [x, y, z] in frame.across {
+                for point in frame.across {
+                    let (x, y, z) = (point.x, point.y, point.z);
                     assert!((BRACKET_X.0..=BRACKET_X.1).contains(&x), "{amount}: {x}");
                     assert!(y > BRACKET_Y.0);
                     assert!((z - BRACKET_Z.1 - ABOVE_LID).abs() < 0.26, "on the bracket");
                 }
             }
-            let [x, y, _] = strap.screw;
+            let (x, y) = (strap.screw.x, strap.screw.y);
             assert!((x - SCREW.0).abs() < 2.5e-3 && (y - SCREW.1).abs() < 2.5e-3);
         }
     }
@@ -401,10 +404,11 @@ mod tests {
                 for k in 0..ACROSS {
                     let (a, b) = (pair[0].across[k], pair[1].across[k]);
                     for step in 0..=10_u8 {
-                        let [x, y, z] = add(a, scaled(sub(b, a), f32::from(step) / 10.0));
+                        let p = a.lerp(b, f32::from(step) / 10.0);
+                        let (x, y, z) = (p.x, p.y, p.z);
                         if (-DISC_REACH..=0.0).contains(&x) && y.abs() < DISC_RADIUS {
                             let surface = (DISC_RADIUS * DISC_RADIUS - y * y).sqrt();
-                            assert!(z > surface, "{amount}: {:?} into the knob", [x, y, z]);
+                            assert!(z > surface, "{amount}: {p} into the knob");
                         }
                     }
                 }
@@ -414,16 +418,16 @@ mod tests {
 
     #[test]
     fn it_runs_straight_and_its_bends_are_smooth() {
-        let points: Vec<[f32; 3]> = path().into_iter().map(|(p, _)| p).collect();
-        assert!(points.iter().all(|p| p[0] == LEVER_X), "straight");
+        let points: Vec<Vec3> = path().into_iter().map(|(p, _)| p).collect();
+        assert!(points.iter().all(|p| p.x == LEVER_X), "straight");
         for three in points.windows(3) {
-            let first = normalized(sub(three[1], three[0]));
-            let second = normalized(sub(three[2], three[1]));
-            let turn = dot(first, second).clamp(-1.0, 1.0).acos();
+            let first = (three[1] - three[0]).normalize_or_zero();
+            let second = (three[2] - three[1]).normalize_or_zero();
+            let turn = first.dot(second).clamp(-1.0, 1.0).acos();
             assert!(turn.to_degrees() < 25.0, "{three:?}");
         }
         let tip = *points.last().unwrap();
-        assert!(tip[1] > DISC_RADIUS + 38.0, "well past the knob");
+        assert!(tip.y > DISC_RADIUS + 38.0, "well past the knob");
     }
 
     #[test]
@@ -443,7 +447,7 @@ mod tests {
         let curled = profile(1.0);
         let end = curled[ACROSS - 1];
         assert!(end.0 > curled[2 + FOLD_STEPS].0 && end.1 < 0.0, "{end:?}");
-        let before = path().into_iter().filter(|(p, _)| p[1] <= CURL_Y.0);
+        let before = path().into_iter().filter(|(p, _)| p.y <= CURL_Y.0);
         assert!(before.map(|(_, formed)| formed).all(|f| f == 0.0));
     }
 
@@ -451,8 +455,8 @@ mod tests {
     fn thrown_its_front_swings_in_toward_the_keys() {
         let tip = |amount| Strap::new(0.0, amount).frames.last().unwrap().middle;
         let (resting, thrown) = (tip(0.0), tip(1.0));
-        assert!(thrown[0] - resting[0] > 7.5, "{resting:?} to {thrown:?}");
-        assert_eq!(thrown[2], resting[2], "level");
+        assert!(thrown.x - resting.x > 7.5, "{resting:?} to {thrown:?}");
+        assert_eq!(thrown.z, resting.z, "level");
         let eye = Eye::testing(500.0, 96.0);
         let strap = Strap::new(-150.0, 0.0);
         let (start, end) = (strap.frames[0].middle, strap.frames.last().unwrap().middle);

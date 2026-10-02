@@ -61,6 +61,10 @@ fn window_options(stage: &impl Stage) -> eframe::NativeOptions {
     }
 }
 
+/// A windowed launch's size, and what the first exit from a fullscreen
+/// launch restores.
+const DEFAULT_WINDOW: eframe::egui::Vec2 = eframe::egui::Vec2::new(900.0, 1000.0);
+
 /// A command from the command line, else the window on `stage`. Every
 /// mode shares projects, settings and the one running instance.
 pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
@@ -78,12 +82,21 @@ pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
     }
     // Load before the window opens: it must open fullscreen at once.
     let settings = settings::SettingsFile::load();
+    let fullscreen = settings.0.look.fullscreen;
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_title(stage.title())
+        .with_app_id(stage.command())
+        .with_fullscreen(fullscreen);
+    // A Windows bug (upstream, eframe 0.36): after the desktop sizes a new
+    // window for fullscreen, eframe re-applies `inner_size` and shrinks the
+    // fullscreen window to it. Ask for a window size only when the window
+    // opens windowed; the app restores it on the first exit from a
+    // fullscreen launch.
+    if !fullscreen {
+        viewport = viewport.with_inner_size(DEFAULT_WINDOW);
+    }
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title(stage.title())
-            .with_app_id(stage.command())
-            .with_inner_size([900.0, 1000.0])
-            .with_fullscreen(settings.0.look.fullscreen),
+        viewport,
         ..window_options(&stage)
     };
     eframe::run_native(

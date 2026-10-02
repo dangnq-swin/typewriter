@@ -35,6 +35,24 @@ printpdf = { version = "0.12", default-features = false }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 quick-xml = "0.42"
 rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
+# The depth pass's machine millimetres, clip rows and shader-ready bytes.
+glam = { version = "0.33", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+# Accented letters as base and accent, from Unicode's own decompositions.
+unicode-normalization = "0.1"
+# The bundled fonts' tables: what they can print, and their metrics.
+ttf-parser = "0.25"
+# egui's own maths crate, kept in step with it: the rotation and easing
+# primitives egui does not re-export.
+emath = "0.36"
+# The desktop's folders for our config, data and drafts.
+directories = "6"
+# Handing a project to the open app, on sockets and named pipes alike.
+interprocess = "2.4"
+# Opening a printout in the desktop's PDF viewer.
+open = "5"
+# Crash-safe writes: temp file, fsync, rename.
+atomic-write-file = "0.3"
 
 # Optimise image decoding even in debug: the paper texture is painfully slow
 # to decode and resize otherwise (build script, startup, own textures).

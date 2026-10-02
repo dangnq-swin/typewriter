@@ -9,6 +9,7 @@
 use std::f32::consts::PI;
 
 use eframe::egui::{Align2, Color32, Rect};
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::carriage::{PLATEN_DIAMETER_MM, STRIKE_DEGREES, platen_axis};
@@ -70,15 +71,15 @@ pub(super) fn way(along: f32) -> [f32; 2] {
     let (sin, cos) = LEAN_DEGREES.to_radians().sin_cos();
     let radius = PLATEN_DIAMETER_MM / 2.0;
     let normal = facing();
-    let [_, axis_y, axis_z] = platen_axis();
-    let leaves = [axis_y - radius * normal[0], axis_z - radius * normal[1]];
+    let axis = platen_axis();
+    let leaves = [axis.y - radius * normal[0], axis.z - radius * normal[1]];
     [leaves[0] - along * sin, leaves[1] + along * cos]
 }
 
 /// `across` millimetres from `middle`, `along` the way, `behind` the paper.
-fn on_way(middle: f32, across: f32, along: f32, behind: f32) -> [f32; 3] {
+fn on_way(middle: f32, across: f32, along: f32, behind: f32) -> Vec3 {
     let ([y, z], [ny, nz]) = (way(along), facing());
-    [middle + across, y - behind * ny, z - behind * nz]
+    Vec3::new(middle + across, y - behind * ny, z - behind * nz)
 }
 
 /// Along the way where it shows at screen height `y`, in the carriage's
@@ -109,7 +110,7 @@ pub fn paper_table(view: Rect, metrics: &Metrics, typing_y: f32) -> PaperTable {
 /// `metrics` long: the sleeve, the strip out of it, the scale and the tab.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye, metrics: &Metrics, middle: f32) {
     let [ny, nz] = facing();
-    let normal = [0.0, ny, nz];
+    let normal = Vec3::new(0.0, ny, nz);
     let per_mm = metrics.points_per_mm();
     let length = metrics.paper_size.y / per_mm;
     let line = (metrics.cell_offset(2, 0).y - metrics.cell_offset(0, 0).y) / per_mm;
@@ -189,9 +190,9 @@ mod tests {
     fn the_way_leaves_the_platen_behind_and_below_its_top() {
         let [y, z] = way(0.0);
         let radius = PLATEN_DIAMETER_MM / 2.0;
-        let [_, axis_y, axis_z] = platen_axis();
-        assert!(y < axis_y && z < axis_z, "{y} {z}");
-        let from_axis = ((y - axis_y).powi(2) + (z - axis_z).powi(2)).sqrt();
+        let axis = platen_axis();
+        assert!(y < axis.y && z < axis.z, "{y} {z}");
+        let from_axis = ((y - axis.y).powi(2) + (z - axis.z).powi(2)).sqrt();
         assert!((from_axis - radius).abs() < 2.5e-3);
     }
 

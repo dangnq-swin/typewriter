@@ -46,7 +46,7 @@ pub struct Filing {
     /// The project's file or draft. `None` only without a data directory.
     path: Option<PathBuf>,
     /// First unsaved change.
-    changed_at: Option<f64>,
+    changed_at: storage::Settle,
     /// (when, error if it failed)
     last_write: Option<(f64, Option<String>)>,
 }
@@ -71,7 +71,7 @@ impl Filing {
     fn with_path(path: Option<PathBuf>) -> Self {
         Self {
             path,
-            changed_at: None,
+            changed_at: storage::Settle::default(),
             last_write: None,
         }
     }
@@ -122,7 +122,7 @@ impl Filing {
 
     /// Changes not yet written to the project's file.
     pub fn has_unsaved_changes(&self) -> bool {
-        self.changed_at.is_some()
+        self.changed_at.is_pending()
     }
 
     pub fn keeping(&self, autosave: bool, now: f64) -> Keeping {
@@ -146,11 +146,11 @@ impl Filing {
         if let Some(path) = self.path.take().filter(|p| storage::is_draft(p)) {
             let _ = fs::remove_file(path);
         }
-        self.changed_at = None;
+        self.changed_at.clear();
     }
 
     pub fn changed(&mut self, now: f64) {
-        self.changed_at.get_or_insert(now);
+        self.changed_at.mark(now);
     }
 
     /// Writes after a pause in typing. With autosave off, still writes drafts:
@@ -161,10 +161,7 @@ impl Filing {
         now: f64,
         autosave: bool,
     ) -> Result<(), String> {
-        if self
-            .changed_at
-            .is_some_and(|at| now - at >= AUTOSAVE_AFTER_SECONDS)
-        {
+        if self.changed_at.rested(AUTOSAVE_AFTER_SECONDS, now) {
             self.keep(machine, now, autosave)?;
         }
         Ok(())
@@ -181,14 +178,14 @@ impl Filing {
     /// Writes if anything changed. Skips untouched drafts so they don't
     /// pile up. `Err`: why the write failed.
     pub fn save(&mut self, machine: &Typewriter, now: f64) -> Result<(), String> {
-        if self.changed_at.is_none() {
+        if !self.changed_at.is_pending() {
             return Ok(());
         }
         let Some(path) = self.path.clone() else {
             return Ok(());
         };
         // On failure too: retry after the next change.
-        self.changed_at = None;
+        self.changed_at.clear();
         if is_untouched(machine) && storage::is_draft(&path) && !path.exists() {
             return Ok(());
         }
@@ -231,15 +228,15 @@ impl Filing {
             // Safe: only a draft, and the project is now written elsewhere.
             let _ = fs::remove_file(old);
         }
-        self.changed_at = None;
+        self.changed_at.clear();
         Ok(format!("Saved as {}", storage::home_relative(&path)))
     }
 
     /// Renames the project's file where it is. What to tell, if anything.
     pub fn rename(&mut self, machine: &Typewriter, name: &str) -> Option<String> {
         let old = self.path.clone().filter(|_| self.is_saved())?;
-        if name.is_empty() || name.contains(['/', '\0']) {
-            return Some("A name cannot be empty or contain a slash.".to_owned());
+        if !storage::is_file_name(name) {
+            return Some(r#"A name cannot be empty or contain \ / : * ? " < > |"#.to_owned());
         }
         let path = old.with_file_name(format!("{name}{}", storage::EXTENSION));
         if path == old {
@@ -255,7 +252,7 @@ impl Filing {
         Some(match renamed {
             Ok(()) => {
                 self.path = Some(path);
-                self.changed_at = None;
+                self.changed_at.clear();
                 format!("Renamed to {name}")
             }
             Err(err) => format!("Could not rename the project: {err:#}"),

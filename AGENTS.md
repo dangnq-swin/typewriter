@@ -134,6 +134,5 @@ save) are always shown.
 
 ## Commits and branches
 
-- Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`), with `desk:` after the
-  type for normal mode (`feat: desk: …`).
+- Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
 - One logical change per commit. Do not commit or push unless asked.

@@ -5,6 +5,7 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{Color32, Rect};
+use glam::Vec3;
 
 use super::canvas::Canvas;
 use super::carriage::cylinder;
@@ -67,11 +68,11 @@ impl Knob {
 }
 
 /// The circle round the platen's axis at `x`, `radius` millimetres.
-fn circle(x: f32, radius: f32) -> Vec<[f32; 3]> {
+fn circle(x: f32, radius: f32) -> Vec<Vec3> {
     (0..BANDS)
         .map(|i| {
             let (sin, cos) = (TAU * f32::from(i) / f32::from(BANDS)).sin_cos();
-            [x, radius * sin, radius * cos]
+            Vec3::new(x, radius * sin, radius * cos)
         })
         .collect()
 }
@@ -132,7 +133,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hov
         );
         canvas.mesh(Layer::Opaque, solid);
         // The disc's inner side, its body's outer rim round the face, the face.
-        let (inward, outward) = ([-knob.out, 0.0, 0.0], [knob.out, 0.0, 0.0]);
+        let (inward, outward) = (-Vec3::X * knob.out, Vec3::X * knob.out);
         let ends = [
             (knob.at(COLLAR.0), DISC.1, CREAM, inward),
             (knob.at(COLLAR.0 + DISC.0 - FACE_MM), DISC.1, CREAM, outward),
@@ -148,8 +149,13 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hov
             let around = TAU * f32::from(rib) / f32::from(RIBS) - turned;
             let (sin, cos) = around.sin_cos();
             let (y, z) = (DISC.1 * sin, DISC.1 * cos);
-            let colour = matte(RIB, [0.0, sin, cos]).lit();
-            eye.line(canvas, &[[from, y, z], [to, y, z]], RIB_WIDTH, colour);
+            let colour = matte(RIB, Vec3::new(0.0, sin, cos)).lit();
+            eye.line(
+                canvas,
+                &[Vec3::new(from, y, z), Vec3::new(to, y, z)],
+                RIB_WIDTH,
+                colour,
+            );
         }
         if hovered {
             for x in [knob.at(COLLAR.0), knob.at(COLLAR.0 + DISC.0)] {
@@ -181,7 +187,7 @@ mod tests {
         let [left, right] = grips(&eye, [-150.0, 150.0]);
         assert!(left.right() < right.left());
         assert!((left.width() - right.width()).abs() < 1.0, "mirrored");
-        let axis = eye.at([0.0; 3]);
+        let axis = eye.at(Vec3::ZERO);
         assert!(left.y_range().contains(axis.y) && left.height() > DISC.1 * eye.ppmm);
     }
 }

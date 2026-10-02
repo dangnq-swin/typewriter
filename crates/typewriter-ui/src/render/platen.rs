@@ -3,7 +3,8 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{
-    Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2, pos2, vec2,
+    Color32, Context, CornerRadius, Id, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, Vec2, pos2,
+    vec2,
 };
 
 use super::paper::INK;
@@ -62,8 +63,16 @@ impl PlatenView {
     }
 
     /// `cell`: the carriage's cell offset on the paper.
-    pub fn layout(&mut self, view: Rect, metrics: &Metrics, cell: Vec2, now: f64) -> Layout {
-        let carriage = self.glide.follow(cell, metrics, now);
+    pub fn layout(
+        &mut self,
+        ctx: &Context,
+        view: Rect,
+        metrics: &Metrics,
+        cell: Vec2,
+        now: f64,
+    ) -> Layout {
+        let glide_id = Id::new("platen-glide");
+        let carriage = self.glide.follow(ctx, glide_id, cell, metrics, now);
         let fixed = pos2(
             view.center().x,
             view.top() + view.height() * self.typing_line_height,
@@ -151,46 +160,44 @@ pub fn glide_seconds(mm: f64) -> f64 {
 }
 
 /// Eased carriage movement. Long moves (a return) take longer than a step.
+/// egui's animator holds the gliding position: the retarget from wherever it
+/// is and the exact arrival are its own; this keeps only the duration —
+/// which needs the size of the whole move, not one axis — and the
+/// `is_moving` answer for repaints.
 #[derive(Debug, Default)]
 struct Glide {
-    from: Vec2,
     to: Vec2,
-    start: f64,
+    started: f64,
     duration: f64,
     initialised: bool,
 }
 
 impl Glide {
-    fn follow(&mut self, target: Vec2, metrics: &Metrics, now: f64) -> Vec2 {
+    fn follow(&mut self, ctx: &Context, id: Id, target: Vec2, metrics: &Metrics, now: f64) -> Vec2 {
         if !self.initialised {
-            *self = Self {
-                from: target,
-                to: target,
-                start: now,
-                duration: 0.0,
-                initialised: true,
-            };
-        } else if target != self.to {
-            let mm = f64::from((target - self.value(now)).length() / metrics.points_per_mm());
-            self.from = self.value(now);
             self.to = target;
-            self.start = now;
+            self.initialised = true;
+        } else if target != self.to {
+            let mm = f64::from((target - self.value(ctx, id)).length() / metrics.points_per_mm());
+            self.to = target;
+            self.started = now;
             self.duration = glide_seconds(mm);
         }
-        self.value(now)
+        self.value(ctx, id)
     }
 
     fn is_moving(&self, now: f64) -> bool {
-        now - self.start < self.duration
+        self.initialised && now - self.started < self.duration
     }
 
-    fn value(&self, now: f64) -> Vec2 {
-        if !self.is_moving(now) {
-            return self.to;
-        }
-        let t = ((now - self.start) / self.duration) as f32;
-        let eased = 1.0 - (1.0 - t).powi(3);
-        self.from + (self.to - self.from) * eased
+    /// The animator's position at the current target and duration. A zero
+    /// duration, before the first move, jumps: that is `snap`'s effect too.
+    fn value(&self, ctx: &Context, id: Id) -> Vec2 {
+        let seconds = self.duration as f32;
+        vec2(
+            ctx.animate_value_with_time(id.with("x"), self.to.x, seconds),
+            ctx.animate_value_with_time(id.with("y"), self.to.y, seconds),
+        )
     }
 }
 

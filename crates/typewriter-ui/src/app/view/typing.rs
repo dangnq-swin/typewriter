@@ -36,7 +36,7 @@ impl WayIn {
     fn from_below(below: f32, placed: f32, by_hand: f32) -> Self {
         Self {
             hand_from: below,
-            knob_from: below + (placed - below) * by_hand,
+            knob_from: egui::lerp(below..=placed, by_hand),
             placed,
             by_hand,
         }
@@ -65,7 +65,7 @@ impl WayIn {
     fn at(&self, progress: f32) -> f32 {
         if progress < self.by_hand {
             let share = progress / self.by_hand;
-            return self.hand_from + (self.knob_from - self.hand_from) * share;
+            return egui::lerp(self.hand_from..=self.knob_from, share);
         }
         let rest = 1.0 - self.by_hand;
         let share = if rest > 0.0 {
@@ -73,7 +73,7 @@ impl WayIn {
         } else {
             1.0
         };
-        self.knob_from + (self.placed - self.knob_from) * share
+        egui::lerp(self.knob_from..=self.placed, share)
     }
 
     /// Points the knob winds in all.
@@ -119,7 +119,7 @@ impl TypewriterApp {
     pub(super) fn show_typing(&mut self, ui: &mut egui::Ui, now: f64, intents: &mut Vec<Intent>) {
         self.knobs.clear();
         let view = ui.max_rect();
-        let layout = self.lay_out(view, now);
+        let layout = self.lay_out(ui.ctx(), view, now);
         let calm = ui.ctx().animate_bool_with_time(
             egui::Id::new("calm-mode"),
             self.model.calm,
@@ -174,7 +174,7 @@ impl TypewriterApp {
 
     /// The platen's layout this frame, its typing line where the stage has
     /// it.
-    fn lay_out(&mut self, view: Rect, now: f64) -> Layout {
+    fn lay_out(&mut self, ctx: &egui::Context, view: Rect, now: f64) -> Layout {
         let zoom = self.model.zoom_percent;
         if let Some(height) = self.stage.typing_line_height(view, &self.metrics, zoom) {
             self.platen.typing_line_height = height;
@@ -183,7 +183,7 @@ impl TypewriterApp {
         let cell = self
             .metrics
             .cell_offset(carriage.half_line, carriage.column);
-        self.platen.layout(view, &self.metrics, cell, now)
+        self.platen.layout(ctx, view, &self.metrics, cell, now)
     }
 
     /// Behind the sheets: the stage's. Returns the sheets' painter, cut off

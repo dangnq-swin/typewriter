@@ -192,71 +192,32 @@ pub fn points_per_inch(zoom_percent: u16) -> f32 {
 
 /// Eases 0..=1 in and out. Clamps `t`.
 pub fn smoothstep(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+    emath::ease_in_ease_out(t)
 }
 
-/// Where TrueType table `tag` starts in `font`.
-pub fn font_table(font: &[u8], tag: &[u8; 4]) -> Option<usize> {
-    let count = usize::from(u16_at(font, 4)?);
-    (0..count)
-        .map(|i| 12 + 16 * i)
-        .find(|&record| font.get(record..record + 4) == Some(tag))
-        .and_then(|record| u32_at(font, record + 8))
-        .and_then(|offset| usize::try_from(offset).ok())
-}
-
-/// The characters `font` has a glyph for, from its format-4 character map
-/// (the Basic Multilingual Plane). Empty if it has none.
+/// The characters `font` has a glyph for, from its character map: every
+/// format Unicode subtable included, not just the BMP ones. Empty if the
+/// bytes are not a font at all.
 pub fn font_characters(font: &[u8]) -> HashSet<char> {
-    format_4_characters(font).unwrap_or_default()
-}
-
-fn format_4_characters(font: &[u8]) -> Option<HashSet<char>> {
-    let cmap = font_table(font, b"cmap")?;
-    let subtables = usize::from(u16_at(font, cmap + 2)?);
-    let table = (0..subtables).find_map(|i| {
-        let offset = usize::try_from(u32_at(font, cmap + 8 + 8 * i)?).ok()?;
-        (u16_at(font, cmap + offset)? == 4).then_some(cmap + offset)
-    })?;
-    // Four parallel arrays of segments: ends, (a pad,) starts, deltas and
-    // offsets into the glyph array.
-    let segments = usize::from(u16_at(font, table + 6)?) / 2;
-    let ends = table + 14;
-    let starts = ends + 2 * segments + 2;
-    let deltas = starts + 2 * segments;
-    let offsets = deltas + 2 * segments;
+    let Ok(face) = ttf_parser::Face::parse(font, 0) else {
+        return HashSet::new();
+    };
     let mut characters = HashSet::new();
-    for s in 0..segments {
-        let (end, start) = (u16_at(font, ends + 2 * s)?, u16_at(font, starts + 2 * s)?);
-        let delta = u16_at(font, deltas + 2 * s)?;
-        let offset = u16_at(font, offsets + 2 * s)?;
-        for code in start..=end {
-            let glyph = if offset == 0 {
-                code.wrapping_add(delta)
-            } else {
-                let at = offsets + 2 * s + usize::from(offset) + 2 * usize::from(code - start);
-                match u16_at(font, at)? {
-                    0 => 0,
-                    glyph => glyph.wrapping_add(delta),
-                }
-            };
-            if glyph != 0
-                && let Some(c) = char::from_u32(code.into())
-            {
-                characters.insert(c);
+    if let Some(cmap) = face.tables().cmap {
+        for subtable in cmap.subtables {
+            if !subtable.is_unicode() {
+                continue;
             }
+            subtable.codepoints(|c| {
+                let Some(ch) = char::from_u32(c) else { return };
+                // Defined is not quite mapped: keep only what prints a glyph.
+                if face.glyph_index(ch).is_some() {
+                    characters.insert(ch);
+                }
+            });
         }
     }
-    Some(characters)
-}
-
-fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_be_bytes(bytes.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+    characters
 }
 
 /// A turn button's arrow in `rect`: back (-1) points left, on (1) right.
@@ -271,12 +232,6 @@ pub fn chevron(rect: Rect, direction: isize, stroke: Stroke) -> [Shape; 2] {
         Shape::line_segment([tip, tip + arm], stroke),
         Shape::line_segment([tip, tip + vec2(arm.x, -arm.y)], stroke),
     ]
-}
-
-/// `v` turned by `angle` radians: clockwise on screen, where y is down.
-pub fn rotate(v: Vec2, angle: f32) -> Vec2 {
-    let (sin, cos) = angle.sin_cos();
-    vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos)
 }
 
 /// Bits `shift..shift + 16` of `bits` as 0..=1.
