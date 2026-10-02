@@ -1,5 +1,5 @@
 //! The paper behind everything, fixed to the window: the bundled photo, a
-//! flat paper tone or the user's own texture. An edition with its own
+//! flat paper tone or the user's own texture. A mode with its own
 //! backdrop draws that instead, and the photo on each sheet.
 
 use std::path::{Path, PathBuf};
@@ -60,7 +60,7 @@ pub struct Background {
     paper: Option<Option<TextureHandle>>,
     /// Why the chosen texture isn't showing.
     problem: Option<String>,
-    /// An edition's own, behind everything: `fill` is then the sheets'.
+    /// A mode's own, behind everything: `fill` is then the sheets'.
     backdrop: Option<fn(&Painter, Rect)>,
 }
 

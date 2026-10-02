@@ -1,4 +1,4 @@
-//! The typing view, in the steps every edition goes through: behind the
+//! The typing view, in the steps every mode goes through: behind the
 //! sheets, the sheets and their feed, over them, the platen's marks, the
 //! desk icons; then what fades in calm: the scale, the knobs, the plates,
 //! and what they answer. The [`Stage`](crate::Stage) draws its own at each
@@ -122,7 +122,7 @@ impl TypewriterApp {
         let layout = self.lay_out(view, now);
         let calm = ui.ctx().animate_bool_with_time(
             egui::Id::new("calm-mode"),
-            self.desk.calm,
+            self.model.calm,
             calm::FADE_SECONDS,
         );
         let chrome = 1.0 - calm;
@@ -131,13 +131,13 @@ impl TypewriterApp {
             metrics: &self.metrics,
             typing_y: layout.strike_point.y,
             carriage_x: layout.paper_origin.x + self.metrics.paper_size.x / 2.0,
-            last_return: self.desk.last_return,
+            last_return: self.model.last_return,
             now,
         };
         let painter = ui.painter_at(view);
         let sheet_painter = self.paint_behind_sheets(&painter, &scene);
         let sheets = self.paint_sheets(ui, &sheet_painter, &scene, &layout, calm);
-        let active = chrome >= 1.0 && !self.desk.is_busy(now);
+        let active = chrome >= 1.0 && !self.model.is_busy(now);
         let scale = self.lay_out_scale(&layout);
         let on = (&sheets, &scale, active);
         let over = self.show_over_sheets(ui, &painter, &scene, on, intents);
@@ -164,7 +164,7 @@ impl TypewriterApp {
         if let Some((rects, keeping)) = &drawn.plates {
             self.control_buttons(ui, *rects, keeping, intents);
         }
-        if !self.desk.is_busy(now) {
+        if !self.model.is_busy(now) {
             self.margin_stops(ui, &drawn.scale, intents);
             for (name, grip) in ["left", "right"].into_iter().zip(drawn.knobs) {
                 self.platen_knob(ui, name, grip, intents);
@@ -175,11 +175,11 @@ impl TypewriterApp {
     /// The platen's layout this frame, its typing line where the stage has
     /// it.
     fn lay_out(&mut self, view: Rect, now: f64) -> Layout {
-        let zoom = self.desk.zoom_percent;
+        let zoom = self.model.zoom_percent;
         if let Some(height) = self.stage.typing_line_height(view, &self.metrics, zoom) {
             self.platen.typing_line_height = height;
         }
-        let carriage = self.desk.project.machine.carriage();
+        let carriage = self.model.project.machine.carriage();
         let cell = self
             .metrics
             .cell_offset(carriage.half_line, carriage.column);
@@ -209,7 +209,7 @@ impl TypewriterApp {
         calm: f32,
     ) -> Sheets {
         let (view, now) = (scene.view, scene.now);
-        let machine = &self.desk.project.machine;
+        let machine = &self.model.project.machine;
         let carriage = machine.carriage();
         let cell = self
             .metrics
@@ -221,9 +221,9 @@ impl TypewriterApp {
         let table = table.as_ref();
         // The stage draws them: handed over as they come.
         let mut handed = self.stage.draws_sheets().then(Vec::new);
-        let flight = self.desk.feed.flight.filter(|f| !f.is_over(now));
+        let flight = self.model.feed.flight.filter(|f| !f.is_over(now));
         let answer = flight.map_or(folder::Answer::STILL, |f| f.answer(now));
-        if let Some(feeding) = &self.desk.feed.feeding {
+        if let Some(feeding) = &self.model.feed.feeding {
             let t = now - feeding.started;
             let motion = &feeding.motion;
             // Points the platen has rolled the old sheet out so far, and in all.
@@ -233,7 +233,7 @@ impl TypewriterApp {
                 let old_origin = pos2(paper_origin.x, old_y);
                 let dimming = self.dimming(*old_half_line, calm);
                 // Calm mode hides the folder: the sheet just winds out.
-                if let Some(flight) = flight.filter(|_| !self.desk.calm) {
+                if let Some(flight) = flight.filter(|_| !self.model.calm) {
                     let size = self.metrics.paper_size;
                     let route = folder::Route {
                         from: Rect::from_min_size(old_origin, size).center(),
@@ -304,7 +304,7 @@ impl TypewriterApp {
             pointer_opacity = motion.pointer_opacity(t);
         }
         let dimming = self.dimming(carriage.half_line, calm);
-        let wetness = |half_line, column| self.desk.project.wetness(now, half_line, column);
+        let wetness = |half_line, column| self.model.project.wetness(now, half_line, column);
         if let Some(mut handed) = handed {
             let sheet = (machine.page(), dimming, &wetness as paper::Wetness);
             handed.push(self.flat_sheet(painter, paper_origin, sheet));
@@ -324,7 +324,7 @@ impl TypewriterApp {
     /// the paper.
     fn lay_out_scale(&self, layout: &Layout) -> ruler::Scale {
         let top = ruler::top(&self.metrics, layout.strike_point);
-        let columns = self.desk.project.machine.page().columns();
+        let columns = self.model.project.machine.page().columns();
         ruler::Scale::new(&self.metrics, columns, layout.paper_origin.x, top)
     }
 
@@ -342,20 +342,20 @@ impl TypewriterApp {
         let knobs = self
             .stage
             .knobs(ui, painter, scene, sheets.knob_rolled, active);
-        let carriage = self.desk.project.machine.carriage();
+        let carriage = self.model.project.machine.carriage();
         let printed = self.stage.scale(painter, scene, scale, carriage);
         self.stage.paint_over_sheets(painter, scene);
-        let (desk, project) = (&self.desk, &self.desk.project);
+        let (model, project) = (&self.model, &self.model.project);
         let keeping = project
             .filing
-            .keeping(desk.settings.saving.autosave, scene.now);
-        let goals = desk.settings.goals.cycle();
+            .keeping(model.settings.saving.autosave, scene.now);
+        let goals = model.settings.goals.cycle();
         let controls = Controls {
             spacing: project.machine.carriage().line_spacing,
-            zoom_percent: desk.zoom_percent,
+            zoom_percent: model.zoom_percent,
             erase: project.machine.constraints.erase,
             slip_in: project.machine.slip_in(),
-            delete_in_cycle: desk.settings.machine.rules.delete_in_cycle,
+            delete_in_cycle: model.settings.machine.rules.delete_in_cycle,
             goal: project.session.goal(),
             goals: &goals,
             progress: project.session.progress(),
@@ -381,7 +381,7 @@ impl TypewriterApp {
         pointer_opacity: f32,
         now: f64,
     ) {
-        if self.desk.project.machine.slip_in() {
+        if self.model.project.machine.slip_in() {
             platen::paint_slip(painter, &self.metrics, layout.strike_point);
         }
         platen::paint_guides(
@@ -389,7 +389,7 @@ impl TypewriterApp {
             &self.metrics,
             layout.strike_point,
             layout.paper_origin.x,
-            self.desk.guides_opacity(now),
+            self.model.guides_opacity(now),
         );
         platen::paint_strike_marker(painter, &self.metrics, layout.strike_point, pointer_opacity);
     }
@@ -405,7 +405,7 @@ impl TypewriterApp {
         intents: &mut Vec<Intent>,
     ) {
         // One short until the flying sheet is in.
-        let finished = self.desk.project.machine.document().finished().len();
+        let finished = self.model.project.machine.document().finished().len();
         let shown = if sheets.flight.is_some_and(|f| !f.has_landed(now)) {
             finished.saturating_sub(1)
         } else {
@@ -413,7 +413,7 @@ impl TypewriterApp {
         };
         let reveal = sheets
             .flight
-            .filter(|_| self.desk.calm)
+            .filter(|_| self.model.calm)
             .map_or(0.0, |f| f.reveal(now));
         if folder::desk_icon(ui, view, shown, sheets.answer, chrome.max(reveal)) {
             intents.push(Intent::OpenFolder);
@@ -442,7 +442,7 @@ impl TypewriterApp {
         sheets: &Sheets,
         (scale, over): (ruler::Scale, &Over),
     ) -> Chrome {
-        let project = &self.desk.project;
+        let project = &self.model.project;
         let machine = &project.machine;
         let carriage = machine.carriage();
         // The plates hang below the typing line, the scale's plate above them.
@@ -454,7 +454,7 @@ impl TypewriterApp {
         });
         let knobs = over.knobs.unwrap_or_else(|| {
             let paper_left = layout.paper_origin.x;
-            let busy = self.desk.is_busy(scene.now);
+            let busy = self.model.is_busy(scene.now);
             [
                 (Side::Left, paper_left),
                 (Side::Right, paper_left + self.metrics.paper_size.x),
@@ -474,7 +474,7 @@ impl TypewriterApp {
                 plates_top,
             );
             let zoom_plate =
-                ruler::paint_zoom_plate(painter, self.desk.zoom_percent, spacing_plate);
+                ruler::paint_zoom_plate(painter, self.model.zoom_percent, spacing_plate);
             let correction_plate = ruler::paint_correction_plate(
                 painter,
                 machine.constraints.erase,
@@ -485,7 +485,7 @@ impl TypewriterApp {
                 ruler::paint_goal_plate(painter, project.session.progress(), correction_plate);
             let keeping = project
                 .filing
-                .keeping(self.desk.settings.saving.autosave, scene.now);
+                .keeping(self.model.settings.saving.autosave, scene.now);
             let autosave_plate = ruler::paint_autosave_plate(
                 painter,
                 &keeping,
@@ -520,7 +520,7 @@ impl TypewriterApp {
         keeping: &Keeping,
         intents: &mut Vec<Intent>,
     ) {
-        let filing = &self.desk.project.filing;
+        let filing = &self.model.project.filing;
         let spacing_button = render::button(
             ui,
             spacing,
@@ -543,7 +543,7 @@ impl TypewriterApp {
             ui,
             correction,
             "correction-plate",
-            if self.desk.settings.machine.rules.delete_in_cycle {
+            if self.model.settings.machine.rules.delete_in_cycle {
                 "Click (or F4) for the next way: correction paper, eraser, fluid or delete"
             } else {
                 "Click (or F4) for the next way: correction paper, eraser or fluid"
@@ -580,13 +580,13 @@ impl TypewriterApp {
 
     /// The copy holder, if a sheet is on it.
     pub(super) fn show_holder(&mut self, ui: &mut egui::Ui, view: Rect, intents: &mut Vec<Intent>) {
-        let desk = &mut self.desk;
-        let Some(stand) = &mut desk.overlays.holder else {
+        let model = &mut self.model;
+        let Some(stand) = &mut model.overlays.holder else {
             return;
         };
         let (profile, ink_realism) = (
-            desk.project.machine.profile(),
-            desk.settings.look.ink_realism,
+            model.project.machine.profile(),
+            model.settings.look.ink_realism,
         );
         if holder::show(ui, view, profile, stand, ink_realism) {
             intents.push(Intent::TakeHolderDown);
@@ -618,7 +618,7 @@ impl TypewriterApp {
 
     /// The scale's margin stops: click to release the margins, drag to move one.
     fn margin_stops(&self, ui: &egui::Ui, scale: &ruler::Scale, intents: &mut Vec<Intent>) {
-        let carriage = self.desk.project.machine.carriage();
+        let carriage = self.model.project.machine.carriage();
         let (left, right) = (carriage.left_margin, carriage.right_margin);
         for (side, name, key) in [(Side::Left, "Left", "Home"), (Side::Right, "Right", "End")] {
             let grip = scale.stop(carriage, side);
@@ -655,7 +655,7 @@ impl TypewriterApp {
 
     /// Calm dimming around `half_line`, `amount` of the way on.
     fn dimming(&self, half_line: u16, amount: f32) -> Dimming {
-        let look = &self.desk.settings.look;
+        let look = &self.model.settings.look;
         Dimming::calm(
             half_line,
             amount,
@@ -672,7 +672,7 @@ impl TypewriterApp {
         dimming: Dimming,
         wetness: paper::Wetness<'_>,
     ) {
-        let machine = &self.desk.project.machine;
+        let machine = &self.model.project.machine;
         paper::paint_margin_frame(
             painter,
             &self.metrics,
@@ -685,7 +685,7 @@ impl TypewriterApp {
             &self.metrics,
             page,
             origin,
-            self.desk.settings.look.ink_realism,
+            self.model.settings.look.ink_realism,
             dimming,
             wetness,
         );
@@ -719,12 +719,12 @@ impl TypewriterApp {
         );
         // The margin frame is the machine's, not the paper's: it fades as the
         // sheet leaves.
-        let machine = &self.desk.project.machine;
+        let machine = &self.model.project.machine;
         let mut frame = painter.clone();
         frame.multiply_opacity(render::smoothstep((pose.scale - 0.6) / 0.4));
         let top_lines = machine.profile().margins.top_lines;
         paper::paint_margin_frame(&frame, &metrics, machine.carriage(), top_lines, origin);
-        let ink_realism = self.desk.settings.look.ink_realism;
+        let ink_realism = self.model.settings.look.ink_realism;
         paper::paint_sheet(
             &painter,
             &metrics,
@@ -780,10 +780,10 @@ impl TypewriterApp {
         }
         quad.add_triangle(0, 1, 2);
         quad.add_triangle(0, 2, 3);
-        let machine = &self.desk.project.machine;
+        let machine = &self.model.project.machine;
         let top_lines = machine.profile().margins.top_lines;
         let mut print = paper::margin_frame(&self.metrics, machine.carriage(), top_lines, origin);
-        let ink_realism = self.desk.settings.look.ink_realism;
+        let ink_realism = self.model.settings.look.ink_realism;
         let everywhere = |_| true;
         let marks = paper::sheet_marks(
             &self.metrics,

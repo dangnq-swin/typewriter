@@ -1,7 +1,7 @@
 # Roadmap
 
 What comes next, in order. Reordered 2026-10: **foundations before features** —
-close the desk's open branch, measure it, cache what it rebuilds every frame,
+close the desk work left open, measure it, cache what it rebuilds every frame,
 restructure its drawing and click pipeline, and only then fix and add. Each
 step should leave the app in a working, testable state. Items marked ❓ need
 input from the maintainer before implementation starts. A finished item is
@@ -21,7 +21,7 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
       with `depth.wgsl`" twins become a reviewable surface; the WGSL parse test
       sits with the lighting.
 - [ ] Cache the print: `render::paper::sheet_marks` walks every visible sheet's
-      cells afire a frame, in both editions — nothing in the app caches today.
+      cells afire a frame, in both modes — nothing in the app caches today.
       Keep a sheet's marks between a strike, a correction, a fluid drying and a
       sheet change. The core says when a sheet took a mark; answer the rest in
       the app.
@@ -76,7 +76,7 @@ Its parts drawn on the foundations; items needing the click contract say so.
 
 ## The desk's calm mode
 
-- [ ] ❓ Desk: calm mode redesigned for the desk edition. Calm now fades only the app's chrome
+- [ ] ❓ Calm mode redesigned for normal mode. Calm now fades only the app's chrome
       (the scale's marks, the desk icons); the machine stays whole, its knobs and panel controls
       among it, as a depth pass can't fade. Decide what calm means at a desk, and how it shows
 
@@ -92,7 +92,7 @@ Its parts drawn on the foundations; items needing the click contract say so.
 
 ## Nothing but the desk
 
-The desk edition's icons, plates and menus become the things they stand for, easiest first,
+The desk's icons, plates and menus become the things they stand for, easiest first,
 each group tried on its own before the next.
 
 ### What is already drawn, lying out
@@ -132,8 +132,8 @@ each group tried on its own before the next.
 
 - [ ] Profiles with their own sounds and typeface
 - [ ] ❓ A machine's look in its profile, built with the second machine: a `[look]` table the app
-      reads (knob colours, the scale), the SM9's by default; and a `model` naming the desk
-      edition's drawing of it. Open: what the desk draws for a profile without one
+      reads (knob colours, the scale), the SM9's by default; and a `model` naming normal mode's
+      drawing of it. Open: what it draws for a profile without one
 - [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
       its own pitch, typeface, bell offset and sounds
 

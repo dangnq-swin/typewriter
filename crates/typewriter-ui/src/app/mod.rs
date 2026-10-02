@@ -1,10 +1,10 @@
-//! The window around the [`Desk`]: reads input into [`Intent`]s, draws the
-//! desk ([`view`]), and does what it asks ([`Effect`]s): sound, dialogs,
+//! The window around the [`Model`]: reads input into [`Intent`]s, draws the
+//! model ([`view`]), and does what it asks ([`Effect`]s): sound, dialogs,
 //! the viewport, page geometry.
 
-mod desk;
 mod fonts;
 mod intent;
+mod model;
 #[cfg(feature = "snapshot")]
 pub mod snapshot;
 mod view;
@@ -28,8 +28,8 @@ use crate::render::{folder, pdf};
 use crate::settings::{self, SettingsFile};
 use crate::stage::Stage;
 use crate::storage;
-use desk::{Desk, View};
 use intent::{Effect, Intent, Sound};
+use model::{Model, View};
 
 /// A sheet being scrunched: its on-screen outline when it went.
 struct Scrunching {
@@ -40,7 +40,7 @@ struct Scrunching {
 
 pub struct TypewriterApp {
     stage: Box<dyn Stage>,
-    desk: Desk,
+    model: Model,
     input: Input,
     picker: Picker,
     /// `None` without an output device: silent.
@@ -90,9 +90,9 @@ impl TypewriterApp {
         filing.remember();
         let platen = PlatenView::new(settings.look.carriage_travel);
         let feed_motion = audio::sheet_feed_motion();
-        let mut desk = Desk::new(machine, filing, settings, machines, feed_motion);
-        desk.follow_zoom_min(stage.zoom_min());
-        let look = &mut desk.settings.look;
+        let mut model = Model::new(machine, filing, settings, machines, feed_motion);
+        model.follow_zoom_min(stage.zoom_min());
+        let look = &mut model.settings.look;
         let background = Background::load(&cc.egui_ctx, look, stage.backdrop());
         let background_trouble = background.problem().map(str::to_owned);
         if let Some(trouble) = trouble
@@ -100,12 +100,12 @@ impl TypewriterApp {
             .or(recovered)
             .or(background_trouble)
         {
-            desk.notice.show(trouble, 0.0);
+            model.notice.show(trouble, 0.0);
         }
-        let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
+        let metrics = Metrics::new(model.project.machine.profile(), model.points_per_inch());
         Ok(Self {
             stage,
-            desk,
+            model,
             input: Input::default(),
             picker: Picker::default(),
             audio,
@@ -125,16 +125,16 @@ impl TypewriterApp {
         })
     }
 
-    /// Hands `intent` to the desk and does what it asks, at once.
+    /// Hands `intent` to the model and does what it asks, at once.
     fn send(&mut self, intent: Intent, ctx: &egui::Context, now: f64) {
-        self.desk.update(intent, now);
+        self.model.update(intent, now);
         self.run_effects(ctx, now);
     }
 
     /// The frame's keys and wheel, unless a text field or question has the
     /// keys.
     fn read_input(&mut self, ctx: &egui::Context) -> Option<Intent> {
-        if self.desk.keys_to_fields() {
+        if self.model.keys_to_fields() {
             return None;
         }
         let (events, shift_down, wheel) =
@@ -144,8 +144,8 @@ impl TypewriterApp {
         // egui takes Esc to close a menu, and on the settings card to leave
         // a focused field. The log up close takes it first.
         let menu_open = egui::Popup::is_any_open(ctx);
-        let editing = self.desk.view == View::Settings && ctx.memory(|m| m.focused().is_some());
-        if !self.desk.overlays.log_open && (menu_open || editing) {
+        let editing = self.model.view == View::Settings && ctx.memory(|m| m.focused().is_some());
+        if !self.model.overlays.log_open && (menu_open || editing) {
             keys.retain(|&action| action != Action::Escape);
         }
         let pointer = ctx.input(|i| i.pointer.hover_pos());
@@ -157,9 +157,9 @@ impl TypewriterApp {
         })
     }
 
-    /// Does what the desk asked.
+    /// Does what the model asked.
     fn run_effects(&mut self, ctx: &egui::Context, now: f64) {
-        for effect in self.desk.take_effects() {
+        for effect in self.model.take_effects() {
             match effect {
                 Effect::Sound(sound) => self.play(sound),
                 Effect::Jolt => self.platen.jolt(now),
@@ -174,12 +174,12 @@ impl TypewriterApp {
                     folder::put_back(ctx, index);
                 }
                 Effect::Ask(Dialog::Texture) => {
-                    let texture = self.desk.settings.look.background_texture.as_deref();
+                    let texture = self.model.settings.look.background_texture.as_deref();
                     let folder = texture.and_then(Path::parent).map(Path::to_path_buf);
                     self.picker.ask(Dialog::Texture, folder, String::new(), ctx);
                 }
                 Effect::Ask(dialog) => {
-                    let filing = &self.desk.project.filing;
+                    let filing = &self.model.project.filing;
                     let (folder, file_name) = (filing.dialog_folder(), filing.file_name());
                     self.picker.ask(dialog, folder, file_name, ctx);
                 }
@@ -194,21 +194,21 @@ impl TypewriterApp {
                     self.scrunching = None;
                     self.relayout();
                     if let Some(audio) = &mut self.audio {
-                        audio.set_machine(self.desk.project.machine.profile().sounds.clone());
+                        audio.set_machine(self.model.project.machine.profile().sounds.clone());
                     }
                 }
                 Effect::SettingsChanged => {
-                    self.background.follow(ctx, &mut self.desk.settings.look);
-                    let settings = &self.desk.settings;
+                    self.background.follow(ctx, &mut self.model.settings.look);
+                    let settings = &self.model.settings;
                     self.platen.carriage_travel = settings.look.carriage_travel;
                     if let Some(audio) = &mut self.audio {
                         audio.set_settings(settings.sound.clone());
                     }
-                    self.set_fullscreen(ctx, self.desk.settings.look.fullscreen, now);
+                    self.set_fullscreen(ctx, self.model.settings.look.fullscreen, now);
                 }
                 Effect::Print(sheet) => self.print(ctx, sheet, now),
                 Effect::ReloadMachines => match Machines::load() {
-                    Ok(machines) => self.desk.machines = machines,
+                    Ok(machines) => self.model.machines = machines,
                     Err(err) => eprintln!("could not reload the machines: {err:#}"),
                 },
             }
@@ -229,7 +229,7 @@ impl TypewriterApp {
 
     /// Opens finished sheet `sheet`, or every sheet, in the PDF viewer.
     fn print(&mut self, ctx: &egui::Context, sheet: Option<usize>, now: f64) {
-        let project = &self.desk.project;
+        let project = &self.model.project;
         let (document, name) = (project.machine.document(), project.filing.name());
         let (title, sheets) = match sheet {
             None => (name, pdf::project_sheets(document)),
@@ -243,17 +243,17 @@ impl TypewriterApp {
             ),
         };
         let profile = project.machine.profile();
-        let ink_realism = self.desk.settings.look.ink_realism;
+        let ink_realism = self.model.settings.look.ink_realism;
         let told = self
             .printing
             .print(ctx, profile, &sheets, &title, ink_realism);
-        self.desk.notice.show(told, now);
+        self.model.notice.show(told, now);
     }
 
     /// Page geometry for the machine and zoom, jumped to without gliding.
     fn relayout(&mut self) {
-        let profile = self.desk.project.machine.profile();
-        self.metrics = Metrics::new(profile, self.desk.points_per_inch());
+        let profile = self.model.project.machine.profile();
+        self.metrics = Metrics::new(profile, self.model.points_per_inch());
         self.platen.snap();
     }
 
@@ -271,7 +271,7 @@ impl TypewriterApp {
             return;
         };
         match self.fullscreen_sent {
-            Some(sent) if actual != self.desk.settings.look.fullscreen && now - sent < 1.0 => {}
+            Some(sent) if actual != self.model.settings.look.fullscreen && now - sent < 1.0 => {}
             _ => {
                 self.fullscreen_sent = None;
                 self.send(Intent::WindowFullscreen(actual), ctx, now);
@@ -282,15 +282,15 @@ impl TypewriterApp {
 
 #[cfg(any(test, feature = "snapshot"))]
 impl TypewriterApp {
-    /// The window's parts around `desk` on `stage`: no sound, nothing on
+    /// The window's parts around `model` on `stage`: no sound, nothing on
     /// disk.
-    fn nowhere(ctx: &egui::Context, stage: Box<dyn Stage>, mut desk: Desk) -> Self {
-        desk.follow_zoom_min(stage.zoom_min());
-        let background = Background::load(ctx, &mut desk.settings.look, stage.backdrop());
-        let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
+    fn nowhere(ctx: &egui::Context, stage: Box<dyn Stage>, mut model: Model) -> Self {
+        model.follow_zoom_min(stage.zoom_min());
+        let background = Background::load(ctx, &mut model.settings.look, stage.backdrop());
+        let metrics = Metrics::new(model.project.machine.profile(), model.points_per_inch());
         Self {
             stage,
-            desk,
+            model,
             input: Input::default(),
             picker: Picker::default(),
             audio: None,
@@ -312,9 +312,9 @@ impl TypewriterApp {
 
 #[cfg(test)]
 impl TypewriterApp {
-    /// The window's parts around a test desk on the plain app.
+    /// The window's parts around a test model on the plain app.
     fn for_tests(ctx: &egui::Context) -> Self {
-        Self::nowhere(ctx, Box::new(crate::Plain), desk::testing::desk())
+        Self::nowhere(ctx, Box::new(crate::Plain), model::testing::model())
     }
 }
 
@@ -322,7 +322,7 @@ impl eframe::App for TypewriterApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let now = ctx.input(|i| i.time);
-        self.desk.start_frame(now);
+        self.model.start_frame(now);
         self.run_effects(&ctx, now);
         if let Some(input) = self.read_input(&ctx) {
             self.send(input, &ctx, now);
@@ -332,7 +332,7 @@ impl eframe::App for TypewriterApp {
             self.send(Intent::Picked(picked), &ctx, now);
         }
         if let Some(failed) = self.printing.failure() {
-            self.desk.notice.show(failed, now);
+            self.model.notice.show(failed, now);
         }
         while let Some(project) = self.listening.as_ref().and_then(Listening::take) {
             // Wayland may refuse the focus; the desktop then flags the window.
@@ -342,7 +342,7 @@ impl eframe::App for TypewriterApp {
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
             self.send(Intent::CloseWindow, &ctx, now);
         }
-        self.desk.tick(now);
+        self.model.tick(now);
         self.run_effects(&ctx, now);
 
         for intent in self.show(ui, now) {
@@ -355,12 +355,12 @@ impl eframe::App for TypewriterApp {
         {
             self.scrunching = None;
         }
-        if let Err(err) = self.settings_file.keep(&self.desk.settings, now, false) {
-            self.desk.notice.show(err, now);
+        if let Err(err) = self.settings_file.keep(&self.model.settings, now, false) {
+            self.model.notice.show(err, now);
         }
 
-        if self.desk.is_animating(now)
-            || self.stage.is_animating(self.desk.last_return, now)
+        if self.model.is_animating(now)
+            || self.stage.is_animating(self.model.last_return, now)
             || self.platen.is_animating(now)
             || self.picker.is_open()
             || self.settings_file.is_pending()
@@ -371,14 +371,14 @@ impl eframe::App for TypewriterApp {
     }
 
     fn on_exit(&mut self) {
-        if let Err(err) = self.desk.put_away() {
+        if let Err(err) = self.model.put_away() {
             eprintln!("{err}");
         }
         self.running.clear();
         if let Some(listening) = &self.listening {
             listening.stop();
         }
-        if let Err(err) = self.settings_file.keep(&self.desk.settings, 0.0, true) {
+        if let Err(err) = self.settings_file.keep(&self.model.settings, 0.0, true) {
             eprintln!("{err}");
         }
     }

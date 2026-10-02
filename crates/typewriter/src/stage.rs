@@ -1,7 +1,7 @@
-//! The desk edition's hooks into the app: the room behind, the SM9 around
+//! Normal mode's hooks into the app: the room behind, the SM9 around
 //! the sheet, its knobs and front panel for controls, the scale on its bail.
 //!
-//! The desk keeps no state: the app's desk holds what it draws from (the
+//! The scene keeps no state: the app's model holds what it draws from (the
 //! last return), and clicks on its controls come back as rects. It reaches
 //! the app's drawing only through `draw.rs`: share a helper there by
 //! re-exporting it, not by making an app module public.
@@ -21,8 +21,8 @@ use crate::depth;
 use crate::machine::{self, Control, Panel, Throw};
 use crate::room;
 
-/// `typewriter`: the typewriter on a desk, seen from the chair, the default
-/// edition.
+/// `typewriter`: the typewriter on a desk, seen from the chair. Normal
+/// mode, the default.
 pub struct Desk;
 
 impl Stage for Desk {
@@ -190,7 +190,7 @@ mod tests {
             .repeat(6)
     }
 
-    /// Draws the desk to PNGs in `$TYPEWRITER_SNAPSHOT`, to look at:
+    /// Draws the desk scene to PNGs in `$TYPEWRITER_SNAPSHOT`, to look at:
     /// `cargo test -p typewriter --release -- --ignored snapshot`.
     #[test]
     #[ignore]
@@ -300,7 +300,7 @@ mod tests {
     }
 
     /// Times the typing view's frame — `run_ui` plus `ctx.tessellate` —
-    /// the desk against the plain app, empty page and full, in a
+    /// normal against plain, empty page and full, in a
     /// 1600 × 1000 window at 100 % zoom. Run it
     /// in debug and release, e.g.
     /// `TYPEWRITER_BENCH=50 cargo test -p typewriter --release -- --ignored bench --nocapture`.
@@ -320,7 +320,7 @@ mod tests {
             "release"
         };
         println!(
-            "{frames} timed frames, 1600 × 1000 at 100 %, {build}: the desk's solids and vertices per frame."
+            "{frames} timed frames, 1600 × 1000 at 100 %, {build}: the desk scene's solids and vertices per frame."
         );
         println!(
             "{:<14}{:>9}{:>9}{:>11}{:>9}{:>9}{:>8}{:>10}",

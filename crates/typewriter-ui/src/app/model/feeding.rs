@@ -5,7 +5,7 @@
 use typewriter_core::page::{Page, Shift};
 use typewriter_core::{Command, Event};
 
-use super::Desk;
+use super::Model;
 use crate::app::intent::{Effect, Sound};
 use crate::render::feed::FeedMotion;
 use crate::render::folder::Flight;
@@ -87,7 +87,7 @@ impl Feed {
     }
 }
 
-impl Desk {
+impl Model {
     /// Input is locked while a sheet feeds or winds back.
     pub fn is_busy(&self, now: f64) -> bool {
         self.feed.is_feeding(now) || self.feed.wind_back.is_some()
@@ -188,7 +188,7 @@ fn wound_to(from: u16, to: u16, elapsed: f64) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::desk::testing::{press, type_text};
+    use crate::app::model::testing::{press, type_text};
     use crate::input::Action;
     use crate::render::splitmix64;
 
@@ -223,27 +223,27 @@ mod tests {
 
     #[test]
     fn a_new_project_winds_its_first_sheet_in_before_keys_type() {
-        let mut desk = super::super::testing::fresh();
-        desk.start_frame(0.0);
-        assert_eq!(desk.take_effects(), [Effect::Sound(Sound::WindIn)]);
-        assert!(desk.is_busy(0.5));
-        desk.tick(30.0);
-        assert!(!desk.is_busy(30.0));
-        desk.start_frame(30.0);
-        assert!(desk.take_effects().is_empty(), "only once");
+        let mut model = super::super::testing::fresh();
+        model.start_frame(0.0);
+        assert_eq!(model.take_effects(), [Effect::Sound(Sound::WindIn)]);
+        assert!(model.is_busy(0.5));
+        model.tick(30.0);
+        assert!(!model.is_busy(30.0));
+        model.start_frame(30.0);
+        assert!(model.take_effects().is_empty(), "only once");
     }
 
     #[test]
     fn a_typed_sheet_flies_into_the_folder_and_a_blank_one_does_not() {
-        let mut desk = super::super::testing::desk();
-        press(&mut desk, &[Action::Machine(Command::FeedSheet)], 10.0);
-        assert!(desk.feed.flight.is_none(), "blank: nothing filed");
+        let mut model = super::super::testing::model();
+        press(&mut model, &[Action::Machine(Command::FeedSheet)], 10.0);
+        assert!(model.feed.flight.is_none(), "blank: nothing filed");
 
-        type_text(&mut desk, "done", 20.0);
-        press(&mut desk, &[Action::Machine(Command::FeedSheet)], 30.0);
-        assert!(desk.feed.flight.is_some());
-        assert!(desk.is_animating(31.0));
-        desk.tick(40.0);
-        assert!(!desk.is_animating(40.0), "landed and still");
+        type_text(&mut model, "done", 20.0);
+        press(&mut model, &[Action::Machine(Command::FeedSheet)], 30.0);
+        assert!(model.feed.flight.is_some());
+        assert!(model.is_animating(31.0));
+        model.tick(40.0);
+        assert!(!model.is_animating(40.0), "landed and still");
     }
 }

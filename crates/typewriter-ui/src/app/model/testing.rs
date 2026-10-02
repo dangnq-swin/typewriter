@@ -3,7 +3,7 @@
 
 use typewriter_core::{Command, Constraints, Typewriter};
 
-use super::Desk;
+use super::Model;
 use crate::app::intent::Intent;
 use crate::filing::Filing;
 use crate::input::Action;
@@ -15,7 +15,7 @@ use crate::settings::Settings;
 const SETTLED: f64 = 5.0;
 
 /// Its first sheet not yet wound in.
-pub fn fresh_with(settings: Settings) -> Desk {
+pub fn fresh_with(settings: Settings) -> Model {
     let machines = Machines::built_in().unwrap();
     let profile = machines.for_new(&settings.machine.profile);
     let constraints = settings
@@ -23,7 +23,7 @@ pub fn fresh_with(settings: Settings) -> Desk {
         .rules
         .constraints(Constraints::default().erase);
     let machine = Typewriter::new(profile, constraints).unwrap();
-    Desk::new(
+    Model::new(
         machine,
         Filing::nowhere(),
         settings,
@@ -32,27 +32,27 @@ pub fn fresh_with(settings: Settings) -> Desk {
     )
 }
 
-pub fn fresh() -> Desk {
+pub fn fresh() -> Model {
     fresh_with(Settings::default())
 }
 
 /// Ready to type from time [`SETTLED`], its first sheet in.
-pub fn desk_with(settings: Settings) -> Desk {
-    let mut desk = fresh_with(settings);
-    desk.start_frame(0.0);
-    desk.tick(SETTLED);
-    desk.take_effects();
-    desk
+pub fn model_with(settings: Settings) -> Model {
+    let mut model = fresh_with(settings);
+    model.start_frame(0.0);
+    model.tick(SETTLED);
+    model.take_effects();
+    model
 }
 
-pub fn desk() -> Desk {
-    desk_with(Settings::default())
+pub fn model() -> Model {
+    model_with(Settings::default())
 }
 
 /// `keys` in one frame at `now`.
-pub fn press(desk: &mut Desk, keys: &[Action], now: f64) {
+pub fn press(model: &mut Model, keys: &[Action], now: f64) {
     let keys = keys.to_vec();
-    desk.update(
+    model.update(
         Intent::Input {
             keys,
             wheel: 0.0,
@@ -63,9 +63,9 @@ pub fn press(desk: &mut Desk, keys: &[Action], now: f64) {
 }
 
 /// `text`, a key a frame, a tenth of a second apart from `now`.
-pub fn type_text(desk: &mut Desk, text: &str, now: f64) {
+pub fn type_text(model: &mut Model, text: &str, now: f64) {
     for (i, c) in text.chars().enumerate() {
         let at = now + 0.1 * i as f64;
-        press(desk, &[Action::Machine(Command::Type(c))], at);
+        press(model, &[Action::Machine(Command::Type(c))], at);
     }
 }

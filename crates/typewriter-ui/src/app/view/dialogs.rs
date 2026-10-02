@@ -2,12 +2,12 @@
 
 use eframe::egui;
 
-use crate::app::desk::{Answer, Desk};
 use crate::app::intent::Intent;
+use crate::app::model::{Answer, Model};
 
 /// The "Scrunch up sheet N?" modal, until answered.
-pub fn confirm_scrunch(ctx: &egui::Context, desk: &Desk) -> Option<Intent> {
-    let index = desk.overlays.confirm_scrunch?;
+pub fn confirm_scrunch(ctx: &egui::Context, model: &Model) -> Option<Intent> {
+    let index = model.overlays.confirm_scrunch?;
     let modal = egui::Modal::new(egui::Id::new("confirm-scrunch")).show(ctx, |ui| {
         ui.set_width(300.0);
         ui.heading(format!("Scrunch up sheet {}?", index + 1));
@@ -31,9 +31,9 @@ pub fn confirm_scrunch(ctx: &egui::Context, desk: &Desk) -> Option<Intent> {
 }
 
 /// The leave dialog: what to do with a draft or unsaved changes.
-pub fn leaving(ctx: &egui::Context, desk: &Desk) -> Option<Intent> {
-    desk.leaving.as_ref()?;
-    let filing = &desk.project.filing;
+pub fn leaving(ctx: &egui::Context, model: &Model) -> Option<Intent> {
+    model.leaving.as_ref()?;
+    let filing = &model.project.filing;
     let draft = !filing.is_saved();
     let name = filing.name();
     let modal = egui::Modal::new(egui::Id::new("leaving")).show(ctx, |ui| {

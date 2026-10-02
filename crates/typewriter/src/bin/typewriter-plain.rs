@@ -1,4 +1,4 @@
-//! `typewriter-plain`: the plain edition, the focused writing tool —
+//! `typewriter-plain`: plain mode, the focused writing tool —
 //! the app of `typewriter-ui` opened on its `Plain` stage.
 
 // Release builds on Windows: no console window beside the app. Nothing

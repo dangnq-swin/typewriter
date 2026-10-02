@@ -1,6 +1,6 @@
 # A Windows build for testers, started by hand (Actions → Windows build → Run
-# workflow). The download holds both editions: `typewriter.exe` is the desk,
-# the default, beside `typewriter-plain.exe` and `typewriter-import.exe`.
+# workflow). The download holds both modes: `typewriter.exe` is the normal
+# one, the default, beside `typewriter-plain.exe` and `typewriter-import.exe`.
 name: Windows build
 
 on: workflow_dispatch

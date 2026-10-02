@@ -1,4 +1,4 @@
-//! What an edition draws around the sheet, through [`Stage`]'s hooks. Each
+//! What a mode draws around the sheet, through [`Stage`]'s hooks. Each
 //! default is the plain app's: the chosen background behind, the sheet flat
 //! on it, the scale and knobs hanging from the typing line, the plates below.
 
@@ -77,7 +77,7 @@ pub struct Controls<'a> {
     pub keeping: &'a Keeping,
 }
 
-/// An edition: its name, and what it draws around the sheet. The typing
+/// A mode: its name, and what it draws around the sheet. The typing
 /// view calls the hooks in its order: behind the sheets, the knobs and the
 /// scale, then over the sheets.
 pub trait Stage {

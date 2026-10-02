@@ -1,6 +1,6 @@
-//! Drawing the desk: the view that fills the window, what lies over it, and
+//! Drawing the model: the view that fills the window, what lies over it, and
 //! the dialogs. What the user asks comes back as [`Intent`]s. Only egui's
-//! own editors change the desk directly: text fields, the notebook, the
+//! own editors change the model directly: text fields, the notebook, the
 //! copy holder's guide and the settings card.
 
 mod dialogs;
@@ -11,8 +11,8 @@ mod typing;
 use eframe::egui::{self, Rect};
 
 use super::TypewriterApp;
-use super::desk::View;
 use super::intent::Intent;
+use super::model::View;
 use crate::render::{self, scrunch};
 
 impl TypewriterApp {
@@ -24,7 +24,7 @@ impl TypewriterApp {
             .show(ui, |ui| {
                 let view = ui.max_rect();
                 self.background.paint(&ui.painter_at(view), view);
-                match self.desk.view {
+                match self.model.view {
                     View::Typing => {
                         self.show_typing(ui, now, &mut intents);
                         // Last: above the paper and the knob beside it,
@@ -36,37 +36,42 @@ impl TypewriterApp {
                     View::Settings => self.show_settings(ui, view, &mut intents),
                 }
                 self.show_notebook(ui, view, &mut intents);
-                if self.desk.view == View::Folder {
+                if self.model.view == View::Folder {
                     self.show_log(ui, view, &mut intents);
                 }
                 self.paint_scrunching(ui, now);
-                self.desk.notice.paint(ui.ctx(), view, now);
+                self.model.notice.paint(ui.ctx(), view, now);
             });
         let ctx = ui.ctx();
-        intents.extend(dialogs::confirm_scrunch(ctx, &self.desk));
-        intents.extend(dialogs::leaving(ctx, &self.desk));
+        intents.extend(dialogs::confirm_scrunch(ctx, &self.model));
+        intents.extend(dialogs::leaving(ctx, &self.model));
         intents
     }
 
     /// The settings card, edited in place.
     fn show_settings(&mut self, ui: &mut egui::Ui, view: Rect, intents: &mut Vec<Intent>) {
-        let desk = &mut self.desk;
-        let before = desk.settings.clone();
+        let model = &mut self.model;
+        let before = model.settings.clone();
         // No background row over a backdrop: the look's isn't used.
         let problem = self
             .stage
             .backdrop()
             .is_none()
             .then(|| self.background.problem());
-        let card =
-            render::settings::show_settings(ui, view, &mut desk.settings, &desk.machines, problem);
+        let card = render::settings::show_settings(
+            ui,
+            view,
+            &mut model.settings,
+            &model.machines,
+            problem,
+        );
         if card.choose_texture {
             intents.push(Intent::ChooseTexture);
         }
         if render::settings::gear_icon(ui, view, 1.0) || card.close {
             intents.push(Intent::CloseSettings);
         }
-        if desk.settings != before {
+        if model.settings != before {
             intents.push(Intent::SettingsEdited(Box::new(before)));
         }
     }
@@ -96,9 +101,9 @@ mod tests {
     use typewriter_core::Command;
 
     use super::*;
-    use crate::app::desk::testing::{press, type_text};
-    use crate::app::desk::{Answer, Leaving};
     use crate::app::fonts;
+    use crate::app::model::testing::{press, type_text};
+    use crate::app::model::{Answer, Leaving};
     use crate::draw::{Controls, Metrics, Scene};
     use crate::input::Action;
     use crate::render::folder::FolderAction;
@@ -121,38 +126,38 @@ mod tests {
         let ctx = egui::Context::default();
         fonts::install(&ctx);
         let mut app = TypewriterApp::for_tests(&ctx);
-        let desk = &mut app.desk;
-        type_text(desk, "a finished sheet", 10.0);
-        press(desk, &[Action::Machine(Command::FeedSheet)], 20.0);
-        type_text(desk, "on the next", 20.5);
+        let model = &mut app.model;
+        type_text(model, "a finished sheet", 10.0);
+        press(model, &[Action::Machine(Command::FeedSheet)], 20.0);
+        type_text(model, "on the next", 20.5);
 
         // Feeding, a sheet on the holder, the notebook open.
-        desk.update(Intent::Folder(FolderAction::PutOnHolder), 21.0);
-        desk.update(Intent::OpenNotebook, 21.0);
-        assert!(app.desk.feed.feeding.is_some());
+        model.update(Intent::Folder(FolderAction::PutOnHolder), 21.0);
+        model.update(Intent::OpenNotebook, 21.0);
+        assert!(app.model.feed.feeding.is_some());
         frame(&mut app, &ctx, 21.0);
 
-        let desk = &mut app.desk;
-        desk.update(Intent::CloseNotebook, 30.0);
-        desk.update(Intent::OpenFolder, 30.0);
-        desk.update(Intent::Folder(FolderAction::Rename), 30.0);
-        desk.update(Intent::OpenLog, 30.0);
+        let model = &mut app.model;
+        model.update(Intent::CloseNotebook, 30.0);
+        model.update(Intent::OpenFolder, 30.0);
+        model.update(Intent::Folder(FolderAction::Rename), 30.0);
+        model.update(Intent::OpenLog, 30.0);
         frame(&mut app, &ctx, 30.0);
 
-        let desk = &mut app.desk;
-        desk.overlays = Default::default();
-        desk.update(Intent::OpenSheet(0), 31.0);
-        desk.update(Intent::StartNote, 31.0);
-        desk.overlays.confirm_scrunch = Some(0);
+        let model = &mut app.model;
+        model.overlays = Default::default();
+        model.update(Intent::OpenSheet(0), 31.0);
+        model.update(Intent::StartNote, 31.0);
+        model.overlays.confirm_scrunch = Some(0);
         frame(&mut app, &ctx, 31.0);
 
-        let desk = &mut app.desk;
-        desk.overlays = Default::default();
-        desk.update(Intent::OpenSettings, 32.0);
-        desk.leaving = Some(Leaving::New);
+        let model = &mut app.model;
+        model.overlays = Default::default();
+        model.update(Intent::OpenSettings, 32.0);
+        model.leaving = Some(Leaving::New);
         frame(&mut app, &ctx, 32.0);
-        app.desk.update(Intent::Leave(Answer::Cancel), 33.0);
-        assert_eq!(app.desk.view, View::Settings);
+        app.model.update(Intent::Leave(Answer::Cancel), 33.0);
+        assert_eq!(app.model.view, View::Settings);
     }
 
     /// A stage noting which hooks the typing view calls, in order, each

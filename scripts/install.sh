@@ -1,7 +1,7 @@
 #!/bin/sh
-# Installs typewriter for the current user: the `typewriter` command (the desk
-# edition) and `typewriter-plain`, their desktop entries and icon, and the
-# project file type, so file managers open projects in the desk edition. In
+# Installs typewriter for the current user: the `typewriter` command (normal
+# mode) and `typewriter-plain` (plain), their desktop entries and icon, and the
+# project file type, so file managers open projects in Typewriter. In
 # the source tree it builds first; in a release tarball it installs the
 # programs beside it.
 #
@@ -52,20 +52,20 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 if [ -x "$here/typewriter" ]; then
     # A release tarball: everything lies beside this script.
-    desk="$here/typewriter" plain="$here/typewriter-plain" icon="$here/typewriter.svg"
+    normal="$here/typewriter" plain="$here/typewriter-plain" icon="$here/typewriter.svg"
     desktop="$here/typewriter.desktop" plain_desktop="$here/typewriter-plain.desktop"
     mime="$here/typewriter.xml"
 else
     cd "$here/.."
     cargo build --release --locked --workspace --bins
-    desk=target/release/typewriter plain=target/release/typewriter-plain
+    normal=target/release/typewriter plain=target/release/typewriter-plain
     icon=assets/icons/typewriter.svg
     desktop=packaging/linux/typewriter.desktop
     plain_desktop=packaging/linux/typewriter-plain.desktop
     mime=packaging/linux/typewriter.xml
 fi
 
-install -Dm755 "$desk" "$BIN"
+install -Dm755 "$normal" "$BIN"
 install -Dm755 "$plain" "$BIN_PLAIN"
 install -Dm644 "$icon" "$ICON"
 install -Dm644 "$icon" "$FILE_ICON"

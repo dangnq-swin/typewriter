@@ -30,10 +30,10 @@ scripts/install.sh
 
 Install script install these:
 
-- the `typewriter` command — the desk edition, seen from the chair — and
-  `typewriter-plain`, the focused writing tool, both in `~/.local/bin`
-- **Typewriter** in your desktop's app menu, with its icon, opening the desk
-  edition, and **Typewriter Plain** beside it
+- the `typewriter` command — normal mode, the desk seen from the chair — and
+  `typewriter-plain`, plain mode, the focused writing tool, both in `~/.local/bin`
+- **Typewriter** in your desktop's app menu, with its icon, and
+  **Typewriter Plain** beside it
 - the `.typr` project file type: project files open in Typewriter from your file manager, in the
   window already open if there is one
 

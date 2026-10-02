@@ -17,7 +17,7 @@ use crate::storage;
 const WRITE_AFTER_SECONDS: f64 = 0.5;
 
 /// The zoom's notches, a wheel step apart: in ratio far out, in tens from
-/// 70 %, where fine control matters. An edition may stop short of the first.
+/// 70 %, where fine control matters. A mode may stop short of the first.
 pub const ZOOM_NOTCHES: [u16; 18] = [
     25, 35, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
 ];

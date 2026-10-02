@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use typewriter_core::Typewriter;
 
-use super::{Desk, Overlays, Project, View};
+use super::{Model, Overlays, Project, View};
 use crate::app::intent::Effect;
 use crate::filing::{self, Filing};
 use crate::picker::{Dialog, Picked};
@@ -29,7 +29,7 @@ pub enum Answer {
     Cancel,
 }
 
-impl Desk {
+impl Model {
     /// Work would be put away unsaved: a draft with work, or changes with
     /// autosave off.
     fn must_ask(&self) -> bool {
@@ -169,84 +169,84 @@ impl Desk {
 // path in the data folder, and would be written.
 #[cfg(test)]
 mod tests {
-    use super::super::testing::{desk, type_text};
+    use super::super::testing::{model, type_text};
     use super::*;
     use crate::app::intent::Intent;
     use crate::render::folder::FolderAction;
 
-    fn is_blank(desk: &Desk) -> bool {
-        desk.project.machine.page().is_blank()
+    fn is_blank(model: &Model) -> bool {
+        model.project.machine.page().is_blank()
     }
 
     #[test]
     fn a_project_from_the_file_manager_asks_first_like_open() {
-        let mut desk = desk();
-        type_text(&mut desk, "unsaved", 10.0);
+        let mut model = model();
+        type_text(&mut model, "unsaved", 10.0);
         let path = PathBuf::from("/nowhere/novel.typr");
-        desk.update(Intent::OpenFile(path.clone()), 11.0);
-        assert_eq!(desk.leaving, Some(Leaving::Open(path)));
+        model.update(Intent::OpenFile(path.clone()), 11.0);
+        assert_eq!(model.leaving, Some(Leaving::Open(path)));
     }
 
     #[test]
     fn the_project_already_in_is_not_opened_again() {
-        let mut desk = desk();
+        let mut model = model();
         let path = PathBuf::from("/nowhere/novel.typr");
-        desk.project.filing = Filing::at(path.clone());
-        type_text(&mut desk, "kept", 10.0);
-        desk.update(Intent::OpenFile(path), 11.0);
-        assert!(desk.leaving.is_none());
-        assert!(!is_blank(&desk), "still the same sheet");
+        model.project.filing = Filing::at(path.clone());
+        type_text(&mut model, "kept", 10.0);
+        model.update(Intent::OpenFile(path), 11.0);
+        assert!(model.leaving.is_none());
+        assert!(!is_blank(&model), "still the same sheet");
     }
 
     #[test]
     fn an_untouched_draft_is_left_without_asking() {
-        let mut desk = desk();
-        desk.update(Intent::Folder(FolderAction::New), 10.0);
-        assert_eq!(desk.leaving, None);
-        assert!(desk.take_effects().contains(&Effect::MachineChanged));
+        let mut model = model();
+        model.update(Intent::Folder(FolderAction::New), 10.0);
+        assert_eq!(model.leaving, None);
+        assert!(model.take_effects().contains(&Effect::MachineChanged));
     }
 
     #[test]
     fn a_draft_with_work_is_not_put_away_without_asking() {
-        let mut desk = desk();
-        type_text(&mut desk, "chapter one", 10.0);
-        desk.update(Intent::Folder(FolderAction::New), 20.0);
-        assert_eq!(desk.leaving, Some(Leaving::New));
-        assert!(desk.keys_to_fields());
-        desk.update(Intent::Leave(Answer::Cancel), 21.0);
-        assert!(desk.leaving.is_none() && !is_blank(&desk));
+        let mut model = model();
+        type_text(&mut model, "chapter one", 10.0);
+        model.update(Intent::Folder(FolderAction::New), 20.0);
+        assert_eq!(model.leaving, Some(Leaving::New));
+        assert!(model.keys_to_fields());
+        model.update(Intent::Leave(Answer::Cancel), 21.0);
+        assert!(model.leaving.is_none() && !is_blank(&model));
 
-        desk.update(Intent::Folder(FolderAction::New), 22.0);
-        desk.update(Intent::Leave(Answer::Discard), 23.0);
-        assert!(is_blank(&desk));
-        assert_eq!(desk.view, View::Typing);
-        desk.start_frame(24.0);
-        assert!(desk.is_busy(24.5), "its sheet winds in");
+        model.update(Intent::Folder(FolderAction::New), 22.0);
+        model.update(Intent::Leave(Answer::Discard), 23.0);
+        assert!(is_blank(&model));
+        assert_eq!(model.view, View::Typing);
+        model.start_frame(24.0);
+        assert!(model.is_busy(24.5), "its sheet winds in");
     }
 
     #[test]
     fn closing_the_window_asks_about_a_draft_with_work_first() {
-        let mut desk = desk();
-        desk.update(Intent::CloseWindow, 10.0);
-        assert!(desk.take_effects().is_empty(), "nothing to ask: it closes");
-        type_text(&mut desk, "notes", 11.0);
-        desk.take_effects();
-        desk.update(Intent::CloseWindow, 12.0);
-        assert_eq!(desk.take_effects(), [Effect::CancelClose]);
-        assert_eq!(desk.leaving, Some(Leaving::Quit));
-        desk.update(Intent::Leave(Answer::Keep), 13.0);
-        assert_eq!(desk.take_effects(), [Effect::Close]);
+        let mut model = model();
+        model.update(Intent::CloseWindow, 10.0);
+        assert!(model.take_effects().is_empty(), "nothing to ask: it closes");
+        type_text(&mut model, "notes", 11.0);
+        model.take_effects();
+        model.update(Intent::CloseWindow, 12.0);
+        assert_eq!(model.take_effects(), [Effect::CancelClose]);
+        assert_eq!(model.leaving, Some(Leaving::Quit));
+        model.update(Intent::Leave(Answer::Keep), 13.0);
+        assert_eq!(model.take_effects(), [Effect::Close]);
     }
 
     #[test]
     fn save_as_asks_where_and_leaves_once_saved() {
-        let mut desk = desk();
-        type_text(&mut desk, "notes", 11.0);
-        desk.update(Intent::CloseWindow, 12.0);
-        desk.take_effects();
-        desk.update(Intent::Leave(Answer::SaveAs), 13.0);
-        assert_eq!(desk.take_effects(), [Effect::Ask(Dialog::SaveAs)]);
-        desk.update(Intent::Picked(Picked::Cancelled), 14.0);
-        assert!(desk.take_effects().is_empty(), "cancelled: stays open");
+        let mut model = model();
+        type_text(&mut model, "notes", 11.0);
+        model.update(Intent::CloseWindow, 12.0);
+        model.take_effects();
+        model.update(Intent::Leave(Answer::SaveAs), 13.0);
+        assert_eq!(model.take_effects(), [Effect::Ask(Dialog::SaveAs)]);
+        model.update(Intent::Picked(Picked::Cancelled), 14.0);
+        assert!(model.take_effects().is_empty(), "cancelled: stays open");
     }
 }

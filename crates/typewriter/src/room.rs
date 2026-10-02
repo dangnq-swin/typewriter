@@ -1,4 +1,4 @@
-//! The desk edition's room, seen from the chair: a wall, and the desktop
+//! The room around the desk, seen from the chair: a wall, and the desktop
 //! running from under the window's bottom edge back to it. Fixed to the
 //! window, like the plain app's paper.
 

@@ -483,13 +483,13 @@ mod tests {
     }
 
     /// A window-less egui with the pencil font, typing into an open book.
-    struct Desk {
+    struct Harness {
         ctx: eframe::egui::Context,
         book: Notebook,
         writing: Writing,
     }
 
-    impl Desk {
+    impl Harness {
         fn open_at(spread: usize) -> Self {
             use eframe::egui::{FontData, FontDefinitions};
             let ctx = eframe::egui::Context::default();
@@ -506,10 +506,10 @@ mod tests {
             let mut book = Notebook::default();
             book.open_at(spread);
             let writing = Writing::open(&book);
-            let mut desk = Self { ctx, book, writing };
-            desk.frame(Vec::new()); // Fonts load.
-            desk.frame(Vec::new()); // Focus arrives.
-            desk
+            let mut harness = Self { ctx, book, writing };
+            harness.frame(Vec::new()); // Fonts load.
+            harness.frame(Vec::new()); // Focus arrives.
+            harness
         }
 
         fn frame(&mut self, events: Vec<eframe::egui::Event>) {
@@ -548,39 +548,39 @@ mod tests {
 
     #[test]
     fn every_dotted_line_takes_writing_and_a_full_left_page_runs_on_to_the_right() {
-        let mut desk = Desk::open_at(1);
-        assert_eq!(desk.writing.page, 1);
-        let lines = desk.lines();
+        let mut harness = Harness::open_at(1);
+        assert_eq!(harness.writing.page, 1);
+        let lines = harness.lines();
         for _ in 1..lines {
-            desk.key(Key::Enter);
+            harness.key(Key::Enter);
         }
-        desk.text("last");
+        harness.text("last");
         assert_eq!(
-            desk.writing.page, 1,
+            harness.writing.page, 1,
             "the last line is still the left page's"
         );
-        assert_eq!(desk.book.page(1).lines().last(), Some("last"));
-        desk.key(Key::Enter);
-        assert_eq!(desk.writing.page, 2);
-        assert!(!desk.book.page(1).ends_with('\n'));
-        desk.frame(Vec::new());
-        desk.text("next");
-        assert_eq!(desk.book.page(2), "next");
-        assert_eq!(desk.book.page(1).lines().count(), lines);
+        assert_eq!(harness.book.page(1).lines().last(), Some("last"));
+        harness.key(Key::Enter);
+        assert_eq!(harness.writing.page, 2);
+        assert!(!harness.book.page(1).ends_with('\n'));
+        harness.frame(Vec::new());
+        harness.text("next");
+        assert_eq!(harness.book.page(2), "next");
+        assert_eq!(harness.book.page(1).lines().count(), lines);
     }
 
     #[test]
     fn a_full_right_page_turns_the_leaf() {
-        let mut desk = Desk::open_at(1);
-        desk.writing = Writing::at_end(&desk.book, 2);
-        desk.frame(Vec::new());
-        for _ in 0..desk.lines() {
-            desk.key(Key::Enter);
+        let mut harness = Harness::open_at(1);
+        harness.writing = Writing::at_end(&harness.book, 2);
+        harness.frame(Vec::new());
+        for _ in 0..harness.lines() {
+            harness.key(Key::Enter);
         }
-        assert_eq!((desk.book.spread(), desk.writing.page), (2, 3));
-        desk.frame(Vec::new());
-        desk.text("over");
-        assert_eq!(desk.book.page(3), "over");
+        assert_eq!((harness.book.spread(), harness.writing.page), (2, 3));
+        harness.frame(Vec::new());
+        harness.text("over");
+        assert_eq!(harness.book.page(3), "over");
     }
 
     #[test]

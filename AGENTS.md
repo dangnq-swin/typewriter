@@ -5,9 +5,10 @@ Guidance for AI coding agents (and humans) working on this repository.
 ## Project overview
 
 **typewriter** is a native desktop typewriter simulator in Rust: fixed pitch, one line width, a margin bell,
-a manual carriage return, typewriter sounds, text on a textured sheet. Two editions on one library:
-`typewriter`, the desk edition, the default; and `typewriter-plain`, a focused writing tool, the same
-machine without the room. The default profile is the **Olympia SM9**; other machines come later as profiles.
+a manual carriage return, typewriter sounds, text on a textured sheet. Two modes on one library:
+`typewriter`, normal mode — the machine on its desk, seen from the chair — the default; and
+`typewriter-plain`, plain mode, a focused writing tool, the same machine without the room.
+The default profile is the **Olympia SM9**; other machines come later as profiles.
 [`ROADMAP.md`](ROADMAP.md) lists what comes next: a done item gets `- [x]`; a finished section leaves the
 file. `README.md` is the maintainer's: keep only its *Controls* section current.
 
@@ -15,8 +16,8 @@ file. `README.md` is the maintainer's: keep only its *Controls* section current.
 
 - **Only what a typewriter or a real desk can do.** Every feature needs a real-world counterpart: the
   machine, paper, a folder, a copy holder. No search across sheets, no ambient soundtracks.
-- **The plain app's look is settled.** New parts drawn around the paper (levers, the margin rack) are the
-  desk's only.
+- **The plain app's look is settled.** New parts drawn around the paper (levers, the margin rack)
+  are for normal mode's desk only.
 
 ## Working agreement: ask before assuming
 
@@ -41,10 +42,10 @@ focus with Tab and clicks a focused control on Enter, so the typewriter's own ke
   `serde` types); the app handles all side effects. The core emits **events** (`Bell`, `CarriageReturn`,
   `KeyStrike`, `PageEnd`) for the app to turn into sounds — never audio from the core.
 - Machine characteristics belong in profile data (`profiles/*.toml`), not constants.
-- The app decides in its model, the flat desk of folders and notes (`app/desk/` — not the desk
-  edition), which knows no egui, sound or window: views push `Intent`s, `app/mod.rs` does the
-  `Effect`s. Test app behaviour there (`desk/testing.rs`).
-- The app's modules stay private unless an edition or `typewriter-import` needs them.
+- The app decides in its model (`app/model/`), the flat desk of folders and notes, which knows no
+  egui, sound or window: views push `Intent`s, `app/mod.rs` does the
+  `Effect`s. Test app behaviour there (`model/testing.rs`).
+- The app's modules stay private unless a mode or `typewriter-import` needs them.
 - The command line is Linux only, in `terminal.rs`; commands are flags (`--import`), never bare words: a
   bare word is a project file. On Windows `typewriter` has no console, so `typewriter-import` is the one
   console program.
@@ -66,8 +67,8 @@ why a parse must not ignore fields — are `document.rs`'s module doc; read it b
 
 ```sh
 cargo build --workspace
-cargo run                     # typewriter, the desk edition
-cargo run --bin typewriter-plain   # the plain app
+cargo run                     # typewriter, normal mode
+cargo run --bin typewriter-plain   # typewriter-plain, plain mode
 cargo test --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -76,7 +77,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 A change is done when fmt, clippy and tests pass; the workspace lints plus `-D warnings` deny
 `unwrap`/`expect` outside tests. Look at a drawing change by snapshot, not by guessing. The CPU twin —
 the `snapshot` feature, which fills the desk's depth pass without a display — draws the typing views of
-**both editions** to PNGs, scene after scene; the desk's `stage.rs` test holds the shots and is where a
+**both modes** to PNGs, scene after scene; normal mode's `stage.rs` test holds the shots and is where a
 new scene gets added:
 
 ```sh
@@ -92,8 +93,10 @@ TYPEWRITER_GPU_SNAPSHOT=<folder> xvfb-run -a cargo test -p typewriter -- --ignor
 
 ### CI
 
-`checks.yml` runs fmt, clippy and tests on every push — keep it in step with the commands above. Check a run where CI is the only witness (a `vX.Y.Z` tag, a change to `release.yml` or the packaging) and report a 
-failure with its log (`gh`, the GitHub MCP server, or the API). `scripts/smoke-test.sh` proves a build opens a window wherever `xvfb-run` is installed.
+`checks.yml` runs fmt, clippy and tests on every push — keep it in step with the commands above. Only
+check CI when it is the only witness (a `vX.Y.Z` tag, a change to `release.yml` or the packaging) and 
+report a failure with its log (`gh`, the GitHub MCP server, or the API). `scripts/smoke-test.sh` proves 
+a build opens a window wherever `xvfb-run` is installed.
 
 ### Releases
 
@@ -132,5 +135,5 @@ save) are always shown.
 ## Commits and branches
 
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`), with `desk:` after the
-  type for the desk edition (`feat: desk: …`).
+  type for normal mode (`feat: desk: …`).
 - One logical change per commit. Do not commit or push unless asked.

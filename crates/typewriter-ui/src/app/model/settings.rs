@@ -4,12 +4,12 @@ use std::path::PathBuf;
 
 use typewriter_core::Goal;
 
-use super::{Desk, View};
+use super::{Model, View};
 use crate::app::intent::Effect;
 use crate::render;
 use crate::settings::{self, Settings, ZOOM_NOTCHES, zoom_notch};
 
-impl Desk {
+impl Model {
     pub(super) fn toggle_fullscreen(&mut self) {
         let look = &mut self.settings.look;
         look.fullscreen = !look.fullscreen;
@@ -21,7 +21,7 @@ impl Desk {
         self.set_zoom(zoomed(self.zoom_percent, steps, self.zoom_min));
     }
 
-    /// Zooms no further out than `least`, the edition's.
+    /// Zooms no further out than `least`, the mode's.
     pub fn follow_zoom_min(&mut self, least: u16) {
         self.zoom_min = least;
         self.zoom_percent = self.zoom_percent.max(least);
@@ -103,7 +103,7 @@ fn zoomed(percent: u16, steps: i32, least: u16) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::super::testing::{desk, press};
+    use super::super::testing::{model, press};
     use super::*;
     use crate::app::intent::Intent;
     use crate::input::Action;
@@ -114,7 +114,7 @@ mod tests {
         assert_eq!(zoomed(100, 1, 50), 110);
         assert_eq!(zoomed(100, -1, 50), 90);
         assert_eq!(zoomed(200, 1, 50), 200);
-        assert_eq!(zoomed(50, -1, 50), 50, "the edition's furthest out");
+        assert_eq!(zoomed(50, -1, 50), 50, "the mode's furthest out");
         // In ratio far out: coarser below 70 %.
         assert_eq!(zoomed(70, -1, 25), 60);
         assert_eq!(zoomed(50, -1, 25), 35);
@@ -123,64 +123,64 @@ mod tests {
     }
 
     #[test]
-    fn an_edition_zooms_no_further_out_than_its_least() {
-        let mut desk = desk();
-        desk.set_zoom(25);
-        assert_eq!(desk.zoom_percent, 25);
-        desk.follow_zoom_min(50);
-        assert_eq!(desk.zoom_percent, 50);
-        desk.zoom(-3);
-        assert_eq!(desk.zoom_percent, 50);
+    fn a_mode_zooms_no_further_out_than_its_least() {
+        let mut model = model();
+        model.set_zoom(25);
+        assert_eq!(model.zoom_percent, 25);
+        model.follow_zoom_min(50);
+        assert_eq!(model.zoom_percent, 50);
+        model.zoom(-3);
+        assert_eq!(model.zoom_percent, 50);
     }
 
     #[test]
     fn f11_switches_fullscreen_in_the_settings_and_the_window() {
-        let mut desk = desk();
-        let was = desk.settings.look.fullscreen;
-        press(&mut desk, &[Action::Fullscreen], 10.0);
-        assert_eq!(desk.settings.look.fullscreen, !was);
-        assert_eq!(desk.take_effects(), [Effect::Fullscreen(!was)]);
+        let mut model = model();
+        let was = model.settings.look.fullscreen;
+        press(&mut model, &[Action::Fullscreen], 10.0);
+        assert_eq!(model.settings.look.fullscreen, !was);
+        assert_eq!(model.take_effects(), [Effect::Fullscreen(!was)]);
     }
 
     #[test]
     fn an_edited_card_puts_its_rules_and_zoom_into_effect() {
-        let mut desk = desk();
-        desk.update(Intent::OpenSettings, 10.0);
-        let before = desk.settings.clone();
-        desk.settings.machine.rules.type_jams = true;
-        desk.settings.look.zoom_percent = 150;
-        desk.update(Intent::SettingsEdited(Box::new(before)), 10.0);
-        assert!(desk.project.machine.constraints.type_jams);
-        assert_eq!(desk.zoom_percent, 150);
-        let effects = desk.take_effects();
+        let mut model = model();
+        model.update(Intent::OpenSettings, 10.0);
+        let before = model.settings.clone();
+        model.settings.machine.rules.type_jams = true;
+        model.settings.look.zoom_percent = 150;
+        model.update(Intent::SettingsEdited(Box::new(before)), 10.0);
+        assert!(model.project.machine.constraints.type_jams);
+        assert_eq!(model.zoom_percent, 150);
+        let effects = model.take_effects();
         assert!(effects.contains(&Effect::Zoomed));
         assert!(effects.contains(&Effect::SettingsChanged));
-        press(&mut desk, &[Action::Escape], 11.0);
-        assert_eq!(desk.view, View::Typing);
+        press(&mut model, &[Action::Escape], 11.0);
+        assert_eq!(model.view, View::Typing);
     }
 
     #[test]
     fn the_goal_plate_cycles_the_session_and_the_setting_together() {
-        let mut desk = desk();
-        desk.update(Intent::NextGoal, 10.0);
-        let goal = desk.project.session.goal();
+        let mut model = model();
+        model.update(Intent::NextGoal, 10.0);
+        let goal = model.project.session.goal();
         assert!(goal.is_some());
-        assert_eq!(desk.settings.goals.goal, goal);
+        assert_eq!(model.settings.goals.goal, goal);
     }
 
     #[test]
     fn a_chosen_texture_becomes_the_background() {
-        let mut desk = desk();
-        desk.update(Intent::OpenSettings, 10.0);
-        desk.take_effects();
-        desk.update(Intent::ChooseTexture, 10.0);
-        assert_eq!(desk.take_effects(), [Effect::Ask(Dialog::Texture)]);
-        let path = PathBuf::from("/desk/linen.png");
-        desk.update(Intent::Picked(Picked::Texture(path.clone())), 11.0);
-        let look = &desk.settings.look;
+        let mut model = model();
+        model.update(Intent::OpenSettings, 10.0);
+        model.take_effects();
+        model.update(Intent::ChooseTexture, 10.0);
+        assert_eq!(model.take_effects(), [Effect::Ask(Dialog::Texture)]);
+        let path = PathBuf::from("/model/linen.png");
+        model.update(Intent::Picked(Picked::Texture(path.clone())), 11.0);
+        let look = &model.settings.look;
         assert_eq!(look.background, settings::Background::Texture);
         assert_eq!(look.background_texture, Some(path));
-        assert_eq!(desk.take_effects(), [Effect::SettingsChanged]);
-        assert_eq!(desk.view, View::Settings);
+        assert_eq!(model.take_effects(), [Effect::SettingsChanged]);
+        assert_eq!(model.view, View::Settings);
     }
 }

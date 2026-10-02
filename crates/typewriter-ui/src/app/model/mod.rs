@@ -1,4 +1,4 @@
-//! The desk: the app's state and decisions, without a window. It takes
+//! The model: the app's state and decisions, without a window. It takes
 //! [`Intent`]s, changes, and asks the window for [`Effect`]s; the window
 //! draws it and does what it asks. Tested without a window, sound or disk.
 
@@ -67,7 +67,7 @@ impl Overlays {
     }
 }
 
-pub struct Desk {
+pub struct Model {
     pub project: Project,
     pub overlays: Overlays,
     pub view: View,
@@ -77,7 +77,7 @@ pub struct Desk {
     /// Months the writing log is turned back from today's.
     log_back: u32,
     pub zoom_percent: u16,
-    /// The edition's furthest out.
+    /// The mode's furthest out.
     pub zoom_min: u16,
     /// Scroll not yet turned into zoom steps.
     scroll_zoom: f32,
@@ -101,7 +101,7 @@ pub struct Desk {
     effects: Vec<Effect>,
 }
 
-impl Desk {
+impl Model {
     /// The first project in: a file already there was reopened, and its
     /// sheet winds back to where typing stopped.
     pub fn new(
@@ -211,7 +211,7 @@ impl Desk {
         }
     }
 
-    /// What the desk asked of the window since last taken, in order.
+    /// What the model asked of the window since last taken, in order.
     pub fn take_effects(&mut self) -> Vec<Effect> {
         std::mem::take(&mut self.effects)
     }

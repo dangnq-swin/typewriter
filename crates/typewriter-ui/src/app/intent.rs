@@ -1,10 +1,10 @@
-//! What the user asks of the desk, and what the desk asks of the window.
+//! What the user asks of the model, and what the model asks of the window.
 
 use std::path::PathBuf;
 
 use typewriter_core::{Event, Side};
 
-use super::desk::Answer;
+use super::model::Answer;
 use crate::input::Action;
 use crate::picker::{Dialog, Picked};
 use crate::render::folder::FolderAction;
@@ -75,7 +75,7 @@ pub enum Intent {
     WindowFullscreen(bool),
 }
 
-/// What the desk needs the window to do.
+/// What the model needs the window to do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     Sound(Sound),

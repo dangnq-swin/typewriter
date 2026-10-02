@@ -1,4 +1,4 @@
-//! The desk edition's typewriter, an Olympia SM9 seen from the chair.
+//! The typewriter on the desk, an Olympia SM9 seen from the chair.
 //!
 //! The machine is a model in millimetres, projected from a seated eye: `x` right
 //! of the machine's centre, `y` toward the writer, `z` up, the origin at the

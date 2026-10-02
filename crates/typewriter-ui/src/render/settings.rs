@@ -27,7 +27,7 @@ pub struct SettingsResponse {
 
 /// Draws the card. Edits `settings` in place: changes apply at once.
 /// `background`: `Some` with why the own texture isn't showing, if it
-/// isn't; `None` in the desk edition, which has no Background row.
+/// isn't; `None` in normal mode, which has no Background row.
 pub fn show_settings(
     ui: &mut Ui,
     view: Rect,

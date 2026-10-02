@@ -1,4 +1,4 @@
-//! `typewriter`: the desk edition on the app's library, the default edition.
+//! `typewriter`: normal mode on the app's library, the default.
 //! It opens the same projects and settings as `typewriter-plain`, and draws
 //! its room and machine through the app's [`Stage`](typewriter_ui::Stage)
 //! hooks.

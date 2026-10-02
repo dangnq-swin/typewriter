@@ -11,7 +11,7 @@
 //! (fullscreen) is the exception: the desktop does it.
 //!
 //! - printable keys: type, except 1 and ! (no such keys) and characters the
-//!   typeface lacks (`app/desk/typing.rs` checks). Accented letters need the
+//!   typeface lacks (`app/model/typing.rs` checks). Accented letters need the
 //!   machine's dead key (`Profile::dead_keys`); the SM9 has none
 //! - 1 / !: the notebook; Esc or a click away puts it back. While it is
 //!   open, Page Up / Page Down turn its leaves (`render/pad.rs`)
@@ -32,7 +32,7 @@
 //!   drag / scroll a knob either side of the paper, up to roll on
 //! - Left / Right: free movement (if allowed)
 //! - Page Up / Page Down, arrows, Shift+arrows, Enter, Esc: the folder;
-//!   the desk redirects them there
+//!   normal mode redirects them there
 //! - the writing log up close (click the calendar in the folder): Page Up /
 //!   Page Down turn the months, Esc or a click away puts it back
 //! - Esc: calm mode (typing view)

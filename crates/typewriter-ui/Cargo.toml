@@ -1,6 +1,6 @@
 [package]
 name = "typewriter-ui"
-description = "The typewriter app as a library: both editions open it on a Stage"
+description = "The typewriter app as a library: both modes open it on a Stage"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

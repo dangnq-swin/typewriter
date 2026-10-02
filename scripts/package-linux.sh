@@ -1,8 +1,8 @@
 #!/bin/sh
 # Builds a Linux release into dist/: a tarball that installs with its own
 # install.sh, and an AppImage when appimagetool is given. The tarball carries
-# both editions, `typewriter` the desk and `typewriter-plain` the plain app;
-# the AppImage is the desk alone, its one launcher having no sibling.
+# both modes, `typewriter` normal and `typewriter-plain` plain;
+# the AppImage is `typewriter` alone, its one launcher having no sibling.
 #
 #   scripts/package-linux.sh 0.1.0
 #   APPIMAGETOOL=path/to/appimagetool scripts/package-linux.sh 0.1.0

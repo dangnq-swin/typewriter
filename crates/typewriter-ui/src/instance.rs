@@ -1,4 +1,4 @@
-//! One desk for project files: a launch with a project, while the app is
+//! One app instance for project files: a launch with a project, while the app is
 //! open, hands it over a socket and exits, and the open app puts it in.
 //! Unix only; elsewhere every launch opens its own window.
 

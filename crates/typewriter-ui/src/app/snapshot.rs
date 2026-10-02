@@ -16,9 +16,9 @@ use image::RgbaImage;
 use typewriter_core::{Command, Constraints, Typewriter};
 
 use super::TypewriterApp;
-use super::desk::Desk;
 use super::fonts;
 use super::intent::Intent;
+use super::model::Model;
 use crate::Stage;
 use crate::filing::Filing;
 use crate::input::Action;
@@ -102,14 +102,14 @@ pub fn render(stage: Box<dyn Stage>, shot: &Shot) -> anyhow::Result<RgbaImage> {
 }
 
 /// `stage`'s app on `shot`, drawn into `ctx` (new: it gets the fonts): the
-/// keys typed, the desk settled, and the instant the frames draw at.
+/// keys typed, the model settled, and the instant the frames draw at.
 fn staged(
     ctx: &egui::Context,
     stage: Box<dyn Stage>,
     shot: &Shot,
 ) -> anyhow::Result<(TypewriterApp, f64)> {
     fonts::install(ctx);
-    let mut app = TypewriterApp::nowhere(ctx, stage, desk(shot)?);
+    let mut app = TypewriterApp::nowhere(ctx, stage, model(shot)?);
     let mut now = SETTLED;
     for c in shot.text.chars() {
         let command = match c {
@@ -119,7 +119,7 @@ fn staged(
             c => Command::Type(c),
         };
         let keys = vec![Action::Machine(command)];
-        app.desk.update(
+        app.model.update(
             Intent::Input {
                 keys,
                 wheel: 0.0,
@@ -129,8 +129,8 @@ fn staged(
         );
         now += KEY_SECONDS;
     }
-    app.desk.tick(now + shot.after_seconds);
-    app.desk.take_effects();
+    app.model.tick(now + shot.after_seconds);
+    app.model.take_effects();
     Ok((app, now + shot.after_seconds))
 }
 
@@ -183,7 +183,7 @@ pub fn time_frames(
 }
 
 /// `stage`'s typing view on `shot`, `frames` steady frames timed. `ctx`
-/// must be new: a desk stage leaves its solid and vertex counts in it, for
+/// must be new: a stage drawing in depth leaves its solid and vertex counts in it, for
 /// the caller to read back once the frames have run.
 pub fn bench(
     ctx: &egui::Context,
@@ -197,8 +197,8 @@ pub fn bench(
     }))
 }
 
-/// A test desk with its first sheet in, at `shot`'s zoom.
-fn desk(shot: &Shot) -> anyhow::Result<Desk> {
+/// A test model with its first sheet in, at `shot`'s zoom.
+fn model(shot: &Shot) -> anyhow::Result<Model> {
     let settings = Settings::default();
     let machines = Machines::built_in()?;
     let profile = machines.for_new(&settings.machine.profile);
@@ -207,18 +207,18 @@ fn desk(shot: &Shot) -> anyhow::Result<Desk> {
         .rules
         .constraints(Constraints::default().erase);
     let machine = Typewriter::new(profile, constraints)?;
-    let mut desk = Desk::new(
+    let mut model = Model::new(
         machine,
         Filing::nowhere(),
         settings,
         machines,
         FeedMotion::even(1.0),
     );
-    desk.zoom_percent = shot.zoom_percent;
-    desk.start_frame(0.0);
-    desk.tick(SETTLED);
-    desk.take_effects();
-    Ok(desk)
+    model.zoom_percent = shot.zoom_percent;
+    model.start_frame(0.0);
+    model.tick(SETTLED);
+    model.take_effects();
+    Ok(model)
 }
 
 fn patch(texture: &mut ColorImage, part: &ColorImage, [x, y]: [usize; 2]) {

@@ -5,7 +5,7 @@ members = [
     "crates/typewriter-ui",
     "crates/typewriter",
 ]
-# Plain `cargo run` opens the desk edition, the default. Build, test and lint
+# Plain `cargo run` opens normal mode, the default. Build, test and lint
 # with --workspace; the plain app is `cargo run --bin typewriter-plain`.
 default-members = ["crates/typewriter"]
 

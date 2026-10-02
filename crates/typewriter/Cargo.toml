@@ -1,13 +1,13 @@
 [package]
 name = "typewriter"
-description = "The typewriter on a desk: the immersive edition, with the plain one beside it"
+description = "The typewriter on a desk: normal mode, with the plain one beside it"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# Three commands from one package: `typewriter` the desk edition (main.rs),
-# the default; `typewriter-plain` the focused writing tool; and
+# Three commands from one package: `typewriter` normal mode (main.rs),
+# the default; `typewriter-plain` plain mode, the focused writing tool; and
 # `typewriter-import`, the console importer for Windows.
 
 [dependencies]

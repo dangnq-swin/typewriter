@@ -1,8 +1,8 @@
 # A release: pushing tag vX.Y.Z (the version in Cargo.toml) builds Linux (glibc
 # and musl) and Windows and publishes a GitHub Release, its notes the tag's
 # message. It stays a draft until every build is attached, each Linux binary
-# having run on a virtual display first. Both editions ship: `typewriter` is
-# the desk, the default, `typewriter-plain` the focused writing tool. Run by
+# having run on a virtual display first. Both modes ship: `typewriter` is
+# normal mode, the default, `typewriter-plain` the focused writing tool. Run by
 # hand (Actions → Release → Run workflow) for a dry run of one build or all:
 # builds and tests, no release.
 name: Release
@@ -111,8 +111,8 @@ jobs:
       - run: rustup toolchain install
       - run: cargo test --workspace --release --locked
       - run: cargo build --release --locked --workspace --bins
-      # Flat: the programs, the license and the readme side by side. The desk
-      # edition is `typewriter.exe`, the plain one `typewriter-plain.exe`.
+      # Flat: the programs, the license and the readme side by side. Normal
+      # mode is `typewriter.exe`, plain mode `typewriter-plain.exe`.
       - run: |
           $name = "typewriter-$($env:TAG.Substring(1))-x86_64-windows"
           New-Item -ItemType Directory $name

@@ -1,5 +1,5 @@
-//! The typewriter app, shared by both editions. [`run`] opens it on a
-//! [`Stage`]: [`Plain`] for `typewriter-plain`; the desk edition,
+//! The typewriter app, shared by both modes. [`run`] opens it on a
+//! [`Stage`]: [`Plain`] for `typewriter-plain`; `typewriter`, normal mode,
 //! `typewriter`, draws its own through the hooks, with [`draw`].
 //! `typewriter-import` shares the app's folders and settings, the
 //! machines, and importing an .odt.
@@ -62,7 +62,7 @@ fn window_options(stage: &impl Stage) -> eframe::NativeOptions {
 }
 
 /// A command from the command line, else the window on `stage`. Every
-/// edition shares projects, settings and the one open desk.
+/// mode shares projects, settings and the one running instance.
 pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
     #[cfg(not(windows))]
     {
@@ -71,7 +71,7 @@ pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
             return Ok(());
         }
     }
-    // A project while the app is open goes to it: one desk.
+    // A project while the app is open goes to it: one instance.
     let project = std::env::args_os().nth(1).filter(|arg| !is_option(arg));
     if project.is_some_and(|path| instance::hand_over(&PathBuf::from(path))) {
         return Ok(());

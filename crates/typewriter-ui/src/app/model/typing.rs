@@ -3,7 +3,7 @@
 
 use typewriter_core::{BlockReason, Command, Direction, EraseMode, Event};
 
-use super::{Desk, View};
+use super::{Model, View};
 use crate::app::intent::{Effect, Sound};
 use crate::input::Action;
 use crate::render::folder::FolderAction;
@@ -21,7 +21,7 @@ const KNOB_NOTCHES_PER_FRAME: f32 = 3.0;
 const GUIDES_HOLD_SECONDS: f64 = 1.0;
 const GUIDES_FADE_SECONDS: f64 = 0.4;
 
-impl Desk {
+impl Model {
     /// One frame's keys and wheel, routed by what is open.
     pub(super) fn input(&mut self, keys: Vec<Action>, wheel: f32, over_knob: bool, now: f64) {
         if self.keys_to_fields() {
@@ -227,31 +227,31 @@ impl Desk {
 mod tests {
     use typewriter_core::{Command, EraseMode, Event};
 
-    use super::super::testing::{desk, desk_with, press, type_text};
+    use super::super::testing::{model, model_with, press, type_text};
     use super::*;
     use crate::app::intent::Intent;
     use crate::settings::Settings;
 
-    fn column(desk: &Desk) -> u16 {
-        desk.project.machine.carriage().column
+    fn column(model: &Model) -> u16 {
+        model.project.machine.carriage().column
     }
 
     #[test]
     fn a_return_is_kept_with_how_far_the_carriage_glides_home() {
-        let mut desk = desk();
-        assert_eq!(desk.last_return, Return::NONE);
+        let mut model = model();
+        assert_eq!(model.last_return, Return::NONE);
         let ret = Action::Machine(Command::Return);
-        press(&mut desk, &[ret], 10.0);
+        press(&mut model, &[ret], 10.0);
         assert_eq!(
-            desk.last_return,
+            model.last_return,
             Return { at: 10.0, mm: 0.0 },
             "at the margin"
         );
-        type_text(&mut desk, &"x".repeat(60), 12.0);
-        press(&mut desk, &[ret], 20.0);
+        type_text(&mut model, &"x".repeat(60), 12.0);
+        press(&mut model, &[ret], 20.0);
         // Pica: 60 columns, 152.4 mm.
         assert_eq!(
-            desk.last_return,
+            model.last_return,
             Return {
                 at: 20.0,
                 mm: 152.4
@@ -261,41 +261,41 @@ mod tests {
 
     #[test]
     fn a_letter_the_typeface_lacks_does_not_type() {
-        let mut desk = desk();
-        let start = column(&desk);
-        type_text(&mut desk, "\u{416}", 10.0);
-        assert_eq!(column(&desk), start);
-        type_text(&mut desk, "a", 11.0);
-        assert_eq!(column(&desk), start + 1);
+        let mut model = model();
+        let start = column(&model);
+        type_text(&mut model, "\u{416}", 10.0);
+        assert_eq!(column(&model), start);
+        type_text(&mut model, "a", 11.0);
+        assert_eq!(column(&model), start + 1);
     }
 
     #[test]
     fn strikes_too_close_tangle_only_with_type_jams_on() {
-        let mut desk = desk();
-        press(&mut desk, &[Action::Machine(Command::Type('a'))], 10.0);
-        press(&mut desk, &[Action::Machine(Command::Type('b'))], 10.01);
-        assert!(!desk.project.machine.is_jammed(), "off by default");
+        let mut model = model();
+        press(&mut model, &[Action::Machine(Command::Type('a'))], 10.0);
+        press(&mut model, &[Action::Machine(Command::Type('b'))], 10.01);
+        assert!(!model.project.machine.is_jammed(), "off by default");
 
         let mut settings = Settings::default();
         settings.machine.rules.type_jams = true;
-        let mut desk = desk_with(settings);
-        press(&mut desk, &[Action::Machine(Command::Type('a'))], 10.0);
-        press(&mut desk, &[Action::Machine(Command::Type('b'))], 10.01);
-        assert!(desk.project.machine.is_jammed());
-        assert!(desk.take_effects().contains(&Effect::Jolt));
-        assert!(desk.notice.is_animating(10.1));
-        press(&mut desk, &[Action::Machine(Command::Backspace)], 11.0);
-        assert!(!desk.project.machine.is_jammed());
-        assert!(!desk.notice.is_animating(11.0), "freed: the notice goes");
+        let mut model = model_with(settings);
+        press(&mut model, &[Action::Machine(Command::Type('a'))], 10.0);
+        press(&mut model, &[Action::Machine(Command::Type('b'))], 10.01);
+        assert!(model.project.machine.is_jammed());
+        assert!(model.take_effects().contains(&Effect::Jolt));
+        assert!(model.notice.is_animating(10.1));
+        press(&mut model, &[Action::Machine(Command::Backspace)], 11.0);
+        assert!(!model.project.machine.is_jammed());
+        assert!(!model.notice.is_animating(11.0), "freed: the notice goes");
     }
 
     #[test]
     fn the_wheel_rolls_the_paper_over_a_knob_and_zooms_elsewhere() {
-        let mut desk = desk();
-        let half_line = desk.project.machine.carriage().half_line;
-        let wheel = |desk: &mut Desk, points, over_knob, now| {
+        let mut model = model();
+        let half_line = model.project.machine.carriage().half_line;
+        let wheel = |model: &mut Model, points, over_knob, now| {
             let keys = Vec::new();
-            desk.update(
+            model.update(
                 Intent::Input {
                     keys,
                     wheel: points,
@@ -304,59 +304,59 @@ mod tests {
                 now,
             );
         };
-        wheel(&mut desk, SCROLL_POINTS_PER_STEP, true, 10.0);
-        assert_eq!(desk.project.machine.carriage().half_line, half_line + 1);
-        assert_eq!(desk.zoom_percent, 100);
-        wheel(&mut desk, 25.0, false, 10.1);
-        assert_eq!(desk.zoom_percent, 100, "not a whole notch yet");
-        wheel(&mut desk, 25.0, false, 10.2);
-        assert_eq!(desk.zoom_percent, 110);
-        assert!(desk.take_effects().contains(&Effect::Zoomed));
+        wheel(&mut model, SCROLL_POINTS_PER_STEP, true, 10.0);
+        assert_eq!(model.project.machine.carriage().half_line, half_line + 1);
+        assert_eq!(model.zoom_percent, 100);
+        wheel(&mut model, 25.0, false, 10.1);
+        assert_eq!(model.zoom_percent, 100, "not a whole notch yet");
+        wheel(&mut model, 25.0, false, 10.2);
+        assert_eq!(model.zoom_percent, 110);
+        assert!(model.take_effects().contains(&Effect::Zoomed));
     }
 
     #[test]
     fn a_flicked_knob_rolls_at_most_three_notches_a_frame() {
-        let mut desk = desk();
-        let half_line = desk.project.machine.carriage().half_line;
-        desk.update(
+        let mut model = model();
+        let half_line = model.project.machine.carriage().half_line;
+        model.update(
             Intent::DragKnob {
                 points: 100.0,
                 per_notch: 10.0,
             },
             10.0,
         );
-        assert_eq!(desk.project.machine.carriage().half_line, half_line + 3);
-        assert!(desk.guides_opacity(10.5) > 0.0);
-        assert_eq!(desk.guides_opacity(20.0), 0.0);
+        assert_eq!(model.project.machine.carriage().half_line, half_line + 3);
+        assert!(model.guides_opacity(10.5) > 0.0);
+        assert_eq!(model.guides_opacity(20.0), 0.0);
     }
 
     #[test]
     fn a_return_on_the_last_line_feeds_a_sheet_and_keys_wait_for_it() {
-        let mut desk = desk();
-        type_text(&mut desk, "first", 10.0);
+        let mut model = model();
+        type_text(&mut model, "first", 10.0);
         let mut now = 11.0;
-        while desk.project.machine.document().finished().is_empty() {
-            press(&mut desk, &[Action::Machine(Command::Return)], now);
+        while model.project.machine.document().finished().is_empty() {
+            press(&mut model, &[Action::Machine(Command::Return)], now);
             now += 0.1;
         }
-        assert!(desk.is_busy(now));
-        let start = column(&desk);
-        type_text(&mut desk, "x", now);
-        assert_eq!(column(&desk), start, "locked while the sheet feeds");
+        assert!(model.is_busy(now));
+        let start = column(&model);
+        type_text(&mut model, "x", now);
+        assert_eq!(column(&model), start, "locked while the sheet feeds");
         let later = now + 60.0;
-        desk.tick(later);
-        type_text(&mut desk, "x", later);
-        assert_eq!(column(&desk), start + 1);
+        model.tick(later);
+        type_text(&mut model, "x", later);
+        assert_eq!(column(&model), start + 1);
     }
 
     #[test]
     fn delete_joins_the_correction_cycle_only_by_the_rule() {
         let cycle = |settings: Settings| {
-            let mut desk = desk_with(settings);
+            let mut model = model_with(settings);
             (0..5)
                 .map(|i| {
-                    press(&mut desk, &[Action::NextCorrection], 10.0 + f64::from(i));
-                    desk.project.machine.constraints.erase
+                    press(&mut model, &[Action::NextCorrection], 10.0 + f64::from(i));
+                    model.project.machine.constraints.erase
                 })
                 .collect::<Vec<_>>()
         };
@@ -368,20 +368,20 @@ mod tests {
 
     #[test]
     fn fluid_dries_a_few_seconds_after_the_dab() {
-        let mut desk = desk();
-        type_text(&mut desk, "x", 10.0);
-        desk.project.machine.constraints.erase = EraseMode::Fluid;
-        press(&mut desk, &[Action::Delete], 11.0);
-        let effects = desk.take_effects();
+        let mut model = model();
+        type_text(&mut model, "x", 10.0);
+        model.project.machine.constraints.erase = EraseMode::Fluid;
+        press(&mut model, &[Action::Delete], 11.0);
+        let effects = model.take_effects();
         assert!(effects.contains(&Effect::Sound(Sound::Machine(Event::Erase(
             EraseMode::Fluid
         )))));
-        let at = column(&desk);
-        let half_line = desk.project.machine.carriage().half_line;
-        assert!(desk.project.wetness(11.5, half_line, at) > 0.0);
-        desk.tick(12.0);
-        assert!(desk.project.is_drying());
-        desk.tick(20.0);
-        assert!(!desk.project.is_drying());
+        let at = column(&model);
+        let half_line = model.project.machine.carriage().half_line;
+        assert!(model.project.wetness(11.5, half_line, at) > 0.0);
+        model.tick(12.0);
+        assert!(model.project.is_drying());
+        model.tick(20.0);
+        assert!(!model.project.is_drying());
     }
 }

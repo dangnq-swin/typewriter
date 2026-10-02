@@ -120,7 +120,7 @@ pub fn paint_scale(painter: &Painter, scale: &Scale, carriage: &Carriage) {
 }
 
 /// The scale's ticks, numbers and stops, without its plate: for printing
-/// on something else, such as the desk edition's paper bail. Sized to the
+/// on something else, such as the machine's paper bail. Sized to the
 /// scale's band, [`HEIGHT`] as on the plate; `painter` lays out the numbers.
 pub fn scale_marks(painter: &Painter, scale: &Scale, carriage: &Carriage) -> Vec<Shape> {
     let rect = scale.rect;

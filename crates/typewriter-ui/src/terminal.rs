@@ -66,7 +66,7 @@ mod tests {
     use super::*;
     use crate::Plain;
 
-    /// Another edition, by its own name.
+    /// Another mode, by its own name.
     struct Other;
 
     impl Stage for Other {
@@ -79,7 +79,7 @@ mod tests {
         }
 
         fn about(&self) -> &'static str {
-            "another edition"
+            "another mode"
         }
     }
 
