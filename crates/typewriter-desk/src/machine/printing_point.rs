@@ -185,7 +185,7 @@ fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
             // On screen, so the marks fall on the sheet's columns exactly.
             let x = eye.origin.x + side * (k as f32 - 0.5) * column;
             let mark = [pos2(x, mark_top), pos2(x, mark_top + MARK_LENGTH * ppmm)];
-            let depth = eye.lying_depth(on);
+            let depth = eye.depth(on);
             let shape = Shape::line_segment(mark, Stroke::new(1.0, SCALE_MARK));
             canvas.lay(vec![shape], |_| Some(depth.into()));
         }
@@ -282,7 +282,7 @@ fn paint_vibrator(canvas: &Canvas, eye: &Eye) {
 mod tests {
     use super::super::carriage::{PLATEN_DIAMETER_MM, platen_axis};
     use super::super::cover::{COVER_BACK, on_cover};
-    use super::super::eye::{LYING_MM, toward_eye};
+    use super::super::eye::toward_eye;
     use super::*;
 
     /// At 96 points an inch, the typing line's foot is 16 points down.
@@ -302,11 +302,18 @@ mod tests {
     #[test]
     fn the_guide_between_the_print_and_the_ribbon() {
         // Its offset seen along the eye: on the typing line the paper faces
-        // the eye; at the platen's front, nearest the ribbon, it stands upright.
+        // the eye; at the platen's front, nearest the ribbon, it stands
+        // upright. The pass lifts every decal toward the eye: the plates
+        // must stand further proud of the paper than the print is lifted,
+        // and the lift must not carry the glass through the ribbon.
         let up = toward_eye()[1];
-        assert!(GUIDE_OFF_PAPER * up > LYING_MM);
+        let eye = Eye::testing(0.0, 96.0);
+        assert!(GUIDE_OFF_PAPER * up > eye.lift_mm([0.0; 3], 0.0));
         let front = platen_axis()[1] + PLATEN_DIAMETER_MM / 2.0;
-        assert!((RIBBON.0 - front - GUIDE_OFF_PAPER) / up > LYING_MM);
+        let (foot, above) = (on_guide(0.0, 0.0), on_guide(0.0, 0.2));
+        let slope = (eye.depth(foot) - eye.depth(above)) / (eye.at(above) - eye.at(foot)).length();
+        let glass = eye.lift_mm(foot, slope);
+        assert!((RIBBON.0 - front - GUIDE_OFF_PAPER) / up > glass);
     }
 
     #[test]

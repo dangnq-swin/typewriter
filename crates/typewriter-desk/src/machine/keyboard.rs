@@ -475,7 +475,7 @@ fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &st
         canvas.lay(shapes, |vertex| {
             let on = on_top(vertex.pos.x / FLAT_TEXT, vertex.pos.y / FLAT_TEXT);
             vertex.pos = eye.at(on);
-            Some(eye.lying_depth(on).into())
+            Some(eye.depth(on).into())
         });
     } else if shifted.is_empty() {
         paint_flat_text(

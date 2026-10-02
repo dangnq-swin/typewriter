@@ -8,8 +8,10 @@
 //! the frame's light ([`Shade`]). The shader lights each fragment from those
 //! millimetres toward the lamp, so a flat face is not lit evenly. Opaque triangles
 //! hide what is behind them; decals lie on them (print, edges, glass), hide
-//! nothing and are drawn after. Where no renderer is installed, as in the
-//! snapshot tool, the triangles go out as data for [`rasterize`] to fill.
+//! nothing and are drawn after, lifted toward the eye by the pass's depth
+//! bias (`decal_bias`) rather than by standing nearer in millimetres. Where
+//! no renderer is installed, as in the snapshot tool, the triangles go out as
+//! data for [`rasterize`] to fill, with the same bias.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -43,8 +45,46 @@ pub const CHROME_BANDS: usize = 5;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
     Opaque,
-    /// Lying on an opaque surface, drawn after: hides nothing.
+    /// Lying on an opaque surface, drawn after: hides nothing, and lifted
+    /// toward the eye by the pass's depth bias (`decal_bias`) so it shows
+    /// over the face it lies on.
     Decal,
+}
+
+/// The depth buffer's basic unit for [`DEPTH_BITS`], which is what a
+/// `wgpu::DepthBiasState` constant is counted in: what Vulkan and D3D take
+/// as the minimum representable interval of a 32-bit float depth, as Mesa
+/// does for GL's `glPolygonOffset` units.
+#[cfg(test)]
+const DEPTH_UNIT: f32 = 1.0 / (1u32 << 24) as f32;
+/// The decal pass's constant bias, in [`DEPTH_UNIT`]s, negative to lift: a
+/// fragment's depth is biased by the sum *added* to it, so a negative one
+/// moves a decal toward the eye. Worth the old 0.25 mm at the paper's
+/// distance: enough for a decal's own mesh to show over the coarser mesh it
+/// lies on, where a face turns to the eye.
+const DECAL_BIAS_UNITS: i32 = -285;
+/// The decal pass's slope-scaled bias: times the steepest depth a decal
+/// triangle's runs per screen pixel. Where a face turns away, that is where
+/// lying on it needs the most lift.
+const DECAL_BIAS_SLOPE: f32 = -2.0;
+/// The cap on their sum's magnitude, in absolute depth: a little over the
+/// constant, so a steep face gets more lift than the paper does but not
+/// near again what it would in millimetres. Short of the window the guide's
+/// glass keeps behind the ribbon (`printing_point`'s test); it also bounds
+/// the bias on any backend that takes the constant in absolute depth too
+/// (Metal).
+const DECAL_BIAS_CLAMP: f32 = 2.0e-5;
+
+/// How the decal pipeline lifts a triangle whose depth runs `slope` per
+/// screen pixel: the magnitude of the negative bias the GPU adds, toward
+/// the eye, so what lies on a face shows over it. The GPU applies this
+/// through the pipeline's `DepthBiasState`; [`rasterize`] applies the same
+/// through [`decal_slope`].
+#[cfg(test)]
+pub fn decal_bias(slope: f32) -> f32 {
+    (DECAL_BIAS_UNITS as f32 * DEPTH_UNIT + DECAL_BIAS_SLOPE * slope)
+        .clamp(-DECAL_BIAS_CLAMP, 0.0)
+        .abs()
 }
 
 /// A frame's lighting: where its lamp stands, the directions its materials
@@ -701,6 +741,27 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
         immediate_size: 0,
     });
     let format = render_state.target_format;
+    // Devices without depth-bias clamping (some software renderers) cannot
+    // cap the slope term, and an uncapped one would float a decal far off
+    // its face: there the pass lifts by the constant alone.
+    let decal_bias = if render_state
+        .adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::DEPTH_BIAS_CLAMP)
+    {
+        wgpu::DepthBiasState {
+            constant: DECAL_BIAS_UNITS,
+            slope_scale: DECAL_BIAS_SLOPE,
+            clamp: DECAL_BIAS_CLAMP,
+        }
+    } else {
+        wgpu::DepthBiasState {
+            constant: DECAL_BIAS_UNITS,
+            slope_scale: 0.0,
+            clamp: 0.0,
+        }
+    };
     let pipeline = |layer: Layer| {
         let opaque = layer == Layer::Opaque;
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -739,7 +800,13 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
                     wgpu::CompareFunction::LessEqual
                 }),
                 stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
+                // Decals lie on faces they match exactly: the pass lifts
+                // them, so they show without standing nearer in millimetres.
+                bias: if opaque {
+                    wgpu::DepthBiasState::default()
+                } else {
+                    decal_bias
+                },
             }),
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
@@ -1020,7 +1087,11 @@ pub fn rasterize(
                         *there = depth;
                         true
                     }
-                    Layer::Decal => depth <= *there,
+                    // The decal pipeline's bias, applied as the GPU would.
+                    Layer::Decal => {
+                        let lift = decal_bias(decal_slope(&mesh, &solid.depths, triangle));
+                        depth - lift <= *there
+                    }
                     Layer::Opaque => false,
                 }
             };
@@ -1039,6 +1110,25 @@ pub fn rasterize(
         }
     }
     raster.frame = Some(Box::new(buffer));
+}
+
+/// The steepest depth `triangle` of `mesh` runs per screen pixel, either
+/// way it runs: what the GPU takes as the primitive's maximum slope, for
+/// the decal bias. A point is a pixel: snapshots render one a window point.
+#[cfg(test)]
+fn decal_slope(mesh: &Mesh, depths: &[f32], triangle: [u32; 3]) -> f32 {
+    let [a, b, c] = triangle.map(|i| &mesh.vertices[i as usize]);
+    let (ux, uy) = (b.pos.x - a.pos.x, b.pos.y - a.pos.y);
+    let (vx, vy) = (c.pos.x - a.pos.x, c.pos.y - a.pos.y);
+    let area = ux * vy - uy * vx;
+    if area.abs() < 1e-6 {
+        return 0.0;
+    }
+    let [za, zb, zc] = triangle.map(|i| depths[i as usize]);
+    let (du, dv) = (zb - za, zc - za);
+    // The depth plane through the corners, differentiated.
+    let (dzdx, dzdy) = ((du * vy - dv * uy) / area, (dv * ux - du * vx) / area);
+    dzdx.abs().max(dzdy.abs())
 }
 
 /// The shade at a pixel `weights` across `triangle`, as the shader makes it:
@@ -1194,6 +1284,34 @@ mod tests {
             [float(next + 48), float(next + 52), float(next + 56)],
             [0.0, 0.0, 0.0]
         );
+    }
+
+    #[test]
+    fn the_decal_bias_lifts_toward_the_eye_and_caps_its_lift() {
+        // On a face turned to the eye: the constant alone.
+        let constant = decal_bias(0.0);
+        assert!((constant - 285.0 / (1u32 << 24) as f32).abs() < 1e-9);
+        // The steeper a decal's triangle, the more it is lifted. Until the
+        // cap, which keeps it off what stands behind.
+        assert!(decal_bias(1e-5) > constant);
+        assert_eq!(decal_bias(1e-3), DECAL_BIAS_CLAMP);
+    }
+
+    #[test]
+    fn a_triangles_depth_slope_is_its_steepest_rate_a_pixel() {
+        let mut mesh = Mesh::default();
+        for (x, y) in [(0.0, 0.0), (10.0, 0.0), (0.0, 20.0)] {
+            mesh.colored_vertex(pos2(x, y), Color32::WHITE);
+        }
+        // Depth runs down the screen only: 0.1 over 20 points.
+        let depths = [0.5, 0.5, 0.6];
+        assert!((decal_slope(&mesh, &depths, [0, 1, 2]) - 0.005).abs() < 1e-6);
+        // And along the screen's other axis: 0.1 over 10 points.
+        let depths = [0.5, 0.6, 0.5];
+        assert!((decal_slope(&mesh, &depths, [0, 1, 2]) - 0.01).abs() < 1e-6);
+        // Rising toward the eye counts as steep the same way.
+        let depths = [0.5, 0.5, 0.4];
+        assert!((decal_slope(&mesh, &depths, [0, 1, 2]) - 0.005).abs() < 1e-6);
     }
 
     #[test]

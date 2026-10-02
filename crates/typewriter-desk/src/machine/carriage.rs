@@ -22,11 +22,11 @@ pub(super) const STRIKE_DEGREES: f32 = 35.0;
 const PLATEN_END_MM: f32 = 2.0;
 /// Bands of shading round a roller: enough for a smooth curve.
 pub(super) const ROLLER_BANDS: u16 = 28;
-/// Round the platen, in depth: fine enough that its flats stay under the
-/// paper wound on it.
+/// Round the platen, in depth: its flats chord under the paper wound on it.
 const PLATEN_BANDS: u16 = 64;
-/// The platen drawn this far under the paper on it.
-const UNDER_PAPER_MM: f32 = 0.25;
+/// The wound sheet's thickness: its print face is what the machine measures
+/// by, so the platen's rubber stands this far under it.
+const PAPER_THICKNESS_MM: f32 = 0.1;
 /// How tight the highlight on a roller or the platen is.
 const ROLLER_SHARPNESS: f32 = 4.0;
 /// The carriage's side plates, inside its ends: their thickness, and from
@@ -79,7 +79,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
     let end = PLATEN_END_MM;
     let rubber = [inner_left + end, inner_right - end];
     let axis = (axis_y, axis_z);
-    let under = radius - UNDER_PAPER_MM;
+    let under = radius - PAPER_THICKNESS_MM;
     let bands = PLATEN_BANDS;
     cylinder(
         eye,

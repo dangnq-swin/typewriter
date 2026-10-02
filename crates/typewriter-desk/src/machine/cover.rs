@@ -221,7 +221,7 @@ fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
             (inside[i + 1], clear),
             (inside[i], clear),
         ];
-        eye.lying_quad(&mut solid, corners);
+        eye.quad(&mut solid, corners);
     }
     canvas.mesh(Layer::Decal, solid);
 }
@@ -323,7 +323,7 @@ fn speckle(
             Color32::from_black_alpha(50)
         };
         let radius = (0.3 * eye.scale(p)).max(0.6);
-        let depth = eye.lying_depth(p);
+        let depth = eye.depth(p);
         let speck = Shape::circle_filled(eye.at(p), radius, colour);
         canvas.lay(vec![speck], |_| Some(depth.into()));
     }

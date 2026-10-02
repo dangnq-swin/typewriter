@@ -320,7 +320,7 @@ pub(super) fn print_scale(canvas: &Canvas, eye: &Eye, scale: &Scale, carriage: &
             top - vertex.pos.y / FLAT_TEXT,
         ];
         vertex.pos = eye.at(on);
-        Some(eye.lying_depth(on).into())
+        Some(eye.depth(on).into())
     });
     let [top_y, foot_y] = [top, foot].map(|z| eye.at([0.0, front, z]).y);
     let by = eye.scale([0.0, front, (top + foot) / 2.0]) / eye.ppmm;

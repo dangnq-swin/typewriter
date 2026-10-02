@@ -79,7 +79,7 @@ pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
     let bar = |centre: f32, upright: bool| {
         let (dx, dy) = if upright { (0.0, half) } else { (half, 0.0) };
         [[-on_wall - dx, centre - dy], [-on_wall + dx, centre + dy]]
-            .map(|[x, y]| [x, y, wall_top(y) + 0.05])
+            .map(|[x, y]| [x, y, wall_top(y)])
     };
     for part in [
         bar(y - along, false),

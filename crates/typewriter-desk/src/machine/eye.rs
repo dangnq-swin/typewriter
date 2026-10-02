@@ -15,9 +15,6 @@ use typewriter_app::draw::{Metrics, convex_mesh};
 const EYE_MM: f32 = 609.6;
 /// Depth runs from this near the eye, out to far off.
 const NEAR_MM: f32 = 25.4;
-/// What lies on a face (edges, marks, print) is set this much nearer, to
-/// show over it.
-pub(super) const LYING_MM: f32 = 0.25;
 /// A flat part bent onto a curved face is cut into pieces this long.
 const BENT_MM: f32 = 1.27;
 pub(super) const EYE_TILT_DEGREES: f32 = 35.0;
@@ -89,14 +86,10 @@ impl Eye {
         (EYE_MM - y * cos - z * sin).max(NEAR_MM)
     }
 
-    /// `p`'s depth: 0 at the eye to 1 far off.
+    /// `p`'s depth: 0 at the eye to 1 far off. What lies on a face takes
+    /// the face's own: the decal pass lifts it toward the eye, in depth.
     pub(super) fn depth(&self, p: [f32; 3]) -> f32 {
         depth_at(self.distance(p))
-    }
-
-    /// The depth of what lies on a face at `p`: a hair nearer.
-    pub(super) fn lying_depth(&self, p: [f32; 3]) -> f32 {
-        depth_at(self.distance(p) - LYING_MM)
     }
 
     /// Screen points per millimetre at `p`: `ppmm` at the printing point.
@@ -189,12 +182,12 @@ impl Eye {
         lying: bool,
     ) {
         let see_through = mesh.vertices.iter().any(|v| v.color.a() < u8::MAX);
-        let (layer, depth): (_, fn(&Self, [f32; 3]) -> f32) = if lying || see_through {
-            (Layer::Decal, Self::lying_depth)
+        let layer = if lying || see_through {
+            Layer::Decal
         } else {
-            (Layer::Opaque, Self::depth)
+            Layer::Opaque
         };
-        let depths = points.iter().map(|&p| depth(self, p)).collect();
+        let depths = points.iter().map(|&p| self.depth(p)).collect();
         let places = points.iter().map(|&p| add(p, self.anchor)).collect();
         canvas.mesh(
             layer,
@@ -208,31 +201,14 @@ impl Eye {
     }
 
     /// Adds a quad of `corners`, in order round it, each in its paint, to
-    /// `solid`.
+    /// `solid`: what lies on a face goes in the same solid, and the decal
+    /// pass lifts it.
     pub(super) fn quad<P: Into<Paint>>(&self, solid: &mut Solid, corners: [([f32; 3], P); 4]) {
-        self.add_quad(solid, corners, Self::depth);
-    }
-
-    /// As [`Eye::quad`], lying on a face.
-    pub(super) fn lying_quad<P: Into<Paint>>(
-        &self,
-        solid: &mut Solid,
-        corners: [([f32; 3], P); 4],
-    ) {
-        self.add_quad(solid, corners, Self::lying_depth);
-    }
-
-    fn add_quad<P: Into<Paint>>(
-        &self,
-        solid: &mut Solid,
-        corners: [([f32; 3], P); 4],
-        depth: fn(&Self, [f32; 3]) -> f32,
-    ) {
         let first = solid.mesh.vertices.len() as u32;
         for (p, paint) in corners {
             let paint = paint.into();
             solid.mesh.colored_vertex(self.at(p), paint.colour);
-            solid.depths.push(depth(self, p));
+            solid.depths.push(self.depth(p));
             solid.places.push(add(p, self.anchor));
             solid.shades.push(paint.shade);
         }
@@ -282,7 +258,7 @@ impl Eye {
     fn stroke_laid(&self, canvas: &Canvas, points: &[[f32; 3]], shape: Shape, shade: Shade) {
         let on: Vec<(Pos2, [f32; 3], f32)> = points
             .iter()
-            .map(|&p| (self.at(p), add(p, self.anchor), self.lying_depth(p)))
+            .map(|&p| (self.at(p), add(p, self.anchor), self.depth(p)))
             .collect();
         canvas.lay(vec![shape], move |vertex| {
             let (at, depth) = nearest_place(&on, vertex.pos);
@@ -339,7 +315,7 @@ pub(super) fn paint_flat_text(
     canvas.lay(shapes, |vertex| {
         let on = place(vertex.pos.x / FLAT_TEXT, vertex.pos.y / FLAT_TEXT);
         vertex.pos = eye.at(on);
-        Some(eye.lying_depth(on).into())
+        Some(eye.depth(on).into())
     });
 }
 
@@ -349,6 +325,15 @@ impl Eye {
     /// there: the sheet's convention, kept for the tests' readability.
     pub(super) fn testing(typing_y: f32, ppi: f32) -> Self {
         Self::at_origin(pos2(800.0, typing_y), ppi / 25.4)
+    }
+
+    /// The millimetres toward the eye the depth pass lifts a decal lying at
+    /// `p`, whose triangles run at `slope` depth a screen point: what a face
+    /// must stay clear of among the decals on it. Keep in step with
+    /// `depth::decal_bias`.
+    pub(super) fn lift_mm(&self, p: [f32; 3], slope: f32) -> f32 {
+        let d = self.distance(p);
+        d - NEAR_MM / (NEAR_MM / d + crate::depth::decal_bias(slope))
     }
 }
 
