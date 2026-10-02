@@ -14,54 +14,37 @@ file once it is empty.
 
 ## Baseline
 
-Measured headless on 2026-10-01: the typing view's frame (`ctx.run_ui` plus tessellation), a
-1600 × 1000 window, the desk edition against the plain app.
+Measured headless on 2026-10-02 by the bench — `TYPEWRITER_BENCH=<frames> cargo test -p
+typewriter-desk -- --ignored bench`, without `--release` for the debug column: the typing
+view's frame (`ctx.run_ui` plus tessellation), a 1600 × 1000 window, the desk edition
+against the plain app.
 
 | Frame | debug | release |
 |---|---|---|
-| Plain, empty page | 0.3 ms | 0.02 ms |
-| Desk, empty page | ~140 ms | ~20 ms |
-| Desk, full page | ~155 ms | ~21 ms |
-| Desk, empty page, strokes cut and the guide on a grid | ~37 ms | ~3.7 ms |
-| Desk, full page, strokes cut and the guide on a grid | ~50 ms | ~5.1 ms |
-| Desk, empty page, then 6 draws, `face_y` solved | ~31 ms | ~2.7 ms |
-| Desk, full page, then 6 draws, `face_y` solved | ~47 ms | ~4.1 ms |
+| Plain, empty page | 0.6 ms | 0.04 ms |
+| Plain, full page | 2.8 ms | 0.2 ms |
+| Desk, empty page | 74 ms | 4.6 ms |
+| Desk, full page | 87 ms | 5.5 ms |
 
-Where the desk's debug frame went, before the last two rows:
+The desk's pass holds 3 solids a frame since the GPU projected — the joins by texture
+swallow what were 317 — over 49 k vertices on an empty page, 57 k on a full one.
 
-- `paint_on_way` (the sheet in depth, now the desk's `machine::paint_sheets`): ~80 ms, on an
-  empty page.
-- `paint_over_sheets`: ~55 ms, 45 of it the alignment guide's plates.
-- Everything else under 1 ms per hook. Within the machine, the caps take ~10 ms in debug, the
-  key levers ~3.5, the scale ~2, the cover's opening ~2 and the case's frame ~2.
-- Packing vertices for the GPU (`Gpu::prepare`): 7–14 ms in debug, 0.2 ms in release.
-- 317 solids a frame (one draw call each), 35–65 k vertices in depth; 12–26 k once strokes
-  were cut. The margin frame had made 44,652 vertices out of 48, and each guide plate 7,328
-  out of 28.
+Where the desk's debug frame goes: the caps ~21 ms, `depth::end`'s debug walk checking
+each vertex stands where it is drawn ~18, the printing point ~14, the rest of
+`paint_front` ~10, the sheets 5–11, everything else under 4. In release, `paint_front`
+is ~4 of the frame and the caps ~1.6.
 
-**To measure again:** add a temporary function to `app/snapshot.rs` that builds the app as
-`render` does, and have it time N frames of `ctx.run_ui` and `ctx.tessellate`. Count the
-solids and their vertices on the desk's side, in `depth::end`. Call it from an ignored test in
-the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a single part, time it directly on a
-`Canvas::depth` inside `ctx.run_ui`. Revert the probes afterwards.
+Before the GPU projected (2026-10-01): Desk ~140/~20 debug/release on an empty page,
+~155/~21 on a full one, 35–65 k vertices, `Gpu::prepare` 7–14 ms debug. Part-level
+timings are probes written against `snapshot::time_frames`; revert them afterwards.
 
 ---
 
-## 2. Larger: the GPU projects
+## 3. Follow-up: the fine meshes were a cure for affine blends
 
-- [ ] **Positions in millimetres, projected on the GPU.** Today `Eye::at` projects every
-      vertex on the CPU and the shader gets screen positions. Interpolation in screen space
-      is affine, so the paper's texture and colours are not perspective-correct (hence the
-      fine sheet mesh). Send millimetre positions and the eye as a uniform (a
-      view-projection matrix
-      with `w`), and the GPU interpolates correctly and does the divide. Needs section 1
-      first; the machine's shadow on the desk and the panel's controls (`Panel::paint`, after
-      the depth pass), still flat, line up with `Eye::at` on the CPU. The click rects (`Panel::rect`, knobs) still need `Eye::at` on the CPU. Large: do
-      it last, and only if the earlier items leave a reason — the ROADMAP's free camera and
-      moving components are that reason.
-      - Give the shader one camera interface: a view-projection matrix uniform that CPU
-        `Eye::at` builds the same matrix from — click rects and flat parts can't then drift
-        from the GPU's, the eye direction the lighting takes comes from it too, and a moving
-        camera is just a new matrix.
-      - Say where each solid's transform, from its millimetres to the machine's, lives: a
-        moving part will want its own, not one baked into its vertices.
+- [ ] The GPU projects since 2026-10 (old section 2): uv, colour and millimetres now
+      blend perspective-correctly, so the sheet's 1.27 mm grid, `Solids`' screen-space
+      `subdivided` guard and the guide's `fill_bent` cutting are no longer needed for
+      correctness. Coarsen them where the bench (see *To measure again*) shows a win.
+      Window `z` still blends affine — a rasterizer divides every attribute but depth —
+      so a face must stay planar, or be cut, to order against its own coplanar decals.
