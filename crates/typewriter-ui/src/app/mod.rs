@@ -3,7 +3,7 @@
 //! the viewport, page geometry.
 
 pub(crate) mod fonts;
-mod intent;
+pub(crate) mod intent;
 mod model;
 #[cfg(feature = "snapshot")]
 pub mod snapshot;

@@ -104,7 +104,7 @@ mod tests {
     use crate::app::fonts;
     use crate::app::model::testing::{press, type_text};
     use crate::app::model::{Answer, Leaving};
-    use crate::draw::{Controls, Metrics, Scene};
+    use crate::draw::{Controls, Metrics, Part, Scene};
     use crate::input::Action;
     use crate::render::folder::FolderAction;
     use crate::render::ruler::Scale;
@@ -193,36 +193,20 @@ mod tests {
             None
         }
 
-        fn knobs(
-            &self,
-            _: &egui::Ui,
-            _: &Painter,
-            _: &Scene,
-            _: f32,
-            _: bool,
-        ) -> Option<[Rect; 2]> {
+        fn knobs(&self, _: &egui::Ui, _: &Painter, _: &Scene, _: f32, _: bool, _: &mut Vec<Part>) {
             self.note("knobs");
-            None
         }
 
-        fn scale(&self, _: &Painter, _: &Scene, _: &Scale, _: &Carriage) -> Option<Scale> {
+        fn scale(&self, _: &Painter, _: &Scene, _: &Scale, _: &Carriage, _: &mut Vec<Part>) {
             self.note("scale");
-            None
         }
 
         fn paint_over_sheets(&self, _: &Painter, _: &Scene) {
             self.note("over the sheets");
         }
 
-        fn controls(
-            &self,
-            _: &egui::Ui,
-            _: &Painter,
-            _: &Scene,
-            _: &Controls,
-        ) -> Option<[Rect; 5]> {
+        fn controls(&self, _: &egui::Ui, _: &Painter, _: &Scene, _: &Controls, _: &mut Vec<Part>) {
             self.note("controls");
-            None
         }
     }
 

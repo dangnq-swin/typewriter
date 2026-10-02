@@ -25,7 +25,7 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
       Keep a sheet's marks between a strike, a correction, a fluid drying and a
       sheet change. The core says when a sheet took a mark; answer the rest in
       the app.
-- [ ] Desk: a click contract for the machine. The `Stage` hooks return bespoke
+- [x] Desk: a click contract for the machine. The `Stage` hooks return bespoke
       rects — `[Rect; 5]` for the panel, `[Rect; 2]` for the knobs, the
       `Scale`'s own stops — and a new clickable part means a new hook. One
       named thing on the machine with its rect, `Intent`s for *taken* and

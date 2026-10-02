@@ -1,16 +1,19 @@
 //! What a mode draws around the sheet, through [`Stage`]'s hooks. Each
 //! default is the plain app's: the chosen background behind, the sheet flat
 //! on it, the scale and knobs hanging from the typing line, the plates below.
+//! Whatever on the machine the pointer can grab, the hooks draw and hand
+//! back as [`Part`]s: the app senses them, the scene keeps no state.
 
-use eframe::egui::{Context, Mesh, Painter, Rect, Shape, Ui};
+use eframe::egui::{Context, CursorIcon, Mesh, Painter, Rect, Response, Sense, Shape, Ui};
 use eframe::egui_wgpu::RenderState;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
-use typewriter_core::{EraseMode, Goal, LineSpacing};
+use typewriter_core::{EraseMode, Goal, LineSpacing, Side};
 
-use crate::filing::Keeping;
-use crate::render::Metrics;
+use crate::app::intent::Intent;
+use crate::filing::{Keeping, WriteStatus};
 use crate::render::ruler::Scale;
+use crate::render::{self, Metrics, knob};
 
 /// The plain app's furthest out: the page still reads.
 const PLAIN_ZOOM_MIN: u16 = 50;
@@ -75,6 +78,224 @@ pub struct Controls<'a> {
     pub goals: &'a [Goal],
     pub progress: Option<Progress>,
     pub keeping: &'a Keeping,
+    /// Where the project is kept: the save control's reading.
+    pub location: &'a str,
+}
+
+/// When a [`Part`] answers the pointer. The typing view senses every part
+/// each frame; this is what must hold first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum When {
+    /// The machine's own: answers calm or not, feeding or not. The model
+    /// turns away what a moving sheet must not take.
+    Always,
+    /// Chrome's: answers once fully shown, not mid-fade.
+    Shown,
+    /// Chrome's work: answers once fully shown and no sheet is feeding.
+    Idle,
+}
+
+/// What a [`Part`] asks of the model this frame, given the pointer's
+/// response to it.
+type Grab = Box<dyn Fn(&Response) -> Vec<Intent>>;
+
+/// One named thing on the machine a finger can grab: where it lies this
+/// frame, and what it asks of the model taken and released. A hook draws
+/// its parts and pushes them into `parts`; the app senses the pointer, so
+/// the scene keeps no state of them.
+pub struct Part {
+    /// Its name, steady between frames: names it in egui's memory.
+    pub name: String,
+    /// Where it answers the pointer.
+    pub rect: Rect,
+    /// What it says under the pointer.
+    pub tip: String,
+    /// What it answers to: click, drag or both.
+    pub sense: Sense,
+    /// The cursor over it.
+    pub cursor: CursorIcon,
+    pub when: When,
+    /// The wheel rolls the paper over a platen knob, not the view.
+    pub takes_wheel: bool,
+    /// What to ask of the model each frame the pointer holds it down.
+    pub grab: Grab,
+    /// What to ask of the model when the pointer lets go.
+    pub release: Option<Intent>,
+}
+
+impl Part {
+    /// The spacing control: click for the next notch.
+    pub fn spacing(rect: Rect, when: When) -> Self {
+        Self::click(
+            "spacing",
+            rect,
+            when,
+            "Line spacing (F1 / F2 / F3). Click for the next notch.",
+            Intent::NextSpacing,
+        )
+    }
+
+    /// The zoom control: double-click for 100 %.
+    pub fn zoom(rect: Rect, when: When) -> Self {
+        let grab = |response: &Response| {
+            if response.double_clicked() {
+                vec![Intent::ResetZoom]
+            } else {
+                Vec::new()
+            }
+        };
+        Self::named(
+            "zoom",
+            rect,
+            when,
+            "Zoom (mouse wheel). Double-click for 100 %.".to_owned(),
+            Box::new(grab),
+        )
+    }
+
+    /// The correction control: click for the next way to take out type.
+    pub fn correction(rect: Rect, delete_in_cycle: bool, when: When) -> Self {
+        let tip = if delete_in_cycle {
+            "Click (or F4) for the next way: correction paper, eraser, fluid or delete"
+        } else {
+            "Click (or F4) for the next way: correction paper, eraser or fluid"
+        };
+        Self::click("correction", rect, when, tip, Intent::NextCorrection)
+    }
+
+    /// The goal control: click for the next goal, or off.
+    pub fn goal(rect: Rect, when: When) -> Self {
+        Self::click(
+            "goal",
+            rect,
+            when,
+            "Click for the next: 250, 500 or 1000 words, 15, 25 or 50 minutes of typing, or off",
+            Intent::NextGoal,
+        )
+    }
+
+    /// The save control: click to save now. Reads `keeping`; `location` is
+    /// where the project is kept.
+    pub fn save(rect: Rect, keeping: &Keeping, location: &str, when: When) -> Self {
+        let tip = match keeping {
+            Keeping::Autosave(WriteStatus::Failed(err)) => {
+                format!("Could not save: {err}. Click to try again.")
+            }
+            Keeping::Autosave(_) => format!("Saved to {location}. Click to save now."),
+            Keeping::Draft => "Kept in the drafts folder. Click to save it as a file.".to_owned(),
+            Keeping::Off { unsaved: true } => "Unsaved changes. Click to save.".to_owned(),
+            Keeping::Off { unsaved: false } => "Saved. Click to save now.".to_owned(),
+        };
+        Self::click("autosave", rect, when, tip, Intent::Save)
+    }
+
+    /// A platen knob's grip at `rect`: dragged or scrolled, it rolls the
+    /// paper a half-line per notch; let go, the turn stops.
+    pub fn platen_knob(side: Side, rect: Rect, metrics: &Metrics) -> Self {
+        let per_notch = knob::DRAG_POINTS_PER_NOTCH * metrics.points_per_inch / 96.0;
+        let grab = move |response: &Response| {
+            // The front face up rolls on, as on a platen.
+            if response.dragged() {
+                vec![Intent::DragKnob {
+                    points: -response.drag_delta().y,
+                    per_notch,
+                }]
+            } else {
+                Vec::new()
+            }
+        };
+        let name = match side {
+            Side::Left => "platen-knob-left",
+            Side::Right => "platen-knob-right",
+        };
+        Self {
+            name: name.to_owned(),
+            rect,
+            tip: "Platen knob (Up / Down): drag or scroll to roll a half-line".to_owned(),
+            sense: Sense::DRAG,
+            cursor: CursorIcon::ResizeVertical,
+            when: When::Idle,
+            takes_wheel: true,
+            grab: Box::new(grab),
+            release: Some(Intent::ReleaseKnob),
+        }
+    }
+
+    /// A margin stop's grip on `scale`: drag moves the margin to the column
+    /// under the pointer, click releases both margins.
+    pub fn margin_stop(scale: &Scale, carriage: &Carriage, side: Side) -> Self {
+        let scale = *scale;
+        let (name, key) = match side {
+            Side::Left => ("Left", "Home"),
+            Side::Right => ("Right", "End"),
+        };
+        let (margin, other) = match side {
+            Side::Left => (carriage.left_margin, carriage.right_margin),
+            Side::Right => (carriage.right_margin, carriage.left_margin),
+        };
+        let grab = move |response: &Response| {
+            let mut asks = Vec::new();
+            if response.clicked() {
+                asks.push(Intent::ReleaseMargins);
+            }
+            let Some(pointer) = response
+                .interact_pointer_pos()
+                .filter(|_| response.dragged())
+            else {
+                return asks;
+            };
+            // Stop short of the other stop: no jolt per frame.
+            let column = match side {
+                Side::Left => scale.column_at(pointer.x).min(other - 1),
+                Side::Right => scale.column_at(pointer.x).max(other + 1),
+            };
+            if column != margin {
+                asks.push(Intent::MoveMargin { side, column });
+            }
+            asks
+        };
+        Self {
+            name: format!("margin-stop-{name}"),
+            rect: scale.stop(carriage, side),
+            tip: format!(
+                "{name} margin (Shift+{key}). Drag to move; click to release the margins (Home)."
+            ),
+            sense: render::CLICK_AND_DRAG,
+            cursor: CursorIcon::ResizeHorizontal,
+            when: When::Idle,
+            takes_wheel: false,
+            grab: Box::new(grab),
+            release: None,
+        }
+    }
+
+    /// Click-only, the pointing hand: `intent` each time clicked.
+    fn click(name: &str, rect: Rect, when: When, tip: impl Into<String>, intent: Intent) -> Self {
+        let grab = move |response: &Response| {
+            if response.clicked() {
+                vec![intent.clone()]
+            } else {
+                Vec::new()
+            }
+        };
+        Self::named(name, rect, when, tip.into(), Box::new(grab))
+    }
+
+    /// A named thing with a tooltip and nothing to release: the plates and
+    /// the machine's panel buttons alike.
+    fn named(name: &str, rect: Rect, when: When, tip: String, grab: Grab) -> Self {
+        Self {
+            name: name.to_owned(),
+            rect,
+            tip,
+            sense: render::CLICK,
+            cursor: CursorIcon::PointingHand,
+            when,
+            takes_wheel: false,
+            grab,
+            release: None,
+        }
+    }
 }
 
 /// A mode: its name, and what it draws around the sheet. The typing
@@ -142,8 +363,9 @@ pub trait Stage {
     fn paint_sheets(&self, _painter: &Painter, _scene: &Scene, _sheets: Vec<FlatSheet>) {}
 
     /// Its own platen knobs, calm or not, turned by `rolled` points of paper,
-    /// the one under the pointer lit if `active`: where each grip is, left
-    /// then right, to drag. `None`: the plain app's, which fade in calm.
+    /// the one under the pointer lit if `active`: draws them and pushes their
+    /// grips into `parts`, to drag. Pushes nothing: the plain app's knobs,
+    /// which fade in calm.
     fn knobs(
         &self,
         _ui: &Ui,
@@ -151,38 +373,38 @@ pub trait Stage {
         _scene: &Scene,
         _rolled: f32,
         _active: bool,
-    ) -> Option<[Rect; 2]> {
-        None
+        _parts: &mut Vec<Part>,
+    ) {
     }
 
     /// After the sheets, calm or not: what stands in front of them.
     fn paint_over_sheets(&self, _painter: &Painter, _scene: &Scene) {}
 
     /// Its own spacing, zoom, correction, goal and save controls, calm or
-    /// not, reading `controls`: where each is, to click. `None`: the plain
-    /// app's plates, which fade in calm.
+    /// not, reading `controls`: draws them and pushes each into `parts`, to
+    /// click. Pushes nothing: the plain app's plates, which fade in calm.
     fn controls(
         &self,
         _ui: &Ui,
         _painter: &Painter,
         _scene: &Scene,
         _controls: &Controls,
-    ) -> Option<[Rect; 5]> {
-        None
+        _parts: &mut Vec<Part>,
+    ) {
     }
 
     /// Prints `scale`, laid out at the sheet's scale, and `carriage`'s stops
-    /// on the machine itself, calm or not: where it shows, for its stops.
-    /// `None`: the plain app's plate, hanging from the typing line, which
-    /// fades in calm.
+    /// on the machine itself, calm or not: draws them and pushes the stops'
+    /// grips into `parts`. Pushes nothing: the plain app's plate, hanging
+    /// from the typing line, which fades in calm.
     fn scale(
         &self,
         _painter: &Painter,
         _scene: &Scene,
         _scale: &Scale,
         _carriage: &Carriage,
-    ) -> Option<Scale> {
-        None
+        _parts: &mut Vec<Part>,
+    ) {
     }
 
     /// Still moving at `now` since `last_return`: draw again soon.

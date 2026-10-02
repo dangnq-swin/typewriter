@@ -2,12 +2,13 @@
 //! and the drawing helpers it shares with the app. Everything else in the
 //! app stays private.
 
+pub use crate::app::intent::Intent;
 pub use crate::filing::{Keeping, WriteStatus};
 pub use crate::render::feed::convex_mesh;
 pub use crate::render::perspective::{Camera, warp};
 pub use crate::render::platen::glide_seconds;
 pub use crate::render::{HIGHLIGHT, Metrics, points_per_inch, smoothstep, splitmix64, unit};
-pub use crate::stage::{Controls, FlatSheet, PaperTable, Return, Scene};
+pub use crate::stage::{Controls, FlatSheet, PaperTable, Part, Return, Scene, When};
 
 /// The scale, which the machine's bail prints, and the plates' readings, which
 /// its panel shows too.

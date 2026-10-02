@@ -2,9 +2,10 @@
 //! the sheet, its knobs and front panel for controls, the scale on its bail.
 //!
 //! The scene keeps no state: the app's model holds what it draws from (the
-//! last return), and clicks on its controls come back as rects. It reaches
-//! the app's drawing only through `draw.rs`: share a helper there by
-//! re-exporting it, not by making an app module public.
+//! last return), and the machine's clickable parts go back to the app as
+//! `Part`s for it to sense. It reaches the app's drawing only through
+//! `draw.rs`: share a helper there by re-exporting it, not by making an app
+//! module public.
 //!
 //! Drawing is in depth — one wgpu callback a frame, a depth buffer,
 //! positions projected on the CPU (`depth/`, `machine/canvas.rs`). A part
@@ -12,10 +13,11 @@
 
 use eframe::egui::{Context, Painter, Rect, Ui};
 use eframe::egui_wgpu::RenderState;
+use typewriter_core::Side;
 use typewriter_core::carriage::Carriage;
 use typewriter_ui::Stage;
 use typewriter_ui::draw::ruler::Scale;
-use typewriter_ui::draw::{Controls, FlatSheet, Metrics, PaperTable, Return, Scene};
+use typewriter_ui::draw::{Controls, FlatSheet, Metrics, PaperTable, Part, Return, Scene, When};
 
 use crate::depth;
 use crate::machine::{self, Control, Panel, Throw};
@@ -99,7 +101,7 @@ impl Stage for Desk {
     }
 
     /// On the carriage's ends, in depth with the machine: always there, as
-    /// they are the machine's.
+    /// they are the machine's. Their grips drag the paper, wheel or no.
     fn knobs(
         &self,
         ui: &Ui,
@@ -107,12 +109,18 @@ impl Stage for Desk {
         scene: &Scene,
         rolled: f32,
         active: bool,
-    ) -> Option<[Rect; 2]> {
+        parts: &mut Vec<Part>,
+    ) {
         let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
         let turning = (scene.carriage_x, rolled);
         let hovered = |grip| active && ui.rect_contains_pointer(grip);
         let grips = machine::paint_knobs(painter, view, metrics, typing_y, turning, hovered);
-        Some(grips)
+        parts.extend(
+            [Side::Left, Side::Right]
+                .into_iter()
+                .zip(grips)
+                .map(|(side, grip)| Part::platen_knob(side, grip, metrics)),
+        );
     }
 
     /// The machine in front of the sheet.
@@ -121,14 +129,16 @@ impl Stage for Desk {
         machine::paint_front(painter, view, metrics, typing_y);
     }
 
-    /// On the front panel. Always shown, calm or not: they are the machine's.
+    /// On the front panel. Always shown, calm or not: they are the machine's,
+    /// and so they answer at once.
     fn controls(
         &self,
         ui: &Ui,
         painter: &Painter,
         scene: &Scene,
         controls: &Controls,
-    ) -> Option<[Rect; 5]> {
+        parts: &mut Vec<Part>,
+    ) {
         let panel = Panel::new(scene.view, scene.metrics, scene.typing_y);
         let rects = Control::ALL.map(|control| panel.rect(control));
         let hovered = Control::ALL
@@ -137,22 +147,32 @@ impl Stage for Desk {
             .find(|(_, rect)| ui.rect_contains_pointer(*rect))
             .map(|(control, _)| control);
         panel.paint(painter, controls, hovered);
-        Some(rects)
+        let [spacing, zoom, correct, goal, save] = rects;
+        let when = When::Always;
+        parts.extend([
+            Part::spacing(spacing, when),
+            Part::zoom(zoom, when),
+            Part::correction(correct, controls.delete_in_cycle, when),
+            Part::goal(goal, when),
+            Part::save(save, controls.keeping, controls.location, when),
+        ]);
     }
 
     /// On the paper bail above the typing line, as on the SM9, in depth with
-    /// the machine.
+    /// the machine: its stops, as printed, to set the margins.
     fn scale(
         &self,
         painter: &Painter,
         scene: &Scene,
         scale: &Scale,
         carriage: &Carriage,
-    ) -> Option<Scale> {
+        parts: &mut Vec<Part>,
+    ) {
         let (view, metrics, typing_y) = (scene.view, scene.metrics, scene.typing_y);
-        Some(machine::print_scale(
-            painter, view, metrics, typing_y, scale, carriage,
-        ))
+        let printed = machine::print_scale(painter, view, metrics, typing_y, scale, carriage);
+        parts.extend(
+            [Side::Left, Side::Right].map(|side| Part::margin_stop(&printed, carriage, side)),
+        );
     }
 
     /// The lever, springing back after a return.

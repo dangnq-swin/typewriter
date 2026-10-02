@@ -11,12 +11,11 @@ use typewriter_core::page::Page;
 
 use crate::app::TypewriterApp;
 use crate::app::intent::Intent;
-use crate::filing::{Keeping, WriteStatus};
 use crate::render::calm::{self, Dimming};
 use crate::render::folder::{Answer, Flight};
 use crate::render::platen::Layout;
 use crate::render::{self, feed, folder, holder, knob, notebook, paper, platen, ruler};
-use crate::stage::{Controls, FlatSheet, PaperTable, Scene};
+use crate::stage::{Controls, FlatSheet, PaperTable, Part, Scene, When};
 
 /// Room past the window edge for a moving sheet's shadow.
 const SHADOW_ROOM: f32 = 30.0;
@@ -97,22 +96,13 @@ struct Sheets {
     answer: Answer,
 }
 
-/// What the stage draws over the sheets, calm or not: whether it has its
-/// own controls, its knobs' grips, and where it printed the scale.
+/// What the stage drew over the sheets, calm or not: whether each of the
+/// machine's clickables is its own — its hooks pushed parts — or falls back
+/// to the plain app's, which fade in calm.
 struct Over {
+    own_knobs: bool,
+    own_scale: bool,
     own_controls: bool,
-    knobs: Option<[Rect; 2]>,
-    scale: Option<ruler::Scale>,
-}
-
-/// What fades in calm, as drawn: for its clicks and drags.
-struct Chrome {
-    scale: ruler::Scale,
-    /// The knobs' grips, the stage's if it drew them.
-    knobs: [Rect; 2],
-    /// The plates, and what the save plate reads. `None`: the stage has its
-    /// own controls.
-    plates: Option<([Rect; 5], Keeping)>,
 }
 
 impl TypewriterApp {
@@ -139,8 +129,16 @@ impl TypewriterApp {
         let sheets = self.paint_sheets(ui, &sheet_painter, &scene, &layout, calm);
         let active = chrome >= 1.0 && !self.model.is_busy(now);
         let scale = self.lay_out_scale(&layout);
+        // Everything on the machine the pointer can grab this frame,
+        // wherever it was drawn: the stage's hooks push theirs, the plain
+        // chrome its own, and one loop senses them all. `wheels` takes the
+        // grips the wheel rolls paper on.
+        let mut parts = Vec::new();
+        let mut wheels = Vec::new();
         let on = (&sheets, &scale, active);
-        let over = self.show_over_sheets(ui, &painter, &scene, on, intents);
+        let over = self.show_over_sheets(ui, &painter, &scene, on, &mut parts);
+        // The machine's own controls answer at once, calm or not.
+        Self::react(ui, &parts, When::Always, &mut wheels, intents);
         self.paint_platen_marks(&painter, &layout, sheets.pointer_opacity, now);
         self.show_desk_icons(ui, view, &sheets, chrome, now, intents);
         if chrome <= 0.0 {
@@ -148,7 +146,7 @@ impl TypewriterApp {
         }
         let mut painter = painter;
         painter.multiply_opacity(chrome);
-        let drawn = self.paint_chrome(
+        self.paint_chrome(
             ui,
             &painter,
             &scene,
@@ -156,20 +154,17 @@ impl TypewriterApp {
             chrome,
             &sheets,
             (scale, &over),
+            &mut parts,
         );
         // React only when fully shown, not mid-fade.
         if chrome < 1.0 {
             return;
         }
-        if let Some((rects, keeping)) = &drawn.plates {
-            self.control_buttons(ui, *rects, keeping, intents);
-        }
+        Self::react(ui, &parts, When::Shown, &mut wheels, intents);
         if !self.model.is_busy(now) {
-            self.margin_stops(ui, &drawn.scale, intents);
-            for (name, grip) in ["left", "right"].into_iter().zip(drawn.knobs) {
-                self.platen_knob(ui, name, grip, intents);
-            }
+            Self::react(ui, &parts, When::Idle, &mut wheels, intents);
         }
+        self.knobs.extend(wheels);
     }
 
     /// The platen's layout this frame, its typing line where the stage has
@@ -330,25 +325,30 @@ impl TypewriterApp {
 
     /// Over the sheets, calm or not: the stage's knobs, lit under the pointer
     /// if `active`; its printing of `scale`; what it has in front of the
-    /// sheets; its own controls, which answer at once.
+    /// sheets; its own controls. A hook that pushed parts is the stage
+    /// drawing that clickable itself.
     fn show_over_sheets(
         &self,
         ui: &egui::Ui,
         painter: &Painter,
         scene: &Scene,
         (sheets, scale, active): (&Sheets, &ruler::Scale, bool),
-        intents: &mut Vec<Intent>,
+        parts: &mut Vec<Part>,
     ) -> Over {
-        let knobs = self
-            .stage
-            .knobs(ui, painter, scene, sheets.knob_rolled, active);
+        let before = parts.len();
+        self.stage
+            .knobs(ui, painter, scene, sheets.knob_rolled, active, parts);
+        let own_knobs = parts.len() > before;
         let carriage = self.model.project.machine.carriage();
-        let printed = self.stage.scale(painter, scene, scale, carriage);
+        let before = parts.len();
+        self.stage.scale(painter, scene, scale, carriage, parts);
+        let own_scale = parts.len() > before;
         self.stage.paint_over_sheets(painter, scene);
         let (model, project) = (&self.model, &self.model.project);
         let keeping = project
             .filing
             .keeping(model.settings.saving.autosave, scene.now);
+        let location = project.filing.location();
         let goals = model.settings.goals.cycle();
         let controls = Controls {
             spacing: project.machine.carriage().line_spacing,
@@ -360,15 +360,15 @@ impl TypewriterApp {
             goals: &goals,
             progress: project.session.progress(),
             keeping: &keeping,
+            location: &location,
         };
-        let own_controls = self.stage.controls(ui, painter, scene, &controls);
-        if let Some(rects) = own_controls {
-            self.control_buttons(ui, rects, &keeping, intents);
-        }
+        let before = parts.len();
+        self.stage.controls(ui, painter, scene, &controls, parts);
+        let own_controls = parts.len() > before;
         Over {
-            own_controls: own_controls.is_some(),
-            knobs,
-            scale: printed,
+            own_knobs,
+            own_scale,
+            own_controls,
         }
     }
 
@@ -430,7 +430,8 @@ impl TypewriterApp {
     }
 
     /// What fades in calm: the scale on its plate, the knobs and the plates,
-    /// each unless the stage has its own (`over`): `scale` as laid out.
+    /// each unless the stage drew its own (`over`): `scale` as laid out.
+    /// Pushes what the plain app draws into `parts` too, to sense.
     #[allow(clippy::too_many_arguments)]
     fn paint_chrome(
         &self,
@@ -441,32 +442,34 @@ impl TypewriterApp {
         chrome: f32,
         sheets: &Sheets,
         (scale, over): (ruler::Scale, &Over),
-    ) -> Chrome {
+        parts: &mut Vec<Part>,
+    ) {
         let project = &self.model.project;
         let machine = &project.machine;
         let carriage = machine.carriage();
         // The plates hang below the typing line, the scale's plate above them.
         let scale_top = ruler::top(&self.metrics, layout.strike_point);
         let plates_top = scale_top + ruler::HEIGHT;
-        let scale = over.scale.unwrap_or_else(|| {
+        if !over.own_scale {
             ruler::paint_scale(painter, &scale, carriage);
-            scale
-        });
-        let knobs = over.knobs.unwrap_or_else(|| {
+            parts.extend(
+                [Side::Left, Side::Right].map(|side| Part::margin_stop(&scale, carriage, side)),
+            );
+        }
+        if !over.own_knobs {
             let paper_left = layout.paper_origin.x;
             let busy = self.model.is_busy(scene.now);
-            [
+            for (side, edge) in [
                 (Side::Left, paper_left),
                 (Side::Right, paper_left + self.metrics.paper_size.x),
-            ]
-            .map(|(side, edge)| {
+            ] {
                 let knob = knob::Knob::new(&self.metrics, side, edge, scale_top);
                 let hovered = chrome >= 1.0 && !busy && ui.rect_contains_pointer(knob.grip());
                 knob.paint(painter, sheets.knob_rolled, hovered);
-                knob.grip()
-            })
-        });
-        let plates = (!over.own_controls).then(|| {
+                parts.push(Part::platen_knob(side, knob.grip(), &self.metrics));
+            }
+        }
+        if !over.own_controls {
             let spacing_plate = ruler::paint_spacing_indicator(
                 painter,
                 carriage.line_spacing,
@@ -493,88 +496,49 @@ impl TypewriterApp {
                 spacing_plate,
                 goal_plate.right(),
             );
-            (
-                [
-                    spacing_plate,
-                    zoom_plate,
+            parts.extend([
+                Part::spacing(spacing_plate, When::Shown),
+                Part::zoom(zoom_plate, When::Shown),
+                Part::correction(
                     correction_plate,
-                    goal_plate,
+                    self.model.settings.machine.rules.delete_in_cycle,
+                    When::Shown,
+                ),
+                Part::goal(goal_plate, When::Shown),
+                Part::save(
                     autosave_plate,
-                ],
-                keeping,
-            )
-        });
-        Chrome {
-            scale,
-            knobs,
-            plates,
+                    &keeping,
+                    &project.filing.location(),
+                    When::Shown,
+                ),
+            ]);
         }
     }
 
-    /// Clicks on the spacing, zoom, correction, goal and save controls,
-    /// plates or knobs.
-    fn control_buttons(
-        &self,
+    /// Sense every part due at `when`: its click, drag and release, as the
+    /// part says what each asks of the model. `wheels` takes the grips the
+    /// wheel rolls paper on.
+    fn react(
         ui: &egui::Ui,
-        [spacing, zoom, correction, goal, save]: [Rect; 5],
-        keeping: &Keeping,
+        parts: &[Part],
+        when: When,
+        wheels: &mut Vec<Rect>,
         intents: &mut Vec<Intent>,
     ) {
-        let filing = &self.model.project.filing;
-        let spacing_button = render::button(
-            ui,
-            spacing,
-            "spacing-plate",
-            "Line spacing (F1 / F2 / F3). Click for the next notch.",
-        );
-        if spacing_button.clicked() {
-            intents.push(Intent::NextSpacing);
-        }
-        let zoom_button = render::button(
-            ui,
-            zoom,
-            "zoom-plate",
-            "Zoom (mouse wheel). Double-click for 100 %.",
-        );
-        if zoom_button.double_clicked() {
-            intents.push(Intent::ResetZoom);
-        }
-        let correction_button = render::button(
-            ui,
-            correction,
-            "correction-plate",
-            if self.model.settings.machine.rules.delete_in_cycle {
-                "Click (or F4) for the next way: correction paper, eraser, fluid or delete"
-            } else {
-                "Click (or F4) for the next way: correction paper, eraser or fluid"
-            },
-        );
-        if correction_button.clicked() {
-            intents.push(Intent::NextCorrection);
-        }
-        let goal_button = render::button(
-            ui,
-            goal,
-            "goal-plate",
-            "Click for the next: 250, 500 or 1000 words, 15, 25 or 50 minutes of typing, or off",
-        );
-        if goal_button.clicked() {
-            intents.push(Intent::NextGoal);
-        }
-        let tip = match keeping {
-            Keeping::Autosave(WriteStatus::Failed(err)) => {
-                format!("Could not save: {err}. Click to try again.")
+        for part in parts.iter().filter(|part| part.when == when) {
+            let response = ui
+                .interact(part.rect, egui::Id::new(("part", &part.name)), part.sense)
+                .on_hover_text(&part.tip);
+            if response.hovered() || response.dragged() {
+                ui.ctx().set_cursor_icon(part.cursor);
             }
-            Keeping::Autosave(_) => {
-                format!("Saved to {}. Click to save now.", filing.location())
+            intents.extend((part.grab)(&response));
+            if response.drag_stopped() {
+                intents.extend(part.release.clone());
             }
-            Keeping::Draft => "Kept in the drafts folder. Click to save it as a file.".to_owned(),
-            Keeping::Off { unsaved: true } => "Unsaved changes. Click to save.".to_owned(),
-            Keeping::Off { unsaved: false } => "Saved. Click to save now.".to_owned(),
-        };
-        let autosave = render::button(ui, save, "autosave-plate", &tip);
-        if autosave.clicked() {
-            intents.push(Intent::Save);
+            if part.takes_wheel {
+                wheels.push(part.rect);
+            }
         }
     }
 
@@ -597,66 +561,6 @@ impl TypewriterApp {
             &mut self.print_holder.borrow_mut(),
         ) {
             intents.push(Intent::TakeHolderDown);
-        }
-    }
-
-    /// Drag the knob to roll the paper, a half-line a notch.
-    fn platen_knob(&mut self, ui: &egui::Ui, name: &str, knob: Rect, intents: &mut Vec<Intent>) {
-        self.knobs.push(knob);
-        let response = ui
-            .interact(
-                knob,
-                egui::Id::new(("platen-knob", name)),
-                egui::Sense::DRAG,
-            )
-            .on_hover_text("Platen knob (Up / Down): drag or scroll to roll a half-line");
-        if response.hovered() || response.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
-        if response.dragged() {
-            let per_notch = knob::DRAG_POINTS_PER_NOTCH * self.metrics.points_per_inch / 96.0;
-            // The front face up rolls on, as on a platen.
-            let points = -response.drag_delta().y;
-            intents.push(Intent::DragKnob { points, per_notch });
-        } else if response.drag_stopped() {
-            intents.push(Intent::ReleaseKnob);
-        }
-    }
-
-    /// The scale's margin stops: click to release the margins, drag to move one.
-    fn margin_stops(&self, ui: &egui::Ui, scale: &ruler::Scale, intents: &mut Vec<Intent>) {
-        let carriage = self.model.project.machine.carriage();
-        let (left, right) = (carriage.left_margin, carriage.right_margin);
-        for (side, name, key) in [(Side::Left, "Left", "Home"), (Side::Right, "Right", "End")] {
-            let grip = scale.stop(carriage, side);
-            let tip = format!(
-                "{name} margin (Shift+{key}). Drag to move; click to release the margins (Home)."
-            );
-            let stop = ui
-                .interact(
-                    grip,
-                    egui::Id::new(("margin-stop", name)),
-                    render::CLICK_AND_DRAG,
-                )
-                .on_hover_text(tip);
-            if stop.hovered() || stop.dragged() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-            }
-            if stop.clicked() {
-                intents.push(Intent::ReleaseMargins);
-            }
-            let Some(pointer) = stop.interact_pointer_pos().filter(|_| stop.dragged()) else {
-                continue;
-            };
-            // Stop short of the other stop: no jolt per frame.
-            let column = scale.column_at(pointer.x);
-            let (column, margin) = match side {
-                Side::Left => (column.min(right - 1), left),
-                Side::Right => (column.max(left + 1), right),
-            };
-            if column != margin {
-                intents.push(Intent::MoveMargin { side, column });
-            }
         }
     }
 
