@@ -1,19 +1,10 @@
 [package]
-name = "typewriter-app"
-description = "A typewriter simulator for focused writing"
+name = "typewriter-ui"
+description = "The typewriter app as a library: both editions open it on a Stage"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-default-run = "typewriter"
-
-[[bin]]
-name = "typewriter"
-path = "src/main.rs"
-
-[[bin]]
-name = "typewriter-import"
-path = "src/bin/typewriter-import.rs"
 
 [dependencies]
 typewriter-core.workspace = true

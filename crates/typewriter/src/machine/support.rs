@@ -16,7 +16,7 @@ use super::eye::{Eye, paint_flat_text};
 use super::light::matte;
 use super::sheet::front_at;
 use super::{CHROME, EDGE, ENGRAVED, IVORY_LIT, METAL};
-use typewriter_app::draw::{Metrics, PaperTable};
+use typewriter_ui::draw::{Metrics, PaperTable};
 
 /// Back from upright.
 pub(super) const LEAN_DEGREES: f32 = 15.0;

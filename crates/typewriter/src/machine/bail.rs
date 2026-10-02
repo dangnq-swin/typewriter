@@ -8,8 +8,8 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::Color32;
-use typewriter_app::draw::ruler::{self, Scale};
 use typewriter_core::carriage::Carriage;
+use typewriter_ui::draw::ruler::{self, Scale};
 
 use super::canvas::Canvas;
 use super::carriage::{
@@ -385,7 +385,7 @@ mod tests {
         let eye = Eye::testing(500.0, 96.0);
         let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
         let profile = typewriter_core::Profile::from_toml_str(sm9).unwrap();
-        let metrics = typewriter_app::draw::Metrics::new(&profile, 96.0);
+        let metrics = typewriter_ui::draw::Metrics::new(&profile, 96.0);
         let paper_left = eye.origin.x - metrics.paper_size.x / 2.0;
         let scale = Scale::new(&metrics, 80, paper_left, 600.0);
         let ctx = eframe::egui::Context::default();

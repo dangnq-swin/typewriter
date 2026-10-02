@@ -505,7 +505,7 @@ mod tests {
     }
 
     /// A novel's worth, for measuring by hand:
-    /// `TYPEWRITER_MANUSCRIPT=novel.odt cargo test -p typewriter-app --release
+    /// `TYPEWRITER_MANUSCRIPT=novel.odt cargo test -p typewriter-ui --release
     /// -- --ignored --nocapture novel`. Without a manuscript, seeded prose.
     #[test]
     #[ignore = "slow: run by hand"]

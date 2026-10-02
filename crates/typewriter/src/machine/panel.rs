@@ -10,8 +10,8 @@ use super::eye::{Eye, paint_flat_text};
 use super::geometry::{add, dot};
 use super::light::{matte, toward_light};
 use super::{CHROME, ENGRAVED, IVORY, SHIFT_CAP, SHIFT_FRONT};
-use typewriter_app::draw::{Controls, HIGHLIGHT, Metrics, ruler};
-use typewriter_app::settings::{ZOOM_NOTCHES, zoom_notch};
+use typewriter_ui::draw::{Controls, HIGHLIGHT, Metrics, ruler};
+use typewriter_ui::settings::{ZOOM_NOTCHES, zoom_notch};
 
 /// The front panel, falling from the cover's fold to the keyboard's opening.
 pub(super) const PANEL_BOTTOM: (f32, f32) = (119.0, -60.0);

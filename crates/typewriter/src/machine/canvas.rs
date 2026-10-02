@@ -9,7 +9,7 @@ use super::light::frame;
 use crate::depth::{self, Layer, Placing, Shade, Solid, Solids};
 use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{Color32, Mesh, Painter, Shape};
-use typewriter_app::draw::warp;
+use typewriter_ui::draw::warp;
 
 pub(super) struct Canvas<'a> {
     painter: &'a Painter,

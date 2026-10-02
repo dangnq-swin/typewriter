@@ -16,7 +16,7 @@ use super::light::{matte, paint_chrome};
 use super::sheet::face_y;
 use super::{EDGE, METAL_SHINE};
 use crate::depth::{Placing, Shade};
-use typewriter_app::draw::Metrics;
+use typewriter_ui::draw::Metrics;
 
 /// The alignment guide's plates, pressed on the paper either side of the
 /// printing point, following it: their foot's and top's `z`, their foot

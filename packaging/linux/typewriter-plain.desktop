@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Typewriter Plain
+GenericName=Typewriter Simulator
+Comment=Write on a simulated mechanical typewriter (minimal)
+Exec=typewriter-plain %f
+Icon=typewriter
+Terminal=false
+Categories=Office;WordProcessor;
+Keywords=typewriter;writing;focus;
+MimeType=application/x-typewriter-folder;
+StartupWMClass=typewriter-plain

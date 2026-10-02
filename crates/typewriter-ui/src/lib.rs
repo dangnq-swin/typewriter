@@ -1,6 +1,7 @@
-//! The typewriter app. [`run`] opens it on a [`Stage`]: [`Plain`] for
-//! `typewriter`; the desk edition draws its own through the hooks, with
-//! [`draw`]. `typewriter-import` shares the app's folders and settings, the
+//! The typewriter app, shared by both editions. [`run`] opens it on a
+//! [`Stage`]: [`Plain`] for `typewriter-plain`; the desk edition,
+//! `typewriter`, draws its own through the hooks, with [`draw`].
+//! `typewriter-import` shares the app's folders and settings, the
 //! machines, and importing an .odt.
 
 mod app;

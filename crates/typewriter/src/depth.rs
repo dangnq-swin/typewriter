@@ -1215,7 +1215,7 @@ impl CallbackTrait for Gpu {
 pub fn rasterize(
     callback: &PaintCallback,
     clip: eframe::egui::Rect,
-    raster: &mut typewriter_app::snapshot::Raster,
+    raster: &mut typewriter_ui::snapshot::Raster,
 ) {
     let Some(Pass {
         solids,
@@ -1852,10 +1852,8 @@ mod tests {
         let view = Rect::from_min_size(Pos2::ZERO, vec2(1400.0, 2400.0));
         let sm9 = include_str!("../../../profiles/olympia-sm9.toml");
         let profile = typewriter_core::Profile::from_toml_str(sm9).unwrap();
-        let metrics = typewriter_app::draw::Metrics::new(
-            &profile,
-            typewriter_app::draw::points_per_inch(100),
-        );
+        let metrics =
+            typewriter_ui::draw::Metrics::new(&profile, typewriter_ui::draw::points_per_inch(100));
         let typing_y = view.height() * crate::machine::typing_line_height(view, &metrics, 100);
         let middle = view.center().x;
         let mut output = ctx.run_ui(
@@ -2114,8 +2112,8 @@ mod tests {
     /// not. Not for CI: it wants a device.
     ///
     /// ```sh
-    /// TYPEWRITER_GPU_SNAPSHOT=<folder> xvfb-run -a cargo test -p typewriter-desk -- \
-    ///     gpu_snapshot -- --ignored --nocapture
+    /// TYPEWRITER_GPU_SNAPSHOT=<folder> xvfb-run -a cargo test -p typewriter -- \
+    ///     --ignored --nocapture gpu_snapshot
     /// ```
     #[test]
     #[ignore]

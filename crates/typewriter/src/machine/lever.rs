@@ -16,7 +16,7 @@ use super::eye::Eye;
 use super::geometry::{add, cross, normalized, scaled, sub};
 use super::light::{brighten, chrome_at, paint_chrome, streak, toward_light};
 use super::{EDGE, METAL, METAL_SHINE};
-use typewriter_app::draw::{glide_seconds, smoothstep};
+use typewriter_ui::draw::{glide_seconds, smoothstep};
 
 /// The bracket, `x` out from the carriage's left end (negative), `y` behind
 /// the knob's axis, `z` round it: a thin strip standing out from the end,

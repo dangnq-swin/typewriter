@@ -11,7 +11,7 @@ use super::carriage::cylinder;
 use super::eye::Eye;
 use super::light::matte;
 use crate::depth::{Layer, Solid};
-use typewriter_app::draw::HIGHLIGHT;
+use typewriter_ui::draw::HIGHLIGHT;
 
 /// Out from the carriage's end: the collar's length and radius, then the
 /// disc's.

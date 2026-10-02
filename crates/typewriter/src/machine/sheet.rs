@@ -6,7 +6,7 @@
 
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{Mesh, Painter, Pos2, Rect};
-use typewriter_app::draw::{FlatSheet, Metrics};
+use typewriter_ui::draw::{FlatSheet, Metrics};
 
 use super::carriage::{PLATEN_DIAMETER_MM, STRIKE_DEGREES, platen_axis};
 use super::eye::Eye;

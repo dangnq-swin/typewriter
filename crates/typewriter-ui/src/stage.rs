@@ -201,13 +201,13 @@ pub trait Stage {
     }
 }
 
-/// The plain app, `typewriter`: the focused writing tool, every hook its
-/// default.
+/// The plain app, `typewriter-plain`: the focused writing tool, every hook
+/// its default.
 pub struct Plain;
 
 impl Stage for Plain {
     fn command(&self) -> &'static str {
-        "typewriter"
+        "typewriter-plain"
     }
 
     fn title(&self) -> &'static str {

@@ -1,8 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["crates/typewriter-core", "crates/typewriter-app", "crates/typewriter-desk"]
-# Plain `cargo run` opens the app. Build, test and lint with --workspace.
-default-members = ["crates/typewriter-app"]
+members = [
+    "crates/typewriter-core",
+    "crates/typewriter-ui",
+    "crates/typewriter",
+]
+# Plain `cargo run` opens the desk edition, the default. Build, test and lint
+# with --workspace; the plain app is `cargo run --bin typewriter-plain`.
+default-members = ["crates/typewriter"]
 
 [workspace.package]
 version = "0.2.1"
@@ -12,7 +17,7 @@ publish = false
 
 [workspace.dependencies]
 typewriter-core = { path = "crates/typewriter-core" }
-typewriter-app = { path = "crates/typewriter-app" }
+typewriter-ui = { path = "crates/typewriter-ui" }
 eframe = "0.36"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

@@ -11,18 +11,7 @@ this file once all of it is done: the git history and the release notes keep it.
 A change is done as the code says: fmt, clippy, tests, and the drawings looked
 at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
 
-The desk edition (`typewriter-desk`) is the immersive, game-like side of the
-project, kept apart so that the plain app stays a focused writing tool (see
-`AGENTS.md`). Items for it say so; shared items say nothing. Its clean-up notes
-and measurements live in [`3D-FIX.md`](3D-FIX.md) — this roadmap turns them into
-tasks; keep the two in step.
-
 ---
-
-## The try-out
-
-- [ ] ❓ Close the try-out: merge `desk-viewpoint` into `main`, so the
-      foundations below land on the trunk rather than on the branch.
 
 
 ## The desk's foundations: restructure, no change of look
@@ -148,15 +137,6 @@ each group tried on its own before the next.
       edition's drawing of it. Open: what the desk draws for a profile without one
 - [ ] ❓ Additional profiles (e.g. Olivetti Lettera 32, Hermes 3000, IBM Selectric), each with
       its own pitch, typeface, bell offset and sounds
-
-## Packaging
-
-- [ ] `typewriter-desk` installed and packaged beside `typewriter` (`install.sh`, the release
-      builds, its own desktop entry)
-- [ ] ❓ A Flatpak
-- [ ] ❓ A truly static Linux build: CPU drawing, pure-Rust Wayland and X11, sound without ALSA
-      (a static binary can't load the system's graphics and window libraries). The desk's 3D
-      needs a GPU through wgpu: drawn on the CPU there, or left out of that build
 
 ## The desk as a scene
 

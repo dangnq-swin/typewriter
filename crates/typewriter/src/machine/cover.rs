@@ -10,7 +10,7 @@ use super::eye::Eye;
 use super::geometry::{fillet, normalized, sub};
 use super::light::{Paint, brighten, brushed, matte, paint_steel};
 use super::{IVORY, IVORY_SHADE, METAL, METAL_SHINE};
-use typewriter_app::draw::{splitmix64, unit};
+use typewriter_ui::draw::{splitmix64, unit};
 
 /// The ribbon cover, sloping toward the writer from just in front of the
 /// ribbon, its back edge up at the alignment guide's foot, to its fold into

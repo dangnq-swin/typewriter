@@ -39,9 +39,9 @@ use crate::depth;
 use canvas::Canvas;
 use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
-use typewriter_app::draw::Metrics;
-use typewriter_app::draw::ruler::Scale;
 use typewriter_core::carriage::Carriage;
+use typewriter_ui::draw::Metrics;
+use typewriter_ui::draw::ruler::Scale;
 
 /// The typing line's height in the view: leaning over the page at 100 %
 /// zoom and above, sitting back to see the whole machine at 50 %, and far
@@ -194,10 +194,7 @@ mod tests {
     fn metrics(zoom_percent: u16) -> Metrics {
         let sm9 = include_str!("../../../../profiles/olympia-sm9.toml");
         let profile = typewriter_core::Profile::from_toml_str(sm9).unwrap();
-        Metrics::new(
-            &profile,
-            typewriter_app::draw::points_per_inch(zoom_percent),
-        )
+        Metrics::new(&profile, typewriter_ui::draw::points_per_inch(zoom_percent))
     }
 
     #[test]

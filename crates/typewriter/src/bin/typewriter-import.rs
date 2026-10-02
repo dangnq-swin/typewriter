@@ -4,7 +4,7 @@
 #[cfg(windows)]
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    typewriter_app::import::run("typewriter-import", &args)
+    typewriter_ui::import::run("typewriter-import", &args)
 }
 
 // Cargo can't build a binary for one OS only.

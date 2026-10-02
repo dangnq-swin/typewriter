@@ -12,21 +12,22 @@
 
 use eframe::egui::{Context, Painter, Rect, Ui};
 use eframe::egui_wgpu::RenderState;
-use typewriter_app::Stage;
-use typewriter_app::draw::ruler::Scale;
-use typewriter_app::draw::{Controls, FlatSheet, Metrics, PaperTable, Return, Scene};
 use typewriter_core::carriage::Carriage;
+use typewriter_ui::Stage;
+use typewriter_ui::draw::ruler::Scale;
+use typewriter_ui::draw::{Controls, FlatSheet, Metrics, PaperTable, Return, Scene};
 
 use crate::depth;
 use crate::machine::{self, Control, Panel, Throw};
 use crate::room;
 
-/// `typewriter-desk`: the typewriter on a desk, seen from the chair.
+/// `typewriter`: the typewriter on a desk, seen from the chair, the default
+/// edition.
 pub struct Desk;
 
 impl Stage for Desk {
     fn command(&self) -> &'static str {
-        "typewriter-desk"
+        "typewriter"
     }
 
     fn title(&self) -> &'static str {
@@ -50,7 +51,7 @@ impl Stage for Desk {
 
     /// Sitting far back, the paper support's scale in view.
     fn zoom_min(&self) -> u16 {
-        typewriter_app::settings::ZOOM_MIN
+        typewriter_ui::settings::ZOOM_MIN
     }
 
     fn backdrop(&self) -> Option<fn(&Painter, Rect)> {
@@ -165,7 +166,7 @@ impl Stage for Desk {
         &self,
         callback: &eframe::egui::PaintCallback,
         clip: Rect,
-        raster: &mut typewriter_app::snapshot::Raster,
+        raster: &mut typewriter_ui::snapshot::Raster,
     ) {
         depth::rasterize(callback, clip, raster);
     }
@@ -174,8 +175,8 @@ impl Stage for Desk {
 #[cfg(test)]
 mod tests {
     use eframe::egui::{self, vec2};
-    use typewriter_app::Stage;
-    use typewriter_app::snapshot::{self, BACKSPACE, ERASE, Shot, render};
+    use typewriter_ui::Stage;
+    use typewriter_ui::snapshot::{self, BACKSPACE, ERASE, Shot, render};
 
     use super::Desk;
 
@@ -190,7 +191,7 @@ mod tests {
     }
 
     /// Draws the desk to PNGs in `$TYPEWRITER_SNAPSHOT`, to look at:
-    /// `cargo test -p typewriter-desk --release -- --ignored snapshot`.
+    /// `cargo test -p typewriter --release -- --ignored snapshot`.
     #[test]
     #[ignore]
     fn snapshot() {
@@ -245,7 +246,7 @@ mod tests {
             text: &"x".repeat(45),
             after_seconds: 5.0,
         };
-        let image = render(Box::new(typewriter_app::Plain), &plain).unwrap();
+        let image = render(Box::new(typewriter_ui::Plain), &plain).unwrap();
         image.save(folder.join("plain.png")).unwrap();
         // A page well begun: its lines over the platen and up the sheet.
         let page = page();
@@ -300,9 +301,9 @@ mod tests {
 
     /// Times the typing view's frame — `run_ui` plus `ctx.tessellate` —
     /// the desk against the plain app, empty page and full, in a
-    /// 1600 × 1000 window at 100 % zoom: the `3D-FIX.md` baseline. Run it
+    /// 1600 × 1000 window at 100 % zoom. Run it
     /// in debug and release, e.g.
-    /// `TYPEWRITER_BENCH=50 cargo test -p typewriter-desk --release -- --ignored bench --nocapture`.
+    /// `TYPEWRITER_BENCH=50 cargo test -p typewriter --release -- --ignored bench --nocapture`.
     #[test]
     #[ignore]
     fn bench() {
@@ -335,7 +336,7 @@ mod tests {
             for (name, plain) in [("Desk", false), ("Plain", true)] {
                 let ctx = egui::Context::default();
                 let stage: Box<dyn Stage> = if plain {
-                    Box::new(typewriter_app::Plain)
+                    Box::new(typewriter_ui::Plain)
                 } else {
                     Box::new(Desk)
                 };

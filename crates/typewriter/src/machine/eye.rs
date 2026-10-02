@@ -10,7 +10,7 @@ use super::canvas::Canvas;
 use super::geometry::{add, convex_grid, dot, lerp3, sub};
 use super::light::Paint;
 use crate::depth::{Camera, Layer, NEAR_MM, Placing, Shade, Solid};
-use typewriter_app::draw::{Metrics, convex_mesh};
+use typewriter_ui::draw::{Metrics, convex_mesh};
 
 /// The eye from the printing point, and how far it looks down.
 const EYE_MM: f32 = 609.6;

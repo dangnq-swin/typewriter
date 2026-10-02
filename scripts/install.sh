@@ -1,8 +1,9 @@
 #!/bin/sh
-# Installs typewriter for the current user: the `typewriter` command, its
-# desktop entry and its icon, and the project file type, so file managers open
-# projects in it. In the source tree it builds first; in a release tarball it
-# installs the program beside it.
+# Installs typewriter for the current user: the `typewriter` command (the desk
+# edition) and `typewriter-plain`, their desktop entries and icon, and the
+# project file type, so file managers open projects in the desk edition. In
+# the source tree it builds first; in a release tarball it installs the
+# programs beside it.
 #
 #   install.sh              install to ~/.local
 #   install.sh --uninstall  remove what was installed
@@ -14,7 +15,9 @@ set -eu
 
 PREFIX=${PREFIX:-"$HOME/.local"}
 BIN="$PREFIX/bin/typewriter"
+BIN_PLAIN="$PREFIX/bin/typewriter-plain"
 DESKTOP="$PREFIX/share/applications/typewriter.desktop"
+DESKTOP_PLAIN="$PREFIX/share/applications/typewriter-plain.desktop"
 ICON="$PREFIX/share/icons/hicolor/scalable/apps/typewriter.svg"
 MIME="$PREFIX/share/mime/packages/typewriter.xml"
 # Named after the type: where file managers look for its icon.
@@ -37,7 +40,7 @@ refresh() {
 }
 
 if [ "${1:-}" = "--uninstall" ]; then
-    rm -f "$BIN" "$DESKTOP" "$ICON" "$MIME" "$FILE_ICON"
+    rm -f "$BIN" "$BIN_PLAIN" "$DESKTOP" "$DESKTOP_PLAIN" "$ICON" "$MIME" "$FILE_ICON"
     refresh
     echo "Removed typewriter from $PREFIX."
     exit 0
@@ -49,16 +52,21 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 if [ -x "$here/typewriter" ]; then
     # A release tarball: everything lies beside this script.
-    program="$here/typewriter" icon="$here/typewriter.svg"
-    desktop="$here/typewriter.desktop" mime="$here/typewriter.xml"
+    desk="$here/typewriter" plain="$here/typewriter-plain" icon="$here/typewriter.svg"
+    desktop="$here/typewriter.desktop" plain_desktop="$here/typewriter-plain.desktop"
+    mime="$here/typewriter.xml"
 else
     cd "$here/.."
-    cargo build --release --locked -p typewriter-app
-    program=target/release/typewriter icon=assets/icons/typewriter.svg
-    desktop=packaging/linux/typewriter.desktop mime=packaging/linux/typewriter.xml
+    cargo build --release --locked --workspace --bins
+    desk=target/release/typewriter plain=target/release/typewriter-plain
+    icon=assets/icons/typewriter.svg
+    desktop=packaging/linux/typewriter.desktop
+    plain_desktop=packaging/linux/typewriter-plain.desktop
+    mime=packaging/linux/typewriter.xml
 fi
 
-install -Dm755 "$program" "$BIN"
+install -Dm755 "$desk" "$BIN"
+install -Dm755 "$plain" "$BIN_PLAIN"
 install -Dm644 "$icon" "$ICON"
 install -Dm644 "$icon" "$FILE_ICON"
 install -Dm644 "$mime" "$MIME"
@@ -66,9 +74,10 @@ mkdir -p "$(dirname "$DESKTOP")"
 # Exec: full path, since ~/.local/bin is not always on the desktop's PATH.
 # File name = the window's app id, so the desktop pairs them.
 sed "s|^Exec=typewriter |Exec=\"$BIN\" |" "$desktop" >"$DESKTOP"
+sed "s|^Exec=typewriter-plain |Exec=\"$BIN_PLAIN\" |" "$plain_desktop" >"$DESKTOP_PLAIN"
 refresh
 
-echo "Installed typewriter to $BIN."
+echo "Installed typewriter to $BIN, and typewriter-plain to $BIN_PLAIN."
 case ":$PATH:" in
 *":$PREFIX/bin:"*) ;;
 *) echo "Add $PREFIX/bin to your PATH to run \`typewriter\` from a terminal." ;;
