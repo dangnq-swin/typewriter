@@ -3,7 +3,7 @@
 use eframe::egui::{Align2, Color32, Pos2, Shape, Stroke, pos2};
 
 use super::canvas::Canvas;
-use super::case::{OPENING_HALF, PANEL_EDGE_MM};
+use super::case::{OPENING_HALF, PANEL_EDGE_MM, wall_top};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
 use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
 use super::light::{Paint, brighten, matte, paint_steel, polished, toward_light};
@@ -270,7 +270,7 @@ pub(super) fn paint_shadows(canvas: &Canvas, eye: &Eye) {
 }
 
 /// A cap's shadow on the key bed below it, over `x` and `y` ranges, its top
-/// at `z`.
+/// at `z`: bending up the well's inner wall where it reaches that far.
 fn paint_key_shadow(
     canvas: &Canvas,
     eye: &Eye,
@@ -293,17 +293,24 @@ fn paint_key_shadow(
     .map(|[x, y, _]| pos2(x, y))
     .collect();
     let mesh = soft(&outline, 2.5, Color32::from_black_alpha(150));
-    // Each vertex stands on the plane the shadow is drawn on: whatever
-    // comes through that plane, the walls and the caps' own feet, hides
-    // the shadow there.
-    let places = mesh
-        .vertices
-        .iter()
-        .map(|v| eye.absolute([v.pos.x, v.pos.y, z]))
-        .collect();
+    // Each vertex stands on the plane the shadow is drawn on, bending up
+    // the wall's face where the plane runs past it — the blob keeps its
+    // rounded feather where it reaches the wall. Whatever else comes
+    // through the plane, the caps' own feet, hides the shadow there.
+    let fold = |p: Pos2| -> [f32; 3] {
+        let over = (p.x.abs() - OPENING_HALF).max(0.0);
+        let top = wall_top(p.y);
+        if over > 0.0 && z < top {
+            [p.x - p.x.signum() * over, p.y, (z + over).min(top)]
+        } else {
+            [p.x, p.y, z]
+        }
+    };
+    let on: Vec<[f32; 3]> = mesh.vertices.iter().map(|v| fold(v.pos)).collect();
+    let places = on.iter().map(|&mm| eye.absolute(mm)).collect();
     let mut solid = Solid::unlit(mesh, places);
-    for vertex in &mut solid.mesh.vertices {
-        vertex.pos = eye.at([vertex.pos.x, vertex.pos.y, z]);
+    for (vertex, &mm) in solid.mesh.vertices.iter_mut().zip(&on) {
+        vertex.pos = eye.at(mm);
     }
     canvas.mesh(Layer::Decal, solid);
 }
