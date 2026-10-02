@@ -73,7 +73,13 @@ impl TypewriterApp {
             max_points_per_inch: render::points_per_inch(model.zoom_percent),
             ink_realism: model.settings.look.ink_realism,
         };
-        let response = folder::show_sheet(ui, view, &open, model.overlays.annotating.as_mut());
+        let response = folder::show_sheet(
+            ui,
+            view,
+            &open,
+            model.overlays.annotating.as_mut(),
+            &mut self.print_open.borrow_mut(),
+        );
         if response.start_note {
             intents.push(Intent::StartNote);
         }

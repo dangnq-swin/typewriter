@@ -53,8 +53,15 @@ impl Holder {
 }
 
 /// The stand and its sheet at the window's left. True when the sheet is
-/// taken down.
-pub fn show(ui: &mut Ui, view: Rect, profile: &Profile, holder: &mut Holder, ink: bool) -> bool {
+/// taken down. `print` keeps the sheet's marks between frames.
+pub fn show(
+    ui: &mut Ui,
+    view: Rect,
+    profile: &Profile,
+    holder: &mut Holder,
+    ink: bool,
+    print: &mut paper::SheetPrint,
+) -> bool {
     let paper_mm = vec2(
         profile.paper.width_mm as f32,
         profile.paper.height_mm as f32,
@@ -93,14 +100,18 @@ pub fn show(ui: &mut Ui, view: Rect, profile: &Profile, holder: &mut Holder, ink
         Stroke::new(1.0, SHEET_EDGE),
         StrokeKind::Inside,
     );
-    paper::paint_sheet(
+    paper::paint_sheet_cached(
         &painter,
-        &metrics,
+        print,
+        &paper::SheetLook {
+            metrics: &metrics,
+            origin,
+            ink_realism: ink,
+            dimming: Dimming::NONE,
+            wetness: &paper::dry,
+            drying: false,
+        },
         &holder.page,
-        origin,
-        ink,
-        Dimming::NONE,
-        &paper::dry,
     );
 
     // The guide: the line lit, a bar just under its descenders.

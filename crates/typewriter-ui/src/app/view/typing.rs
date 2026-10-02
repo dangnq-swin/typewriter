@@ -588,7 +588,14 @@ impl TypewriterApp {
             model.project.machine.profile(),
             model.settings.look.ink_realism,
         );
-        if holder::show(ui, view, profile, stand, ink_realism) {
+        if holder::show(
+            ui,
+            view,
+            profile,
+            stand,
+            ink_realism,
+            &mut self.print_holder.borrow_mut(),
+        ) {
             intents.push(Intent::TakeHolderDown);
         }
     }
@@ -680,15 +687,15 @@ impl TypewriterApp {
             machine.profile().margins.top_lines,
             origin,
         );
-        paper::paint_sheet(
-            painter,
-            &self.metrics,
-            page,
+        let look = paper::SheetLook {
+            metrics: &self.metrics,
             origin,
-            self.model.settings.look.ink_realism,
+            ink_realism: self.model.settings.look.ink_realism,
             dimming,
             wetness,
-        );
+            drying: self.model.project.is_drying(),
+        };
+        paper::paint_sheet_cached(painter, &mut self.print_typing.borrow_mut(), &look, page);
     }
 
     /// A filed sheet in `pose` on its way into the folder icon, drawn at its
@@ -783,18 +790,18 @@ impl TypewriterApp {
         let machine = &self.model.project.machine;
         let top_lines = machine.profile().margins.top_lines;
         let mut print = paper::margin_frame(&self.metrics, machine.carriage(), top_lines, origin);
-        let ink_realism = self.model.settings.look.ink_realism;
-        let everywhere = |_| true;
-        let marks = paper::sheet_marks(
-            &self.metrics,
-            page,
+        let look = paper::SheetLook {
+            metrics: &self.metrics,
             origin,
-            ink_realism,
+            ink_realism: self.model.settings.look.ink_realism,
             dimming,
             wetness,
-            everywhere,
-        );
-        print.extend(paper::shapes(painter, &self.metrics, marks));
+            drying: self.model.project.is_drying(),
+        };
+        // Everything: the stage may show more of the sheet than the window.
+        let mut cached = self.print_typing.borrow_mut();
+        let shapes = cached.shapes(painter, &look, page, egui::Rect::EVERYTHING);
+        print.extend(shapes.iter().cloned());
         FlatSheet {
             paper: self.background.bent_sheet(size, quad),
             print,

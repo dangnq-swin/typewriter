@@ -1,10 +1,15 @@
 //! A sheet: a grid of cells, each keeping every mark ever made on it.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
 use crate::accents;
+
+/// Identity for every sheet that has lived, so a copy can tell one sheet
+/// from another even when both read the same.
+static NEXT_SHEET: AtomicU64 = AtomicU64::new(1);
 
 /// Something applied to a cell, in order. Later marks sit on top.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,7 +108,7 @@ pub struct Shift {
 }
 
 /// Rows are half-line steps, like the platen ratchet.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(into = "PageFile", from = "PageFile")]
 pub struct Page {
     columns: u16,
@@ -117,7 +122,27 @@ pub struct Page {
     /// The feeding each mark was made in (0: the first), for cells struck
     /// since a re-feed.
     fed: BTreeMap<(u16, u16), Vec<u8>>,
+    /// This sheet's own, kept by copies: a sheet on the copy holder is
+    /// still the sheet it was copied from. Never saved.
+    sheet: u64,
+    /// How many marks the sheet has taken, since its making. Never saved.
+    struck: u64,
 }
+
+/// The stamp fields are runtime identity: two pages with the same marks are
+/// equal, whoever made them and however often they were struck since.
+impl PartialEq for Page {
+    fn eq(&self, other: &Self) -> bool {
+        self.columns == other.columns
+            && self.half_lines == other.half_lines
+            && self.cells == other.cells
+            && self.note == other.note
+            && self.refeeds == other.refeeds
+            && self.fed == other.fed
+    }
+}
+
+impl Eq for Page {}
 
 /// A sheet in a folder file. Nearly every cell is one plain letter: those
 /// are kept as each line's text, and only the rest as full stacks.
@@ -197,6 +222,8 @@ impl From<PageFile> for Page {
             note: file.note,
             refeeds: file.refeeds,
             fed: file.fed,
+            sheet: NEXT_SHEET.fetch_add(1, Ordering::Relaxed),
+            struck: 0,
         }
     }
 }
@@ -210,12 +237,21 @@ impl Page {
             note: String::new(),
             refeeds: Vec::new(),
             fed: BTreeMap::new(),
+            sheet: NEXT_SHEET.fetch_add(1, Ordering::Relaxed),
+            struck: 0,
         }
+    }
+
+    /// The sheet's identity and mark count, unchanged until it takes
+    /// another: the app's print cache keys on it.
+    pub fn stamp(&self) -> (u64, u64) {
+        (self.sheet, self.struck)
     }
 
     /// Back in the machine, a little out of line: marks from now on sit
     /// `shift` off. After 255 feedings they share the last one's.
     pub fn refeed(&mut self, shift: Shift) {
+        self.struck += 1;
         if self.refeeds.len() < usize::from(u8::MAX) {
             self.refeeds.push(shift);
         }
@@ -308,18 +344,21 @@ impl Page {
 
     /// Empties the cell: strikes and corrections alike.
     pub fn clear(&mut self, half_line: u16, column: u16) {
+        self.struck += 1;
         self.cells.remove(&(half_line, column));
         self.fed.remove(&(half_line, column));
     }
 
     /// Marks the cell's fluid dry.
     pub fn dry(&mut self, half_line: u16, column: u16) {
+        self.struck += 1;
         if let Some(cell) = self.cells.get_mut(&(half_line, column)) {
             dry_cell(cell);
         }
     }
 
     pub fn dry_all(&mut self) {
+        self.struck += 1;
         self.cells.values_mut().for_each(dry_cell);
     }
 
@@ -339,6 +378,7 @@ impl Page {
 
     fn push(&mut self, half_line: u16, column: u16, mark: Mark) {
         debug_assert!(half_line < self.half_lines && column < self.columns);
+        self.struck += 1;
         let marks = &mut self.cells.entry((half_line, column)).or_default().marks;
         marks.push(mark);
         // Safe cast: `refeed` stops at 255.
@@ -551,5 +591,52 @@ mod tests {
         page.strike(2, 3, 'i');
         assert_eq!(page.line_text(2), " h i");
         assert_eq!(page.line_text(0), "");
+    }
+
+    #[test]
+    fn the_stamp_counts_every_way_a_sheet_takes_a_mark() {
+        let mut page = Page::new(10, 10);
+        let before = page.stamp();
+        page.strike(0, 0, 'x');
+        assert_eq!(page.stamp(), (before.0, before.1 + 1));
+        page.cover(0, 0, Correction::Eraser);
+        page.clear(0, 0);
+        page.strike(0, 0, 'y');
+        page.cover(0, 0, Correction::Fluid { wet: true });
+        page.dry(0, 0);
+        page.dry_all();
+        page.refeed(Shift::default());
+        assert_eq!(page.stamp(), (before.0, before.1 + 8));
+    }
+
+    #[test]
+    fn stamps_tell_sheets_apart_and_survive_a_copy() {
+        let mut page = Page::new(10, 10);
+        page.strike(0, 0, 'x');
+        let other = Page::new(10, 10);
+        assert_ne!(
+            page.stamp().0,
+            other.stamp().0,
+            "blank is not the typed sheet"
+        );
+        assert_eq!(
+            page.clone().stamp(),
+            page.stamp(),
+            "a copy is the same sheet"
+        );
+    }
+
+    #[test]
+    fn equality_and_the_file_ignore_the_stamp() {
+        let mut page = Page::new(10, 10);
+        page.strike(0, 0, 'x');
+        page.cover(0, 0, Correction::Eraser);
+        let mut twin = Page::new(10, 10);
+        twin.strike(0, 0, 'x');
+        twin.cover(0, 0, Correction::Eraser);
+        assert_eq!(twin, page, "same marks: equal, stamps aside");
+        let back: Page = ron::from_str(&ron::to_string(&page).unwrap()).unwrap();
+        assert_eq!(back, page);
+        assert_ne!(back.stamp(), page.stamp());
     }
 }

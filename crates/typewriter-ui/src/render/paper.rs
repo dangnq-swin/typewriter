@@ -178,6 +178,105 @@ pub fn shapes(painter: &Painter, metrics: &Metrics, marks: Vec<Drawn>) -> Vec<Sh
     shapes
 }
 
+/// Everything a print depends on beyond the sheet itself.
+#[derive(Clone, Copy)]
+pub struct SheetLook<'a> {
+    pub metrics: &'a Metrics,
+    pub origin: Pos2,
+    pub ink_realism: bool,
+    pub dimming: Dimming,
+    pub wetness: Wetness<'a>,
+    /// Fluid on the sheet is drying: its shine moves every frame, so the
+    /// print animates and cannot wait for the stamp.
+    pub drying: bool,
+}
+
+/// The print a sheet makes on screen, kept from one frame to the next.
+///
+/// [`sheet_marks`] walks every cell and [`shapes`] lays out every glyph:
+/// steady typing hands the same answer back every frame. The core says when
+/// a sheet took a mark ([`Page::stamp`]); a moving look — zoom, feeding,
+/// calm, a drying dab — is answered by [`SheetLook`].
+#[derive(Default)]
+pub struct SheetPrint {
+    /// The key the shapes were made under, and them. `None` until first paint.
+    painted: Option<(Painted, Vec<Shape>)>,
+}
+
+/// What one cached print stands for. Equal by value: a frame that changes
+/// nothing recomputes nothing. Every float here comes back bit-identical
+/// from the same inputs, or the look moved and the print must be remade.
+#[derive(PartialEq)]
+struct Painted {
+    sheet: (u64, u64),
+    points_per_inch: f32,
+    origin: Pos2,
+    ink_realism: bool,
+    dimming: Dimming,
+    clip: Rect,
+}
+
+impl SheetPrint {
+    /// The sheet's marks as shapes, clipped to `clip`, remade only when the
+    /// sheet took a mark or the look moved. Borrowed for the frame's draw.
+    pub fn shapes(
+        &mut self,
+        painter: &Painter,
+        look: &SheetLook<'_>,
+        page: &Page,
+        clip: Rect,
+    ) -> &[Shape] {
+        let SheetLook {
+            metrics,
+            origin,
+            ink_realism,
+            dimming,
+            wetness,
+            drying,
+        } = *look;
+        let key = Painted {
+            sheet: page.stamp(),
+            points_per_inch: metrics.points_per_inch,
+            origin,
+            ink_realism,
+            dimming,
+            clip,
+        };
+        if drying
+            || self
+                .painted
+                .as_ref()
+                .is_none_or(|(cached, _)| *cached != key)
+        {
+            let marks = sheet_marks(
+                metrics,
+                page,
+                origin,
+                ink_realism,
+                dimming,
+                wetness,
+                |cell| clip.intersects(cell),
+            );
+            self.painted = Some((key, shapes(painter, metrics, marks)));
+        }
+        match &self.painted {
+            Some((_, shapes)) => shapes,
+            None => &[],
+        }
+    }
+}
+
+/// [`paint_sheet`], printing through `cache`.
+pub fn paint_sheet_cached(
+    painter: &Painter,
+    cache: &mut SheetPrint,
+    look: &SheetLook<'_>,
+    page: &Page,
+) {
+    let clip = painter.clip_rect();
+    painter.extend(cache.shapes(painter, look, page, clip).iter().cloned());
+}
+
 /// Every mark on a sheet at `origin`, in the order made, so corrections
 /// cover what came before. Skips cells where `visible` is false.
 ///
@@ -483,5 +582,134 @@ mod tests {
             assert!(offset.x.abs() <= INK_MAX_OFFSET && offset.y.abs() <= INK_MAX_OFFSET);
             assert!((1.0 - INK_DENSITY_VARIANCE..=1.0).contains(&density));
         }
+    }
+
+    /// A steady frame: the print drawn, then the frame's font textures
+    /// drained, as in an app.
+    fn frame(draw: impl FnOnce(&eframe::egui::Painter)) {
+        let ctx = eframe::egui::Context::default();
+        crate::app::fonts::install(&ctx);
+        let mut output = ctx.run_ui(eframe::egui::RawInput::default(), |_| {});
+        output.textures_delta.clear(); // egui withholds its fonts until a first run
+        let painter = eframe::egui::Painter::new(
+            ctx.clone(),
+            eframe::egui::LayerId::background(),
+            Rect::EVERYTHING,
+        );
+        draw(&painter);
+        let mut output = ctx.run_ui(eframe::egui::RawInput::default(), |_| {});
+        output.textures_delta.clear(); // drain what the glyph layout queued
+    }
+
+    fn sm9() -> typewriter_core::Profile {
+        typewriter_core::Profile::from_toml_str(include_str!(
+            "../../../../profiles/olympia-sm9.toml"
+        ))
+        .unwrap()
+    }
+
+    fn page_on(profile: &typewriter_core::Profile) -> Page {
+        Page::new(profile.columns(), profile.half_lines())
+    }
+
+    #[test]
+    fn the_print_keeps_up_with_the_sheet_and_the_look() {
+        let profile = sm9();
+        let metrics = Metrics::new(&profile, 96.0);
+        let mut page = page_on(&profile);
+        page.strike(12, 10, 'a');
+        let mut cache = SheetPrint::default();
+        let mut first: Vec<Shape> = Vec::new();
+        let mut after: Vec<Shape> = Vec::new();
+        let mut moved: Vec<Shape> = Vec::new();
+        frame(|painter| {
+            let look = SheetLook {
+                metrics: &metrics,
+                origin: Pos2::ZERO,
+                ink_realism: false,
+                dimming: Dimming::NONE,
+                wetness: &dry,
+                drying: false,
+            };
+            first = cache
+                .shapes(painter, &look, &page, Rect::EVERYTHING)
+                .to_vec();
+            // Nothing moved: the kept print answers.
+            assert_eq!(
+                cache.shapes(painter, &look, &page, Rect::EVERYTHING),
+                &first[..]
+            );
+            // The sheet takes a mark: the print follows.
+            page.strike(12, 11, 'b');
+            after = cache
+                .shapes(painter, &look, &page, Rect::EVERYTHING)
+                .to_vec();
+            // The look moves: the print moves with it.
+            let shifted = SheetLook {
+                origin: pos2(10.0, 0.0),
+                ..look
+            };
+            moved = cache
+                .shapes(painter, &shifted, &page, Rect::EVERYTHING)
+                .to_vec();
+        });
+        assert_eq!(glyphs(&first).len(), 1);
+        assert_eq!(glyphs(&after).len(), 2);
+        assert_eq!(moved.len(), after.len());
+        assert!(
+            moved.iter().zip(after.iter()).all(|(m, a)| {
+                m.visual_bounding_rect() == a.visual_bounding_rect().translate(vec2(10.0, 0.0))
+            }),
+            "every shape moved by the new origin"
+        );
+    }
+
+    #[test]
+    fn a_drying_sheet_remakes_the_print_at_once() {
+        let profile = sm9();
+        let metrics = Metrics::new(&profile, 96.0);
+        let mut page = page_on(&profile);
+        page.strike(12, 10, 'x');
+        page.cover(12, 10, Correction::Fluid { wet: true });
+        let mut cache = SheetPrint::default();
+        let (mut n, mut with_shine) = (0, 0);
+        frame(|painter| {
+            let look = SheetLook {
+                metrics: &metrics,
+                origin: Pos2::ZERO,
+                ink_realism: false,
+                dimming: Dimming::NONE,
+                wetness: &dry,
+                drying: false,
+            };
+            n = cache.shapes(painter, &look, &page, Rect::EVERYTHING).len();
+            // The dab wets up: without `drying` the stamp alone says nothing
+            // changed, which is why the app must pass it.
+            let wet = |_: u16, _: u16| -> f32 { 1.0 };
+            let wetting = SheetLook {
+                wetness: &wet,
+                drying: true,
+                ..look
+            };
+            with_shine = cache
+                .shapes(painter, &wetting, &page, Rect::EVERYTHING)
+                .len();
+        });
+        assert!(with_shine > n, "the wet highlight is drawn");
+    }
+
+    fn glyphs(shapes: &[Shape]) -> Vec<char> {
+        shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Text(text) => text.galley.rows.first().and_then(|row| {
+                    row.glyphs
+                        .iter()
+                        .find(|g| !g.chr.is_whitespace())
+                        .map(|g| g.chr)
+                }),
+                _ => None,
+            })
+            .collect()
     }
 }

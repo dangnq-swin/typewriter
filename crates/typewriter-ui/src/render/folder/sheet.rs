@@ -35,12 +35,14 @@ pub struct SheetResponse {
     pub note_written: Option<String>,
 }
 
-/// Draws the sheet. `note`: the note being written, if any.
+/// Draws the sheet. `note`: the note being written, if any. `print` keeps
+/// the sheet's marks between frames.
 pub fn show_sheet(
     ui: &mut Ui,
     view: Rect,
     sheet: &OpenSheet<'_>,
     note: Option<&mut String>,
+    print: &mut paper::SheetPrint,
 ) -> SheetResponse {
     let profile = sheet.profile;
     let painter = ui.painter_at(view);
@@ -72,14 +74,18 @@ pub fn show_sheet(
         profile.margins.top_lines,
         origin,
     );
-    paper::paint_sheet(
+    paper::paint_sheet_cached(
         &painter,
-        &metrics,
+        print,
+        &paper::SheetLook {
+            metrics: &metrics,
+            origin,
+            ink_realism: sheet.ink_realism,
+            dimming: Dimming::NONE,
+            wetness: &paper::dry,
+            drying: false,
+        },
         sheet.page,
-        origin,
-        sheet.ink_realism,
-        Dimming::NONE,
-        &paper::dry,
     );
 
     painter.text(

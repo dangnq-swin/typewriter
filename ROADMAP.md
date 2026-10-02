@@ -20,7 +20,7 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
       rasterizer, and the lighting math the shader mirrors. The "keep in step
       with `depth.wgsl`" twins become a reviewable surface; the WGSL parse test
       sits with the lighting.
-- [ ] Cache the print: `render::paper::sheet_marks` walks every visible sheet's
+- [x] Cache the print: `render::paper::sheet_marks` walks every visible sheet's
       cells afire a frame, in both modes — nothing in the app caches today.
       Keep a sheet's marks between a strike, a correction, a fluid drying and a
       sheet change. The core says when a sheet took a mark; answer the rest in

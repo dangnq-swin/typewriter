@@ -2,13 +2,14 @@
 //! model ([`view`]), and does what it asks ([`Effect`]s): sound, dialogs,
 //! the viewport, page geometry.
 
-mod fonts;
+pub(crate) mod fonts;
 mod intent;
 mod model;
 #[cfg(feature = "snapshot")]
 pub mod snapshot;
 mod view;
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Pos2, Rect};
@@ -23,7 +24,7 @@ use crate::picker::{Dialog, Picker};
 use crate::printing::Printing;
 use crate::render::background::Background;
 use crate::render::platen::PlatenView;
-use crate::render::{Metrics, scrunch};
+use crate::render::{Metrics, paper, scrunch};
 use crate::render::{folder, pdf};
 use crate::settings::{self, SettingsFile};
 use crate::stage::Stage;
@@ -51,6 +52,12 @@ pub struct TypewriterApp {
     /// The platen knobs' grips as last drawn, while they can be turned. The
     /// wheel turns them instead of zooming.
     knobs: Vec<Rect>,
+    /// The prints kept between frames: the sheet in the machine, the one on
+    /// the copy holder, the one open in the folder. Views ask, the core
+    /// answers when to remake.
+    print_typing: RefCell<paper::SheetPrint>,
+    print_holder: RefCell<paper::SheetPrint>,
+    print_open: RefCell<paper::SheetPrint>,
     /// The chosen sheet's outline in the folder, last frame.
     pulled: Option<[Pos2; 4]>,
     scrunching: Option<Scrunching>,
@@ -118,6 +125,9 @@ impl TypewriterApp {
             metrics,
             platen,
             knobs: Vec::new(),
+            print_typing: RefCell::new(paper::SheetPrint::default()),
+            print_holder: RefCell::new(paper::SheetPrint::default()),
+            print_open: RefCell::new(paper::SheetPrint::default()),
             pulled: None,
             scrunching: None,
             // Grace for the desktop to show the window as built.
@@ -310,6 +320,9 @@ impl TypewriterApp {
             metrics,
             platen: PlatenView::new(true),
             knobs: Vec::new(),
+            print_typing: RefCell::new(paper::SheetPrint::default()),
+            print_holder: RefCell::new(paper::SheetPrint::default()),
+            print_open: RefCell::new(paper::SheetPrint::default()),
             pulled: None,
             scrunching: None,
             fullscreen_sent: None,
