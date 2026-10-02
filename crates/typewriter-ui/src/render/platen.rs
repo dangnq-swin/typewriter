@@ -222,3 +222,85 @@ pub fn paint_slip(painter: &Painter, metrics: &Metrics, strike_point: Pos2) {
         StrokeKind::Inside,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use typewriter_core::Profile;
+
+    #[test]
+    fn the_carriage_glides_longer_the_further_it_travels() {
+        assert_eq!(glide_seconds(0.0), 0.05, "a step's push");
+        assert!((glide_seconds(12.7) - 0.075).abs() < 1e-9, "half an inch");
+        assert!(
+            glide_seconds(152.4) <= 0.35 && glide_seconds(152.4) > 0.34,
+            "a pica return, near the clamp"
+        );
+        assert_eq!(glide_seconds(10_000.0), 0.35, "and clamped");
+    }
+
+    #[test]
+    fn a_jolt_shakes_the_paper_and_stops() {
+        let mut platen = PlatenView::new(true);
+        assert!(!platen.is_animating(10.0));
+        assert_eq!(platen.jolt_offset(10.0), 0.0, "never jolted");
+        platen.jolt(10.0);
+        assert!(platen.is_animating(10.1));
+        assert!(!platen.is_animating(10.2), "past the shake");
+        let mid = platen.jolt_offset(10.03);
+        assert!(mid != 0.0, "the paper is off the line");
+        assert!(mid.abs() <= JOLT_AMPLITUDE);
+        assert_eq!(platen.jolt_offset(10.19), 0.0, "over by a hair: at rest");
+    }
+
+    #[test]
+    fn the_paper_hangs_from_the_typing_line() {
+        let profile =
+            Profile::from_toml_str(include_str!("../../../../profiles/olympia-sm9.toml")).unwrap();
+        let metrics = Metrics::new(&profile, 96.0);
+        let ctx = Context::default();
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+        let cell = vec2(30.0, 12.0);
+        let line = view.top() + view.height() * TYPING_LINE_HEIGHT;
+        // The typing point travelling: the paper slides under it, keeping
+        // the carriage on the line's middle.
+        let mut travels = PlatenView::new(true);
+        let laid = travels.layout(&ctx, view, &metrics, cell, 10.0);
+        assert_eq!(laid.strike_point.x, view.center().x);
+        assert_eq!(laid.strike_point.y, line);
+        assert_eq!(laid.paper_origin.y, line - cell.y);
+        assert_eq!(
+            laid.paper_origin.x,
+            view.center().x - cell.x - metrics.column_width / 2.0
+        );
+        // The typing point fixed: the paper stays centred, and the pointer
+        // moves along it.
+        let mut fixed = PlatenView::new(false);
+        let laid = fixed.layout(&ctx, view, &metrics, cell, 10.0);
+        assert_eq!(
+            laid.paper_origin.x,
+            view.center().x - metrics.paper_size.x / 2.0
+        );
+        assert_eq!(
+            laid.strike_point.x,
+            laid.paper_origin.x + cell.x + metrics.column_width / 2.0
+        );
+    }
+
+    #[test]
+    fn a_zoom_jumps_the_paper_to_where_it_belongs() {
+        let profile =
+            Profile::from_toml_str(include_str!("../../../../profiles/olympia-sm9.toml")).unwrap();
+        let metrics = Metrics::new(&profile, 96.0);
+        let ctx = Context::default();
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+        let mut platen = PlatenView::new(true);
+        platen.layout(&ctx, view, &metrics, Vec2::ZERO, 10.0);
+        // A strike moves the carriage: the paper starts gliding after it.
+        platen.layout(&ctx, view, &metrics, vec2(100.0, 0.0), 10.0);
+        assert!(platen.is_animating(10.01));
+        // A zoom changes the geometry under the glide: it jumps instead.
+        platen.snap();
+        assert!(!platen.is_animating(10.01), "the glide is over at once");
+    }
+}

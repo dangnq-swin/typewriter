@@ -17,6 +17,25 @@ pub const EXTENSION: &str = ".typr";
 /// A draft's name.
 pub const UNTITLED: &str = "Untitled";
 
+/// Set once by a test run: a temporary folder standing in for both below,
+/// so nothing a test writes, marks or remembers touches the desktop.
+#[cfg(test)]
+static TEST_DESKTOP: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// The stand-in data folder, built on first call and shared for the run.
+/// Tests wanting isolation keep their files in subfolders of it.
+#[cfg(test)]
+pub fn test_desktop() -> PathBuf {
+    let root = TEST_DESKTOP.get_or_init(|| {
+        let root = std::env::temp_dir().join(format!("typewriter-tests-{}", std::process::id()));
+        for folder in ["data", "config"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        root
+    });
+    root.join("data")
+}
+
 /// The app's own folders: the desktop's project layout for `typewriter`.
 fn folders() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "typewriter")
@@ -24,10 +43,18 @@ fn folders() -> Option<ProjectDirs> {
 
 /// Drafts, machine profiles and the app's markers.
 pub fn data_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(root) = TEST_DESKTOP.get() {
+        return Some(root.join("data"));
+    }
     Some(folders()?.data_dir().to_path_buf())
 }
 
 fn config_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(root) = TEST_DESKTOP.get() {
+        return Some(root.join("config"));
+    }
     Some(folders()?.config_dir().to_path_buf())
 }
 
@@ -211,8 +238,12 @@ fn last_project_record() -> Option<PathBuf> {
 
 /// Last run's project, if it still exists.
 pub fn last_project() -> Option<PathBuf> {
-    let record = fs::read_to_string(last_project_record()?).ok()?;
-    let path = PathBuf::from(record.trim_end_matches('\n'));
+    last_project_at(&last_project_record()?)
+}
+
+fn last_project_at(record: &Path) -> Option<PathBuf> {
+    let text = fs::read_to_string(record).ok()?;
+    let path = PathBuf::from(text.trim_end_matches('\n'));
     path.is_file().then_some(path)
 }
 
@@ -335,6 +366,66 @@ mod tests {
         let (third, crashed) = lock_marker(&path).unwrap();
         assert!(third.0.is_some() && crashed);
         drop(third);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn drafts_are_named_for_when_they_opened() {
+        let data = test_desktop();
+        let path = new_draft_path().unwrap();
+        assert!(path.starts_with(data.join("drafts")), "{}", path.display());
+        assert!(is_draft(&path));
+        let name = file_name(&path);
+        assert!(
+            name.starts_with("draft-") && name.ends_with(EXTENSION),
+            "{name}"
+        );
+        assert_eq!(display_name(&path), UNTITLED);
+    }
+
+    #[test]
+    fn a_run_is_marked_until_a_clean_exit() {
+        test_desktop();
+        let (run, crashed) = Running::mark();
+        assert!(run.0.is_some() && !crashed, "the first mark finds nothing");
+        let (second, crashed) = Running::mark();
+        assert!(
+            second.0.is_none() && !crashed,
+            "the first run still holds it"
+        );
+        drop(run);
+        let (third, crashed) = Running::mark();
+        assert!(third.0.is_some() && crashed, "the dropped lock is a crash");
+        let mut third = third;
+        third.clear();
+        assert!(
+            !running_marker().unwrap().exists(),
+            "a clean exit leaves no marker"
+        );
+        // `clear` on a run that never marked: nothing to take, nothing to lose.
+        let mut idle = Running::nowhere();
+        idle.clear();
+    }
+
+    #[test]
+    fn the_last_project_is_remembered_while_it_exists() {
+        let data = test_desktop();
+        let dir = data.join("storage-last");
+        fs::create_dir_all(&dir).unwrap();
+        let record = dir.join("last-folder");
+        assert!(last_project_at(&record).is_none(), "nothing written yet");
+        let novel = dir.join("novel.typr");
+        write_atomic(&novel, "x").unwrap();
+        // The shared record is every save's to claim; the read-back of a
+        // record written like `remember_last` does is this folder's own.
+        assert!(remember_last(&novel).is_ok());
+        write_atomic(&record, format!("{}\n", novel.display())).unwrap();
+        assert_eq!(last_project_at(&record).as_deref(), Some(novel.as_path()));
+        fs::remove_file(&novel).unwrap();
+        assert!(
+            last_project_at(&record).is_none(),
+            "a project deleted since is no answer"
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 }

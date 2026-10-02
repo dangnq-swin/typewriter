@@ -258,3 +258,159 @@ impl Model {
         self.notice.show(told, now);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::intent::Sound;
+    use super::testing::{model, model_with, type_text};
+    use super::*;
+    use crate::picker::Dialog;
+    use crate::storage;
+    use std::fs;
+    use typewriter_core::{Goal, LineSpacing};
+
+    /// A model whose project is saved in its own folder of the test desktop.
+    fn saved(tag: &str) -> (Model, std::path::PathBuf) {
+        let path = storage::test_desktop().join(format!("model-{tag}/novel.typr"));
+        let mut model = model();
+        model.project.filing = Filing::at(path.clone());
+        (model, path)
+    }
+
+    #[test]
+    fn save_asks_where_a_draft_should_go() {
+        let mut model = model();
+        model.update(Intent::Save, 10.0);
+        assert_eq!(model.take_effects(), [Effect::Ask(Dialog::SaveAs)]);
+    }
+
+    #[test]
+    fn save_writes_a_saved_project_and_says_so() {
+        let (mut model, path) = saved("save");
+        type_text(&mut model, "typed", 10.0);
+        model.take_effects();
+        model.update(Intent::Save, 12.0);
+        assert!(path.exists(), "written at once, pause or not");
+        assert!(model.notice.is_animating(12.0), "the plate says \"Saved\"");
+    }
+
+    #[test]
+    fn a_failing_autosave_reaches_the_notice() {
+        let dir = storage::test_desktop().join("model-broken");
+        fs::create_dir_all(&dir).unwrap();
+        let blocker = dir.join("is-a-file");
+        fs::write(&blocker, "x").unwrap();
+        let mut model = model();
+        model.project.filing = Filing::at(blocker.join("novel.typr"));
+        model.take_effects();
+        type_text(&mut model, "work", 10.0);
+        model.take_effects();
+        model.tick(20.0);
+        assert!(model.notice.is_animating(20.0), "why the save failed");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_release_ends_a_half_turned_drag() {
+        let mut model = model();
+        let half_line = model.project.machine.carriage().half_line;
+        let drag = |model: &mut Model, points| {
+            model.update(
+                Intent::DragKnob {
+                    points,
+                    per_notch: 10.0,
+                },
+                10.0,
+            );
+        };
+        drag(&mut model, 5.0);
+        assert_eq!(model.project.machine.carriage().half_line, half_line);
+        model.update(Intent::ReleaseKnob, 10.0);
+        drag(&mut model, 5.0);
+        assert_eq!(
+            model.project.machine.carriage().half_line,
+            half_line,
+            "the released half-charge is gone"
+        );
+        drag(&mut model, 20.0);
+        assert_eq!(
+            model.project.machine.carriage().half_line,
+            half_line + 2,
+            "forwards rolls the sheet on"
+        );
+        drag(&mut model, -15.0);
+        assert_eq!(
+            model.project.machine.carriage().half_line,
+            half_line + 1,
+            "backwards rolls it up, one whole notch kept"
+        );
+    }
+
+    #[test]
+    fn the_settings_card_closes_back_to_the_machine() {
+        let mut model = model();
+        model.update(Intent::OpenSettings, 10.0);
+        assert_eq!(model.view, View::Settings);
+        model.take_effects();
+        model.update(Intent::CloseSettings, 10.0);
+        assert_eq!(model.view, View::Typing);
+    }
+
+    #[test]
+    fn the_spacing_lever_has_a_handle_too() {
+        let mut model = model();
+        assert_eq!(
+            model.project.machine.carriage().line_spacing,
+            LineSpacing::Single
+        );
+        model.update(Intent::NextSpacing, 10.0);
+        assert_eq!(
+            model.project.machine.carriage().line_spacing,
+            LineSpacing::OneAndHalf
+        );
+    }
+
+    #[test]
+    fn writing_in_the_notebook_dirtyies_the_project() {
+        let mut model = model();
+        assert!(!model.project.filing.has_unsaved_changes());
+        model.update(Intent::NotebookWritten, 10.0);
+        assert!(model.project.filing.has_unsaved_changes());
+    }
+
+    #[test]
+    fn the_desktop_says_when_it_goes_fullscreen() {
+        let mut model = model();
+        model.update(Intent::WindowFullscreen(true), 10.0);
+        assert!(model.settings.look.fullscreen);
+    }
+
+    #[test]
+    fn the_log_opens_in_place_of_the_notebook_and_turns_nothin() {
+        let mut model = model();
+        model.update(Intent::OpenNotebook, 10.0);
+        assert!(model.overlays.notebook.is_some());
+        model.update(Intent::OpenLog, 10.0);
+        assert!(model.overlays.notebook.is_none(), "the book closes");
+        assert!(model.overlays.log_open);
+        // An empty log has no months to turn between.
+        model.update(Intent::TurnLog(-1), 10.0);
+        model.update(Intent::TurnLog(1), 10.0);
+        assert_eq!(model.log_back, 0);
+        model.update(Intent::CloseLog, 10.0);
+        assert!(!model.overlays.log_open);
+    }
+
+    #[test]
+    fn the_goal_bell_rings_once_on_being_reached() {
+        let mut settings = Settings::default();
+        settings.goals.goal = Some(Goal::Words(1));
+        let mut model = model_with(settings);
+        type_text(&mut model, "ab cd", 10.0);
+        let effects = model.take_effects();
+        assert!(
+            effects.contains(&Effect::Sound(Sound::Machine(typewriter_core::Event::Bell))),
+            "crossing the goal rings"
+        );
+    }
+}

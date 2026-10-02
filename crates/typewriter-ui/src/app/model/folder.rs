@@ -362,4 +362,149 @@ mod tests {
         assert_eq!((sheet(&model, 1), model.selected), ("3".to_owned(), 1));
         assert_eq!(model.overlays.renumbering, None);
     }
+
+    #[test]
+    fn page_up_opens_the_folder_and_esc_stirs_the_calm_desk() {
+        let mut model = with_sheets(2);
+        press(&mut model, &[Action::PageUp], 1000.0);
+        assert_eq!(model.view, View::Folder);
+        press(&mut model, &[Action::Escape], 1000.0);
+        assert_eq!(model.view, View::Typing, "Esc first leaves the folder");
+        assert!(!model.calm);
+        press(&mut model, &[Action::Escape], 1001.0);
+        assert!(model.calm, "at the machine, Esc dims to calm");
+        press(&mut model, &[Action::Escape], 1002.0);
+        assert!(!model.calm);
+        model.update(Intent::ToggleCalm, 1003.0);
+        assert!(model.calm, "and the plate has the same handle");
+    }
+
+    #[test]
+    fn browse_eats_a_linefeed_and_holds_where_the_card_is() {
+        let mut model = with_sheets(2);
+        press(&mut model, &[Action::PageUp], 1000.0);
+        let (half_line, selected) = (model.project.machine.carriage().half_line, model.selected);
+        press(&mut model, &[Action::Machine(Command::LineFeed)], 1000.0);
+        assert_eq!(
+            (
+                model.project.machine.carriage().half_line,
+                model.selected,
+                model.view
+            ),
+            (half_line, selected, View::Folder),
+            "a held Enter that opened a sheet is swallowed"
+        );
+        model.view = View::Settings;
+        press(
+            &mut model,
+            &[Action::Machine(Command::Move(Direction::Up))],
+            1000.0,
+        );
+        assert_eq!(
+            model.project.machine.carriage().half_line,
+            half_line,
+            "the card's keys are the card's"
+        );
+        press(&mut model, &[Action::PageUp], 1000.0);
+        assert_eq!(model.view, View::Settings, "the card keeps the view");
+    }
+
+    #[test]
+    fn the_plates_ask_the_desktop_save_export_and_the_fields_cancel() {
+        let dir = crate::storage::test_desktop().join("folder-plates");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut model = with_sheets(1);
+        model.project.filing = crate::filing::Filing::at(dir.join("one.typr"));
+        model.take_effects();
+        // Save: written, and told.
+        model.update(Intent::Folder(FolderAction::Save), 1000.0);
+        assert!(dir.join("one.typr").exists(), "the plate saves");
+        assert!(model.notice.is_animating(1000.0));
+        // Open: the desktop's dialog.
+        model.update(Intent::Folder(FolderAction::Open), 1001.0);
+        assert_eq!(model.take_effects(), [Effect::Ask(Dialog::Open)]);
+        // The text fields, opened and cancelled.
+        model.update(Intent::Folder(FolderAction::Rename), 1002.0);
+        assert_eq!(model.overlays.renaming.as_deref(), Some("one"));
+        model.update(Intent::Folder(FolderAction::CancelRename), 1003.0);
+        assert_eq!(model.overlays.renaming, None);
+        model.update(Intent::Folder(FolderAction::Renumber), 1004.0);
+        assert_eq!(model.overlays.renumbering.as_deref(), Some(""));
+        model.update(Intent::Folder(FolderAction::CancelRenumber), 1005.0);
+        assert_eq!(model.overlays.renumbering, None);
+        // A rename that lands: the file moves.
+        model.update(Intent::Folder(FolderAction::Rename), 1006.0);
+        model.update(Intent::Folder(FolderAction::RenameTo("two".into())), 1007.0);
+        assert_eq!(model.overlays.renaming, None);
+        assert!(dir.join("two.typr").exists());
+        // Export: beside the project, and told.
+        model.update(
+            Intent::Folder(FolderAction::Export(crate::filing::ExportFormat::Text)),
+            1008.0,
+        );
+        assert!(dir.join("two.txt").exists());
+        assert!(model.notice.is_animating(1008.0));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_sheet_goes_on_the_holder_and_off_again() {
+        let mut model = with_sheets(1);
+        press(&mut model, &[Action::PageUp], 1000.0);
+        model.update(Intent::Folder(FolderAction::PutOnHolder), 1000.0);
+        assert!(model.overlays.holder.is_some());
+        assert_eq!(model.view, View::Typing, "back to the machine with it");
+        model.update(Intent::TakeHolderDown, 1001.0);
+        assert!(model.overlays.holder.is_none());
+    }
+
+    #[test]
+    fn a_finished_sheet_rolls_back_into_the_machine() {
+        let mut model = with_sheets(1);
+        press(&mut model, &[Action::PageUp], 1000.0);
+        model.update(Intent::Folder(FolderAction::RollIn), 1000.0);
+        assert!(
+            model.project.machine.document().finished().is_empty(),
+            "its sheet is in the machine again"
+        );
+        assert_eq!(model.view, View::Typing);
+    }
+
+    #[test]
+    fn a_note_written_on_an_open_sheet_stays_on_it() {
+        let mut model = with_sheets(1);
+        model.update(Intent::StartNote, 1000.0);
+        assert!(
+            model.overlays.annotating.is_none(),
+            "no sheet open: no note to write"
+        );
+        model.update(Intent::OpenSheet(0), 1000.0);
+        model.update(Intent::StartNote, 1000.0);
+        assert_eq!(model.overlays.annotating.as_deref(), Some(""));
+        model.update(
+            Intent::NoteWritten {
+                sheet: 0,
+                note: "Late start.".into(),
+            },
+            1001.0,
+        );
+        assert_eq!(model.overlays.annotating, None);
+        assert_eq!(
+            model.project.machine.document().finished()[0].note(),
+            "Late start.",
+            "on the sheet, and dirty for the next save"
+        );
+        assert!(model.project.filing.has_unsaved_changes());
+    }
+
+    #[test]
+    fn a_scrunched_sheet_closes_the_view_it_was_open_in() {
+        let mut model = with_sheets(1);
+        model.update(Intent::OpenSheet(0), 1000.0);
+        assert_eq!(model.view, View::Sheet(0));
+        model.update(Intent::ScrunchUp(0), 1001.0);
+        assert_eq!(model.sheet_count(), 0);
+        model.tick(1100.0);
+        assert_eq!(model.view, View::Folder, "the sheet it showed is gone");
+    }
 }

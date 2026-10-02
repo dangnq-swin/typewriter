@@ -3,6 +3,7 @@
 //! (`%APPDATA%\typewriter\data\profiles` on Windows).
 
 use std::fs;
+use std::path::PathBuf;
 
 use typewriter_core::Profile;
 
@@ -26,8 +27,13 @@ impl Machines {
     /// Built-in machines, then the user's in file name order. Taken names
     /// are refused.
     pub fn load() -> anyhow::Result<Self> {
+        Self::load_in(storage::profiles_dir())
+    }
+
+    /// The same, from a given folder — the tests', and `load`'s own.
+    fn load_in(dir: Option<PathBuf>) -> anyhow::Result<Self> {
         let mut machines = Self::built_in()?;
-        let Some(dir) = storage::profiles_dir() else {
+        let Some(dir) = dir else {
             return Ok(machines);
         };
         let mut files: Vec<_> = match fs::read_dir(&dir) {
@@ -130,5 +136,71 @@ mod tests {
             describe(&sm9),
             "10 cpi \u{b7} 6 lpi \u{b7} 210 \u{d7} 297 mm \u{b7} 82 columns \u{d7} 70 lines"
         );
+    }
+
+    /// The built-in profile under another name.
+    fn renamed(name: &str) -> String {
+        BUILT_IN[0].1.replace("Olympia SM9", name)
+    }
+
+    #[test]
+    fn user_profiles_join_the_built_in_one_in_file_name_order() {
+        let dir = storage::test_desktop().join("machines-user");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("zeta.toml"), renamed("Zeta")).unwrap();
+        fs::write(dir.join("alpha.toml"), renamed("Alpha")).unwrap();
+        fs::write(dir.join("notes.txt"), "not a profile").unwrap();
+        fs::write(dir.join("broken.toml"), "name =").unwrap();
+        fs::write(dir.join("dupe.toml"), BUILT_IN[0].1).unwrap();
+        let machines = Machines::load_in(Some(dir.clone())).unwrap();
+        let names: Vec<&str> = machines.all().iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, [DEFAULT, "Alpha", "Zeta"]);
+        assert_eq!(machines.problems.len(), 2, "{:?}", machines.problems);
+        assert!(
+            machines
+                .problems
+                .iter()
+                .any(|p| p.starts_with("broken.toml:")),
+            "{:?}",
+            machines.problems
+        );
+        assert!(
+            machines
+                .problems
+                .iter()
+                .any(|p| p == "dupe.toml: the name \"Olympia SM9\" is taken"),
+            "{:?}",
+            machines.problems
+        );
+        assert_eq!(machines.find("Zeta").unwrap().name, "Zeta");
+        assert_eq!(
+            machines.for_new("gone").name,
+            DEFAULT,
+            "the default stands in"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_absent_profiles_folder_is_no_trouble() {
+        let machines = Machines::load_in(None).unwrap();
+        assert_eq!(machines.all().len(), BUILT_IN.len());
+        assert!(machines.problems.is_empty());
+        let gone = storage::test_desktop().join("machines-gone");
+        let machines = Machines::load_in(Some(gone)).unwrap();
+        assert_eq!(machines.all().len(), BUILT_IN.len());
+        assert!(machines.problems.is_empty());
+    }
+
+    #[test]
+    fn a_profiles_folder_that_is_not_one_is_told() {
+        let not_a_dir = storage::test_desktop().join("machines-not-a-dir");
+        fs::write(&not_a_dir, "I am a file").unwrap();
+        let machines = Machines::load_in(Some(not_a_dir.clone())).unwrap();
+        assert_eq!(machines.all().len(), BUILT_IN.len(), "only the built-ins");
+        assert_eq!(machines.problems.len(), 1, "{:?}", machines.problems);
+        assert!(machines.problems[0].contains("Not a directory"));
+        fs::remove_file(not_a_dir).unwrap();
     }
 }

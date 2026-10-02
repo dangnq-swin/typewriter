@@ -336,6 +336,26 @@ fn write_project(machine: &Typewriter, path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use typewriter_core::{Command, Constraints, Profile};
+
+    /// The SM9 with `text` typed on its first line.
+    fn typed(text: &str) -> Typewriter {
+        let profile =
+            Profile::from_toml_str(include_str!("../../../profiles/olympia-sm9.toml")).unwrap();
+        let mut machine = Typewriter::new(profile, Constraints::default()).unwrap();
+        for c in text.chars() {
+            machine.apply(Command::Type(c));
+        }
+        machine
+    }
+
+    /// A folder of its own for one test, in the run's temporary data dir.
+    fn dir(tag: &str) -> PathBuf {
+        let dir = storage::test_desktop().join(format!("filing-{tag}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn the_autosave_plate_follows_the_last_write() {
@@ -361,5 +381,189 @@ mod tests {
             filing.keeping(true, 9.0),
             Keeping::Autosave(WriteStatus::Failed("disk full".into()))
         );
+    }
+
+    #[test]
+    fn a_saved_project_is_written_and_reopens() {
+        let dir = dir("reopen");
+        let path = dir.join("novel.typr");
+        let mut filing = Filing::at(path.clone());
+        let machine = typed("Typewriters are fine.");
+        assert!(filing.is_saved());
+        filing.changed(1.0);
+        assert!(filing.has_unsaved_changes());
+        filing.autosave(&machine, 1.5, true).unwrap();
+        assert!(filing.has_unsaved_changes(), "too soon to write");
+        filing.autosave(&machine, 3.5, true).unwrap();
+        assert!(!filing.has_unsaved_changes(), "the pause passed: written");
+        assert!(path.exists());
+        // Nothing changed: saving again has nothing to write, and says so.
+        filing.save(&machine, 4.0).unwrap();
+        let reopened = open(&Machines::built_in().unwrap(), &path).unwrap();
+        assert_eq!(
+            export::plain_text(reopened.document()),
+            "Typewriters are fine.\n"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn save_now_tells_what_it_did() {
+        let dir = dir("savenow");
+        let mut filing = Filing::at(dir.join("novel.typr"));
+        let machine = typed("typed");
+        assert_eq!(filing.save_now(&machine, 5.0), "Saved");
+        assert!(filing.is_animating(5.1));
+        assert!(!filing.is_animating(6.0));
+        // Where it cannot be written, the tell is the reason: the parent is
+        // a file, so no folder holds the project.
+        let blocked = dir.join("is-a-file");
+        fs::write(&blocked, "x").unwrap();
+        let mut broken = Filing::at(blocked.join("novel.typr"));
+        let told = broken.save_now(&machine, 8.0);
+        assert!(told.starts_with("Could not save the project:"), "{told}");
+        assert!(
+            !broken.has_unsaved_changes(),
+            "failed too: retry after the next change"
+        );
+        assert!(
+            matches!(
+                broken.keeping(true, 9.0),
+                Keeping::Autosave(WriteStatus::Failed(_))
+            ),
+            "the plate keeps the reason"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_untouched_draft_stays_unwritten_and_can_be_discarded() {
+        let drafts = storage::test_desktop().join("drafts");
+        fs::create_dir_all(&drafts).unwrap();
+        let draft = drafts.join("untouched-draft.typr");
+        let mut filing = Filing::at(draft.clone());
+        let machine = typed("");
+        assert_eq!(filing.name(), storage::UNTITLED);
+        assert!(
+            filing.location().starts_with("Unsaved draft, kept in "),
+            "{}",
+            filing.location()
+        );
+        assert!(!filing.is_saved());
+        assert!(filing.dialog_folder().is_none(), "a draft names no folder");
+        filing.changed(1.0);
+        assert_eq!(filing.keeping(true, 1.0), Keeping::Draft);
+        filing.save(&machine, 2.0).unwrap();
+        assert!(!draft.exists(), "nothing typed: nothing piled in drafts");
+        fs::write(&draft, "half a thought").unwrap();
+        filing.discard_draft();
+        assert!(!draft.exists(), "discarded: the file goes too");
+        assert!(!filing.is_saved_somewhere());
+        filing.save(&machine, 3.0).unwrap();
+        fs::remove_file(draft).ok();
+    }
+
+    #[test]
+    fn save_as_names_the_draft_and_removes_the_old_file() {
+        let dir = dir("saveas");
+        let drafts = storage::test_desktop().join("drafts");
+        fs::create_dir_all(&drafts).unwrap();
+        let old = drafts.join("saveas-old.typr");
+        let mut filing = Filing::at(old.clone());
+        let machine = typed("chapter one");
+        let told = filing.save_as(&machine, dir.join("novel"), 5.0).unwrap();
+        let path = dir.join("novel.typr");
+        assert!(told.starts_with("Saved as "), "{told}");
+        assert!(path.exists(), "the chosen name grew its extension");
+        assert!(!old.exists(), "the draft it moved from is gone");
+        assert!(filing.is_saved());
+        assert_eq!(filing.file_name(), "novel.typr");
+        assert_eq!(filing.dialog_folder().as_deref(), Some(dir.as_path()));
+        // Chosen again, its own name: written, and nothing is removed.
+        filing.save_as(&machine, path.clone(), 6.0).unwrap();
+        assert_eq!(filing.name(), "novel");
+        assert!(path.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_rename_waits_for_a_free_name() {
+        let dir = dir("rename");
+        let mut filing = Filing::at(dir.join("one.typr"));
+        let machine = typed("novel");
+        filing.save(&machine, 1.0).unwrap();
+        // A draft, or a project with nowhere kept, has no file to move.
+        let mut nowhere = Filing::nowhere();
+        assert_eq!(nowhere.rename(&machine, "two"), None);
+        // Its own name, spelled the same: nothing to do, nothing to say.
+        assert_eq!(filing.rename(&machine, "one"), None);
+        // A name the platforms refuse: told why.
+        assert_eq!(
+            filing.rename(&machine, "two/three"),
+            Some(r#"A name cannot be empty or contain \ / : * ? " < > |"#.to_owned())
+        );
+        // A name taken in its folder: refused before writing anything.
+        fs::write(dir.join("three.typr"), "someone else's").unwrap();
+        let told = filing.rename(&machine, "three").unwrap();
+        assert!(told.ends_with("three.typr already exists."), "{told}");
+        assert!(filing.is_at(&dir.join("one.typr")));
+        // A free name: the file moves, contents and all.
+        assert_eq!(
+            filing.rename(&machine, "two"),
+            Some("Renamed to two".into())
+        );
+        assert!(!dir.join("one.typr").exists());
+        let reopened = open(&Machines::built_in().unwrap(), &dir.join("two.typr")).unwrap();
+        assert_eq!(export::plain_text(reopened.document()), "novel\n");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn exports_lie_beside_the_project() {
+        let dir = dir("export");
+        let mut filing = Filing::at(dir.join("novel.typr"));
+        let machine = typed("Chapter one.");
+        filing.save(&machine, 1.0).unwrap();
+        let told = filing.export(&machine, ExportFormat::Markdown, false);
+        assert!(told.starts_with("Exported to "), "{told}");
+        assert!(told.ends_with("novel.md"), "{told}");
+        assert!(!dir.join("novel.txt").exists(), "not asked for yet");
+        let told = filing.export(&machine, ExportFormat::Text, false);
+        assert!(told.ends_with("novel.txt"), "{told}");
+        assert_eq!(
+            fs::read_to_string(dir.join("novel.txt")).unwrap().trim(),
+            "Chapter one."
+        );
+        assert!(
+            filing
+                .export(&machine, ExportFormat::Pdf, true)
+                .starts_with("Exported to ")
+        );
+        assert!(
+            fs::read(dir.join("novel.pdf"))
+                .unwrap()
+                .starts_with(b"%PDF")
+        );
+        // Nowhere saved: nowhere to lie beside.
+        let nowhere = Filing::nowhere();
+        assert_eq!(
+            nowhere.export(&machine, ExportFormat::Text, false),
+            "Save the project first: exports go beside it."
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_project_without_a_data_folder_says_so() {
+        let filing = Filing::nowhere();
+        assert_eq!(filing.name(), storage::UNTITLED);
+        assert_eq!(
+            filing.location(),
+            "Unsaved: no data folder to keep a draft in"
+        );
+        assert!(!filing.is_saved_somewhere());
+        assert_eq!(filing.file_name(), "Untitled.typr");
+        assert!(!filing.is_draft_with_work(&typed("")));
+        assert!(filing.is_draft_with_work(&typed("x")));
     }
 }

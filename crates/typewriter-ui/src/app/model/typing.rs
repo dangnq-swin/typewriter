@@ -230,6 +230,7 @@ mod tests {
     use super::super::testing::{model, model_with, press, type_text};
     use super::*;
     use crate::app::intent::Intent;
+    use crate::picker::Dialog;
     use crate::settings::Settings;
 
     fn column(model: &Model) -> u16 {
@@ -383,5 +384,92 @@ mod tests {
         assert!(model.project.is_drying());
         model.tick(20.0);
         assert!(!model.project.is_drying());
+    }
+
+    #[test]
+    fn keys_to_a_field_never_reach_the_machine() {
+        let mut model = model();
+        model.overlays.renaming = Some("novel".into());
+        assert!(model.keys_to_fields());
+        type_text(&mut model, "gone", 10.0);
+        assert!(model.project.machine.page().is_blank());
+    }
+
+    #[test]
+    fn keys_belong_to_the_log_while_it_is_open() {
+        let mut model = model();
+        model.update(Intent::OpenLog, 10.0);
+        model.take_effects();
+        type_text(&mut model, "x", 11.0);
+        assert!(
+            model.project.machine.page().is_blank(),
+            "the log reads, the machine waits"
+        );
+        press(&mut model, &[Action::PageUp, Action::PageDown], 11.1);
+        press(&mut model, &[Action::Save], 11.2);
+        assert!(
+            model.take_effects().contains(&Effect::Ask(Dialog::SaveAs)),
+            "Save still saves, even from the log"
+        );
+        let before = model.settings.look.fullscreen;
+        press(&mut model, &[Action::Fullscreen], 11.3);
+        assert!(
+            model.take_effects().contains(&Effect::Fullscreen(!before)),
+            "and the desktop still hears about fullscreen"
+        );
+        press(&mut model, &[Action::Escape], 11.4);
+        assert!(!model.overlays.log_open);
+        type_text(&mut model, "x", 11.5);
+        assert!(!model.project.machine.page().is_blank(), "keys come back");
+    }
+
+    #[test]
+    fn the_settings_card_keeps_the_keys_save_escape_and_fullscreen() {
+        let mut model = model();
+        model.update(Intent::OpenSettings, 10.0);
+        model.take_effects();
+        type_text(&mut model, "x", 11.0);
+        assert!(
+            model.project.machine.page().is_blank(),
+            "keys belong to the card"
+        );
+        press(&mut model, &[Action::Save], 11.1);
+        assert!(model.take_effects().contains(&Effect::Ask(Dialog::SaveAs)));
+        let before = model.settings.look.fullscreen;
+        press(&mut model, &[Action::Fullscreen], 11.2);
+        assert!(model.take_effects().contains(&Effect::Fullscreen(!before)));
+        press(&mut model, &[Action::Escape], 11.3);
+        assert_eq!(model.view, View::Typing, "Escape shuts the card");
+    }
+
+    #[test]
+    fn save_and_shift_arrows_answer_at_the_machine() {
+        let mut model = model();
+        type_text(&mut model, "ab", 10.0);
+        model.take_effects();
+        press(&mut model, &[Action::Save], 11.0);
+        assert!(model.take_effects().contains(&Effect::Ask(Dialog::SaveAs)));
+        let at = column(&model);
+        press(&mut model, &[Action::ShiftArrow(Direction::Left)], 11.1);
+        assert_eq!(column(&model), at, "free movement is off by default");
+        assert!(
+            model.take_effects().contains(&Effect::Jolt),
+            "the key still reaches the machine, and it says so"
+        );
+    }
+
+    #[test]
+    fn the_guides_can_be_switched_off() {
+        let mut settings = Settings::default();
+        settings.look.platen_guides = false;
+        let mut model = model_with(settings);
+        model.update(
+            Intent::DragKnob {
+                points: 40.0,
+                per_notch: 10.0,
+            },
+            10.0,
+        );
+        assert_eq!(model.guides_opacity(10.1), 0.0);
     }
 }

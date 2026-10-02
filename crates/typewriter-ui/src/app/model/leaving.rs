@@ -165,8 +165,9 @@ impl Model {
     }
 }
 
-// Tests never type into a project that New put in: its draft is a real
-// path in the data folder, and would be written.
+// The test desktop (see `storage::test_desktop`) stands in for the data
+// folder, so even a project New puts in — whose draft is a real path —
+// could be typed into and written without touching anyone's home.
 #[cfg(test)]
 mod tests {
     use super::super::testing::{model, type_text};
@@ -248,5 +249,123 @@ mod tests {
         assert_eq!(model.take_effects(), [Effect::Ask(Dialog::SaveAs)]);
         model.update(Intent::Picked(Picked::Cancelled), 14.0);
         assert!(model.take_effects().is_empty(), "cancelled: stays open");
+    }
+
+    #[test]
+    fn an_answer_without_a_question_does_nothing() {
+        let mut model = model();
+        model.update(Intent::Leave(Answer::Save), 10.0);
+        assert!(model.take_effects().is_empty());
+        assert!(!model.notice.is_animating(10.0));
+    }
+
+    #[test]
+    fn a_project_from_the_desktop_reopens_whole() {
+        let path = crate::storage::test_desktop().join("leave-reopen/novel.typr");
+        let mut writer = model();
+        writer.project.filing = Filing::at(path.clone());
+        type_text(&mut writer, "reopened", 10.0);
+        writer.put_away().unwrap();
+        assert!(path.exists());
+        let mut model = model();
+        type_text(&mut model, "unsaved work", 20.0);
+        model.update(Intent::OpenFile(path.clone()), 21.0);
+        assert!(model.leaving.is_some(), "asks about the work in hand");
+        model.take_effects();
+        model.update(Intent::Leave(Answer::DontSave), 22.0);
+        assert_eq!(model.view, View::Typing);
+        assert!(model.take_effects().contains(&Effect::MachineChanged));
+        assert!(
+            model
+                .project
+                .machine
+                .page()
+                .line_text(12)
+                .contains("reopened"),
+            "the opened project is in, whole"
+        );
+        assert!(model.project.filing.is_at(&path));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn an_unopenable_project_says_so_and_stays() {
+        let garbage = crate::storage::test_desktop().join("leave-garbage/broken.typr");
+        std::fs::create_dir_all(garbage.parent().unwrap()).unwrap();
+        std::fs::write(&garbage, "not a project").unwrap();
+        let mut model = model();
+        type_text(&mut model, "mine", 10.0);
+        model.update(Intent::OpenFile(garbage.clone()), 11.0);
+        assert!(model.leaving.is_some());
+        model.update(Intent::Leave(Answer::DontSave), 12.0);
+        assert!(
+            model.notice.is_animating(12.0),
+            "told why it could not open"
+        );
+        assert!(
+            !model.take_effects().contains(&Effect::MachineChanged),
+            "still the same project"
+        );
+        assert!(model.project.machine.page().line_text(12).contains("mine"));
+        std::fs::remove_dir_all(garbage.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn save_as_from_the_dialog_finishes_the_leave() {
+        let dir = crate::storage::test_desktop().join("leave-saveas");
+        let mut model = model();
+        type_text(&mut model, "notes", 11.0);
+        model.take_effects();
+        model.update(Intent::CloseWindow, 12.0);
+        assert_eq!(model.take_effects(), [Effect::CancelClose]);
+        model.update(Intent::Leave(Answer::SaveAs), 13.0);
+        assert_eq!(model.take_effects(), [Effect::Ask(Dialog::SaveAs)]);
+        model.update(Intent::Picked(Picked::SaveAs(dir.join("novel"))), 14.0);
+        assert!(dir.join("novel.typr").exists(), "the chosen name, written");
+        assert!(model.notice.is_animating(14.0), "and told");
+        assert_eq!(
+            model.take_effects(),
+            [Effect::Close],
+            "the pending quit goes through"
+        );
+        assert!(model.project.filing.is_saved());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_save_that_fails_on_leaving_keeps_the_project() {
+        let dir = crate::storage::test_desktop().join("leave-fail");
+        std::fs::create_dir_all(&dir).unwrap();
+        let blocker = dir.join("is-a-file");
+        std::fs::write(&blocker, "x").unwrap();
+        let mut model = model();
+        model.settings.saving.autosave = false;
+        model.project.filing = Filing::at(blocker.join("novel.typr"));
+        type_text(&mut model, "work", 10.0);
+        model.take_effects();
+        model.update(Intent::CloseWindow, 11.0);
+        assert_eq!(model.take_effects(), [Effect::CancelClose]);
+        model.update(Intent::Leave(Answer::Save), 12.0);
+        assert!(
+            model.notice.is_animating(12.0),
+            "the failure is told, and the app stays open"
+        );
+        assert!(model.take_effects().is_empty(), "no Close: stays put");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn put_away_writes_the_draft_it_was_given() {
+        let draft = crate::storage::test_desktop().join("drafts/leave-putaway.typr");
+        std::fs::create_dir_all(draft.parent().unwrap()).unwrap();
+        std::fs::remove_file(&draft).ok();
+        let mut model = model();
+        model.project.filing = Filing::at(draft.clone());
+        type_text(&mut model, "kept on closing", 10.0);
+        model.put_away().unwrap();
+        assert!(draft.exists(), "even a draft is written on quit");
+        let reopened = filing::open(&model.machines, &draft).unwrap();
+        assert!(reopened.page().line_text(12).contains("kept"));
+        std::fs::remove_file(draft).unwrap();
     }
 }
