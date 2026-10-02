@@ -17,7 +17,8 @@ use super::notebook::{COVER_FAMILY, STAPLE};
 use super::{CLICK, HIGHLIGHT, SHEET, SHEET_EDGE, chevron, smoothstep};
 
 /// A desk tent calendar's face, 6 × 4.5 in.
-pub const CALENDAR_INCHES: Vec2 = vec2(6.0, 4.5);
+/// A desk calendar's page: 152 × 114 mm (6 × 4.5 in).
+pub const CALENDAR_MM: Vec2 = vec2(152.0, 114.0);
 pub const SLIDE_SECONDS: f32 = 0.25;
 /// Wire loops along the top.
 const LOOPS: usize = 24;
@@ -283,7 +284,7 @@ impl Layout {
 /// The calendar up close: centred in `view`, `shown` of the way up from
 /// below it.
 pub fn up_close(view: Rect, shown: f32) -> Rect {
-    let aspect = CALENDAR_INCHES.x / CALENDAR_INCHES.y;
+    let aspect = CALENDAR_MM.x / CALENDAR_MM.y;
     let height = (0.7 * view.height()).min(0.8 * view.width() / aspect);
     let size = vec2(height * aspect, height);
     let up = view.center().y - size.y / 2.0;

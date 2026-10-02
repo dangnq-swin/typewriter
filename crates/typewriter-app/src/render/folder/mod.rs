@@ -272,9 +272,9 @@ impl Layout {
         self.camera.project(at, 0.0)
     }
 
-    /// `inches` true to scale on the desk, desk units.
-    fn desk(&self, metrics: &Metrics, inches: Vec2) -> Vec2 {
-        inches * metrics.points_per_inch * self.scale
+    /// `mm` true to scale on the desk, desk units.
+    fn desk(&self, metrics: &Metrics, mm: Vec2) -> Vec2 {
+        mm * metrics.points_per_mm() * self.scale
     }
 }
 
@@ -308,9 +308,9 @@ fn paint_beside(
 ) -> Beside {
     let (size, metrics) = (layout.size, folder.metrics);
     let left = layout.half_width + 0.12 * size.x;
-    let book_size = layout.desk(metrics, notebook::BOOK_INCHES);
+    let book_size = layout.desk(metrics, notebook::BOOK_MM);
     let book_centre = vec2(left, layout.bottom + 0.08 * size.y) + book_size / 2.0;
-    let calendar_size = layout.desk(metrics, calendar::CALENDAR_INCHES);
+    let calendar_size = layout.desk(metrics, calendar::CALENDAR_MM);
     let calendar_foot = vec2(
         left + 0.5 * calendar_size.x,
         book_centre.y + 0.5 * book_size.y + 0.1 * size.y,

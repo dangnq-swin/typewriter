@@ -7,7 +7,7 @@ use typewriter_core::Goal;
 use super::{Desk, View};
 use crate::app::intent::Effect;
 use crate::render;
-use crate::settings::{self, Settings, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP};
+use crate::settings::{self, Settings, ZOOM_NOTCHES, zoom_notch};
 
 impl Desk {
     pub(super) fn toggle_fullscreen(&mut self) {
@@ -18,10 +18,17 @@ impl Desk {
 
     /// Zooms `steps` in (positive) or out (negative).
     pub(super) fn zoom(&mut self, steps: i32) {
-        self.set_zoom(zoomed(self.zoom_percent, steps));
+        self.set_zoom(zoomed(self.zoom_percent, steps, self.zoom_min));
+    }
+
+    /// Zooms no further out than `least`, the edition's.
+    pub fn follow_zoom_min(&mut self, least: u16) {
+        self.zoom_min = least;
+        self.zoom_percent = self.zoom_percent.max(least);
     }
 
     pub(super) fn set_zoom(&mut self, percent: u16) {
+        let percent = percent.max(self.zoom_min);
         self.settings.look.zoom_percent = percent;
         if percent != self.zoom_percent {
             self.zoom_percent = percent;
@@ -86,10 +93,12 @@ impl Desk {
     }
 }
 
-fn zoomed(percent: u16, steps: i32) -> u16 {
-    let target = i32::from(percent) + steps * i32::from(ZOOM_STEP);
-    // Safe cast: clamped to the zoom range.
-    target.clamp(i32::from(ZOOM_MIN), i32::from(ZOOM_MAX)) as u16
+/// `steps` notches on from `percent`, no further out than `least`.
+fn zoomed(percent: u16, steps: i32, least: u16) -> u16 {
+    // Safe casts: indices of a short list.
+    let (at, first) = (zoom_notch(percent) as i32, zoom_notch(least) as i32);
+    let last = ZOOM_NOTCHES.len() as i32 - 1;
+    ZOOM_NOTCHES[(at + steps).clamp(first, last) as usize]
 }
 
 #[cfg(test)]
@@ -101,11 +110,27 @@ mod tests {
     use crate::picker::{Dialog, Picked};
 
     #[test]
-    fn zoom_steps_within_limits() {
-        assert_eq!(zoomed(100, 1), 110);
-        assert_eq!(zoomed(100, -1), 90);
-        assert_eq!(zoomed(200, 1), 200);
-        assert_eq!(zoomed(50, -1), 50);
+    fn zoom_steps_a_notch_within_limits() {
+        assert_eq!(zoomed(100, 1, 50), 110);
+        assert_eq!(zoomed(100, -1, 50), 90);
+        assert_eq!(zoomed(200, 1, 50), 200);
+        assert_eq!(zoomed(50, -1, 50), 50, "the edition's furthest out");
+        // In ratio far out: coarser below 70 %.
+        assert_eq!(zoomed(70, -1, 25), 60);
+        assert_eq!(zoomed(50, -1, 25), 35);
+        assert_eq!(zoomed(35, -1, 25), 25);
+        assert_eq!(zoomed(25, -1, 25), 25);
+    }
+
+    #[test]
+    fn an_edition_zooms_no_further_out_than_its_least() {
+        let mut desk = desk();
+        desk.set_zoom(25);
+        assert_eq!(desk.zoom_percent, 25);
+        desk.follow_zoom_min(50);
+        assert_eq!(desk.zoom_percent, 50);
+        desk.zoom(-3);
+        assert_eq!(desk.zoom_percent, 50);
     }
 
     #[test]

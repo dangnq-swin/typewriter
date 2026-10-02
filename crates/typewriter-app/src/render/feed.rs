@@ -16,10 +16,9 @@ const WINDOW_SECONDS: f64 = 0.05;
 /// fully turning (1).
 const STILL_DB: f32 = 36.0;
 const TURNING_DB: f32 = 20.0;
-/// Leading-edge curl at full strength, inches.
-const CURL_DEPTH_IN: f32 = 0.4;
-const CURL_INSET_IN: f32 = 0.06;
-
+/// Leading-edge curl at full strength, millimetres.
+const CURL_DEPTH_MM: f32 = 10.0;
+const CURL_INSET_MM: f32 = 2.0;
 /// A feed's timing: wind-out lasts as long as the clicks; wind-in moves only
 /// while the knob is heard.
 #[derive(Debug, Clone)]
@@ -160,6 +159,19 @@ impl FeedMotion {
     }
 }
 
+/// A sheet's shadow, as strong as it is `lift`ed (0..=1).
+fn paint_sheet_shadow(painter: &Painter, sheet: Rect, lift: f32) {
+    if lift > 0.0 {
+        let shadow = Shadow {
+            offset: [0, (4.0 * lift).round() as i8],
+            blur: 16,
+            spread: 0,
+            color: Color32::from_black_alpha((70.0 * lift) as u8),
+        };
+        painter.add(shadow.as_shape(sheet, 0));
+    }
+}
+
 /// A sheet held off the desk: shadow, then a body of the background paper,
 /// so only edges, curl and shadow show.
 pub fn paint_lifted_sheet(
@@ -171,19 +183,12 @@ pub fn paint_lifted_sheet(
     curl: f32,
     lift: f32,
 ) {
-    if lift > 0.0 {
-        let shadow = Shadow {
-            offset: [0, (4.0 * lift).round() as i8],
-            blur: 16,
-            spread: 0,
-            color: Color32::from_black_alpha((70.0 * lift) as u8),
-        };
-        painter.add(shadow.as_shape(sheet, 0));
-    }
+    paint_sheet_shadow(painter, sheet, lift);
 
     // Curled back toward the platen, the edge foreshortens and narrows.
-    let depth = curl * CURL_DEPTH_IN * points_per_inch;
-    let inset = curl * CURL_INSET_IN * points_per_inch;
+    let per_mm = points_per_inch / super::MM_PER_INCH;
+    let depth = curl * CURL_DEPTH_MM * per_mm;
+    let inset = curl * CURL_INSET_MM * per_mm;
     let lip = [
         pos2(sheet.left() + inset, sheet.top()),
         pos2(sheet.right() - inset, sheet.top()),
@@ -192,9 +197,10 @@ pub fn paint_lifted_sheet(
         pos2(sheet.left(), sheet.top() + depth),
         pos2(sheet.right(), sheet.top() + depth),
     ];
-    background.paint_polygon(
+    background.paint_sheet(
         painter,
         view,
+        sheet,
         &[
             lip[0],
             lip[1],

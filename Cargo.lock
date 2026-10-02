@@ -4083,6 +4083,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "typewriter-desk"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "eframe",
+ "typewriter-app",
+ "typewriter-core",
+]
+
+[[package]]
 name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

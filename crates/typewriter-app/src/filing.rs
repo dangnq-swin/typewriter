@@ -63,7 +63,7 @@ impl Filing {
     }
 
     /// A draft with nowhere to keep it: never written.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "snapshot"))]
     pub fn nowhere() -> Self {
         Self::with_path(None)
     }

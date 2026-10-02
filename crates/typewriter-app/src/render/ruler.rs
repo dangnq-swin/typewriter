@@ -14,6 +14,15 @@ use super::Metrics;
 use crate::filing::{Keeping, WriteStatus};
 
 pub const HEIGHT: f32 = 20.0;
+/// Ticks up from the scale's foot, the tens' through the band.
+const SHORT_TICK: f32 = 3.0;
+const FIVE_TICK: f32 = 4.0;
+const LABEL_SIZE: f32 = 8.0;
+/// Either side of a ten's tick, to its number's digits.
+const DIGIT_GAP: f32 = 1.5;
+/// The middle, as on the SM9: a ▼ for its number, half this wide.
+const CENTRE_COLUMN: u16 = 40;
+const CENTRE_HALF: f32 = 3.0;
 /// Typing line bottom to scale.
 const GAP: f32 = 10.0;
 /// Scale to plates, and plate to plate.
@@ -27,7 +36,7 @@ const TICKS: Color32 = Color32::from_rgb(0x3A, 0x36, 0x32);
 const MARGIN: Color32 = Color32::from_rgb(0xA0, 0x2C, 0x1C);
 const TAB: Color32 = Color32::from_rgb(0x24, 0x4C, 0x7A);
 const SPACING: Color32 = Color32::from_rgb(0x24, 0x22, 0x20);
-const SAVED: Color32 = Color32::from_rgb(0x3C, 0x8A, 0x3C);
+pub const SAVED: Color32 = Color32::from_rgb(0x3C, 0x8A, 0x3C);
 const WRITING: Color32 = Color32::from_rgb(0xD0, 0x90, 0x20);
 const FAILED: Color32 = Color32::from_rgb(0xB0, 0x30, 0x1C);
 const DOT_RADIUS: f32 = 3.5;
@@ -71,6 +80,21 @@ impl Scale {
         self.column_left(column) + self.column_width / 2.0
     }
 
+    /// The same scale printed nearer or farther: stretched `by` across about
+    /// `x`, its band from `top`, `height` high.
+    pub fn stretched(self, x: f32, by: f32, top: f32, height: f32) -> Self {
+        let across = |at: f32| x + (at - x) * by;
+        Self {
+            rect: Rect::from_x_y_ranges(
+                across(self.rect.left())..=across(self.rect.right()),
+                top..=top + height,
+            ),
+            grid_left: across(self.grid_left),
+            column_width: self.column_width * by,
+            columns: self.columns,
+        }
+    }
+
     /// A margin stop's grip: its bracket, a little wider.
     pub fn stop(&self, carriage: &Carriage, side: Side) -> Rect {
         let (column, foot) = match side {
@@ -91,72 +115,99 @@ impl Scale {
 }
 
 pub fn paint_scale(painter: &Painter, scale: &Scale, carriage: &Carriage) {
-    let rect = scale.rect;
-    paint_plate(painter, rect);
-    let bottom = rect.bottom() - 1.0;
-    let label_font = FontId::proportional(8.0);
+    paint_plate(painter, scale.rect);
+    painter.extend(scale_marks(painter, scale, carriage));
+}
 
+/// The scale's ticks, numbers and stops, without its plate: for printing
+/// on something else, such as the desk edition's paper bail. Sized to the
+/// scale's band, [`HEIGHT`] as on the plate; `painter` lays out the numbers.
+pub fn scale_marks(painter: &Painter, scale: &Scale, carriage: &Carriage) -> Vec<Shape> {
+    let rect = scale.rect;
+    let k = rect.height() / HEIGHT;
+    let (top, bottom, middle) = (rect.top() + k, rect.bottom() - k, rect.center().y);
+    let stroke = Stroke::new(k, TICKS);
+    let font = FontId::proportional(LABEL_SIZE * k);
+    let mut shapes = Vec::new();
     for column in 0..scale.columns {
         let x = scale.column_centre(column);
-        let length = match column % 10 {
-            0 => 7.0,
-            5 => 5.0,
-            _ => 3.0,
-        };
-        painter.line_segment(
-            [pos2(x, bottom - length), pos2(x, bottom)],
-            Stroke::new(1.0, TICKS),
-        );
-        if column % 10 == 0 {
-            painter.text(
-                pos2(x, rect.top() + 1.0),
-                Align2::CENTER_TOP,
-                column,
-                label_font.clone(),
+        let tick = |from: f32| Shape::line_segment([pos2(x, from), pos2(x, bottom)], stroke);
+        if column == CENTRE_COLUMN {
+            shapes.push(tick(bottom - SHORT_TICK * k));
+            let half = CENTRE_HALF * k;
+            shapes.push(Shape::convex_polygon(
+                vec![
+                    pos2(x - half, middle - half),
+                    pos2(x + half, middle - half),
+                    pos2(x, middle + half),
+                ],
                 TICKS,
-            );
+                Stroke::NONE,
+            ));
+        } else if column % 10 == 0 {
+            // Through the number, between its last digit and the rest.
+            shapes.push(tick(top));
+            let digits = column.to_string();
+            let (rest, last) = digits.split_at(digits.len() - 1);
+            for (text, anchor, at) in [
+                (rest, Align2::RIGHT_CENTER, x - DIGIT_GAP * k),
+                (last, Align2::LEFT_CENTER, x + DIGIT_GAP * k),
+            ] {
+                let galley = painter.layout_no_wrap(text.to_owned(), font.clone(), TICKS);
+                let at = anchor.anchor_size(pos2(at, middle), galley.size()).min;
+                shapes.push(Shape::galley(at, galley, TICKS));
+            }
+        } else {
+            let length = if column % 5 == 0 {
+                FIVE_TICK
+            } else {
+                SHORT_TICK
+            };
+            shapes.push(tick(bottom - length * k));
         }
     }
-
     for stop in carriage.tab_stops() {
-        paint_tab_mark(painter, scale.column_centre(stop), rect);
+        shapes.push(tab_mark(scale.column_centre(stop), rect, k));
     }
     let released = carriage.margin_released;
     let left = scale.column_left(carriage.left_margin);
     let right = scale.column_left(carriage.right_margin);
-    paint_margin_mark(painter, left, rect, STOP_FOOT, released);
-    paint_margin_mark(painter, right, rect, -STOP_FOOT, released);
+    shapes.push(margin_mark(left, rect, STOP_FOOT * k, released, k));
+    shapes.push(margin_mark(right, rect, -STOP_FOOT * k, released, k));
+    shapes
 }
 
 /// A bracket opening toward the writing area, `foot` long (negative: the
-/// right stop). Released, it stands lifted and faded until the return.
-fn paint_margin_mark(painter: &Painter, x: f32, rect: Rect, foot: f32, released: bool) {
+/// right stop), sized `k` times the plate's. Released, it stands lifted and
+/// faded until the return.
+fn margin_mark(x: f32, rect: Rect, foot: f32, released: bool, k: f32) -> Shape {
     let (color, lift) = if released {
-        (MARGIN.gamma_multiply(RELEASED_OPACITY), RELEASED_LIFT)
+        (MARGIN.gamma_multiply(RELEASED_OPACITY), RELEASED_LIFT * k)
     } else {
         (MARGIN, 0.0)
     };
-    let (top, bottom) = (rect.top() + 1.0 - lift, rect.bottom() - 1.0 - lift);
-    painter.add(Shape::line(
+    let (top, bottom) = (rect.top() + k - lift, rect.bottom() - k - lift);
+    Shape::line(
         vec![
             pos2(x + foot, top),
             pos2(x, top),
             pos2(x, bottom),
             pos2(x + foot, bottom),
         ],
-        Stroke::new(2.0, color),
-    ));
+        Stroke::new(2.0 * k, color),
+    )
 }
 
-/// A small pointer hanging from the scale's top.
-fn paint_tab_mark(painter: &Painter, x: f32, rect: Rect) {
-    let w = 3.5;
-    let top = rect.top() + 1.0;
-    painter.add(Shape::convex_polygon(
+/// A small pointer hanging from the scale's top, sized `k` times the
+/// plate's.
+fn tab_mark(x: f32, rect: Rect, k: f32) -> Shape {
+    let w = 3.5 * k;
+    let top = rect.top() + k;
+    Shape::convex_polygon(
         vec![pos2(x - w, top), pos2(x + w, top), pos2(x, top + w * 1.6)],
         TAB,
         Stroke::NONE,
-    ));
+    )
 }
 
 /// Below the scale, flush left. Two circles: first filled; second empty (1),
@@ -223,14 +274,18 @@ pub fn paint_correction_plate(
     slip_in: bool,
     after: Rect,
 ) -> Rect {
-    let method = match mode {
+    let method = correction_method(mode, slip_in);
+    paint_text_plate(painter, format!("Correct: {method}"), after)
+}
+
+pub fn correction_method(mode: EraseMode, slip_in: bool) -> &'static str {
+    match mode {
         EraseMode::Delete => "Delete",
         EraseMode::Paper if slip_in => "Paper (slip in)",
         EraseMode::Paper => "Paper",
         EraseMode::Eraser => "Eraser",
         EraseMode::Fluid => "Fluid",
-    };
-    paint_text_plate(painter, format!("Correct: {method}"), after)
+    }
 }
 
 /// The session goal's progress, right of `after`.
@@ -274,6 +329,11 @@ pub fn paint_goal_plate(painter: &Painter, progress: Option<Progress>, after: Re
 }
 
 fn goal_text(progress: Option<Progress>) -> String {
+    format!("Goal: {}", goal_reading(progress))
+}
+
+/// Progress toward the goal, or "Off".
+pub fn goal_reading(progress: Option<Progress>) -> String {
     let Some(Progress {
         goal,
         words,
@@ -281,17 +341,16 @@ fn goal_text(progress: Option<Progress>) -> String {
         ..
     }) = progress
     else {
-        return "Goal: Off".to_owned();
+        return "Off".to_owned();
     };
-    let target = match goal {
+    match goal {
         Goal::Words(n) => format!("{words} / {n} words"),
         Goal::Minutes(n) => format!("{minutes} / {n} min"),
         Goal::WordsOrMinutes {
             words: w,
             minutes: m,
         } => format!("{words} / {w} words or {minutes} / {m} min"),
-    };
-    format!("Goal: {target}")
+    }
 }
 
 /// Flush with the scale's right end (`right`), in `left_row`'s row; drops a
@@ -304,11 +363,7 @@ pub fn paint_autosave_plate(
     row_end: f32,
 ) -> Rect {
     let (text, dot) = autosave_label(keeping);
-    let galley = painter.layout_no_wrap(
-        text.to_owned(),
-        FontId::proportional(PLATE_FONT_SIZE),
-        TICKS,
-    );
+    let galley = painter.layout_no_wrap(text, FontId::proportional(PLATE_FONT_SIZE), TICKS);
     let dot_room = if dot.is_some() {
         DOT_RADIUS * 2.0 + PLATE_PADDING
     } else {
@@ -336,13 +391,19 @@ pub fn paint_autosave_plate(
     rect
 }
 
-fn autosave_label(keeping: &Keeping) -> (&'static str, Option<Color32>) {
+fn autosave_label(keeping: &Keeping) -> (String, Option<Color32>) {
+    let (state, lamp) = autosave_state(keeping);
+    (format!("Autosave: {state}"), lamp)
+}
+
+/// On, Draft or Off, and the lamp's colour if it is lit.
+pub fn autosave_state(keeping: &Keeping) -> (&'static str, Option<Color32>) {
     match keeping {
-        Keeping::Autosave(WriteStatus::Saved) => ("Autosave: On", Some(SAVED)),
-        Keeping::Autosave(WriteStatus::Writing) => ("Autosave: On", Some(WRITING)),
-        Keeping::Autosave(WriteStatus::Failed(_)) => ("Autosave: On", Some(FAILED)),
-        Keeping::Draft => ("Autosave: Draft", None),
-        Keeping::Off { .. } => ("Autosave: Off", None),
+        Keeping::Autosave(WriteStatus::Saved) => ("On", Some(SAVED)),
+        Keeping::Autosave(WriteStatus::Writing) => ("On", Some(WRITING)),
+        Keeping::Autosave(WriteStatus::Failed(_)) => ("On", Some(FAILED)),
+        Keeping::Draft => ("Draft", None),
+        Keeping::Off { .. } => ("Off", None),
     }
 }
 
@@ -419,11 +480,14 @@ mod tests {
     #[test]
     fn the_autosave_plate_names_how_the_project_is_kept() {
         let failed = Keeping::Autosave(WriteStatus::Failed("disk full".into()));
-        assert_eq!(autosave_label(&failed), ("Autosave: On", Some(FAILED)));
+        assert_eq!(
+            autosave_label(&failed),
+            ("Autosave: On".to_owned(), Some(FAILED))
+        );
         assert_eq!(autosave_label(&Keeping::Draft).0, "Autosave: Draft");
         assert_eq!(
             autosave_label(&Keeping::Off { unsaved: true }),
-            ("Autosave: Off", None)
+            ("Autosave: Off".to_owned(), None)
         );
     }
 

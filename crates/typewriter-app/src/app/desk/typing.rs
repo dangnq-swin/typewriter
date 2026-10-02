@@ -7,6 +7,7 @@ use super::{Desk, View};
 use crate::app::intent::{Effect, Sound};
 use crate::input::Action;
 use crate::render::folder::FolderAction;
+use crate::stage::Return;
 
 /// Scroll per zoom step or knob notch: about one wheel notch.
 const SCROLL_POINTS_PER_STEP: f32 = 40.0;
@@ -151,6 +152,7 @@ impl Desk {
         let changing = matches!(command, Command::FeedSheet | Command::RollIn { .. });
         let machine = &self.project.machine;
         let outgoing = changing.then(|| (machine.page().clone(), machine.carriage().half_line));
+        let column = machine.carriage().column;
         let mut page_end = false;
         self.project.filing.changed(now);
         for event in self.project.machine.apply(command) {
@@ -160,6 +162,13 @@ impl Desk {
                 Event::PageEnd => page_end = true,
                 // Only a roll that happened shows the guides.
                 Event::LineFeed if knob => self.knob_turned = now,
+                Event::CarriageReturn => {
+                    let machine = &self.project.machine;
+                    let columns = column.abs_diff(machine.carriage().column);
+                    // The pitch counts columns an inch: the glide, millimetres.
+                    let mm = f64::from(columns) * 25.4 / f64::from(machine.profile().pitch_cpi);
+                    self.last_return = Return { at: now, mm };
+                }
                 Event::Blocked(reason) => {
                     self.effects.push(Effect::Jolt);
                     // Shown again at each blocked key: it stays while tried.
@@ -225,6 +234,29 @@ mod tests {
 
     fn column(desk: &Desk) -> u16 {
         desk.project.machine.carriage().column
+    }
+
+    #[test]
+    fn a_return_is_kept_with_how_far_the_carriage_glides_home() {
+        let mut desk = desk();
+        assert_eq!(desk.last_return, Return::NONE);
+        let ret = Action::Machine(Command::Return);
+        press(&mut desk, &[ret], 10.0);
+        assert_eq!(
+            desk.last_return,
+            Return { at: 10.0, mm: 0.0 },
+            "at the margin"
+        );
+        type_text(&mut desk, &"x".repeat(60), 12.0);
+        press(&mut desk, &[ret], 20.0);
+        // Pica: 60 columns, 152.4 mm.
+        assert_eq!(
+            desk.last_return,
+            Return {
+                at: 20.0,
+                mm: 152.4
+            }
+        );
     }
 
     #[test]

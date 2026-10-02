@@ -1,9 +1,10 @@
 //! The paper behind everything, fixed to the window: the bundled photo, a
-//! flat paper tone or the user's own texture.
+//! flat paper tone or the user's own texture. An edition with its own
+//! backdrop draws that instead, and the photo on each sheet.
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::epaint::{Vertex, WHITE_UV};
+use eframe::egui::epaint::{Mesh, Vertex, WHITE_UV};
 use eframe::egui::{
     self, Color32, ColorImage, CornerRadius, Painter, Pos2, Rect, Shape, TextureFilter,
     TextureHandle, TextureOptions, Vec2, pos2,
@@ -33,6 +34,11 @@ pub const fn tone(tone: PaperTone) -> Color32 {
 struct Chosen(settings::Background, PaperTone, Option<PathBuf>);
 
 impl Chosen {
+    /// The bundled photo: the sheets', behind a backdrop.
+    fn paper() -> Self {
+        Self(settings::Background::Paper, PaperTone::default(), None)
+    }
+
     fn of(look: &Look) -> Self {
         Self(
             look.background,
@@ -54,19 +60,33 @@ pub struct Background {
     paper: Option<Option<TextureHandle>>,
     /// Why the chosen texture isn't showing.
     problem: Option<String>,
+    /// An edition's own, behind everything: `fill` is then the sheets'.
+    backdrop: Option<fn(&Painter, Rect)>,
 }
 
 impl Background {
-    /// Forgets `look`'s texture if its file is gone.
-    pub fn load(ctx: &egui::Context, look: &mut Look) -> Self {
+    /// Forgets `look`'s texture if its file is gone. With a `backdrop`,
+    /// `look` is ignored: the backdrop is always there.
+    pub fn load(
+        ctx: &egui::Context,
+        look: &mut Look,
+        backdrop: Option<fn(&Painter, Rect)>,
+    ) -> Self {
         let mut background = Self {
             fill: Fill::Flat(FALLBACK),
-            chosen: Chosen::of(look),
+            chosen: if backdrop.is_some() {
+                Chosen::paper()
+            } else {
+                Chosen::of(look)
+            },
             paper: None,
             problem: None,
+            backdrop,
         };
         background.fill = background.choose(ctx);
-        look.background_texture.clone_from(&background.chosen.2);
+        if backdrop.is_none() {
+            look.background_texture.clone_from(&background.chosen.2);
+        }
         background
     }
 
@@ -74,7 +94,7 @@ impl Background {
     /// texture if its file is gone.
     pub fn follow(&mut self, ctx: &egui::Context, look: &mut Look) {
         let chosen = Chosen::of(look);
-        if chosen != self.chosen {
+        if self.backdrop.is_none() && chosen != self.chosen {
             self.chosen = chosen;
             self.fill = self.choose(ctx);
             look.background_texture.clone_from(&self.chosen.2);
@@ -113,6 +133,10 @@ impl Background {
     }
 
     pub fn paint(&self, painter: &Painter, view: Rect) {
+        if let Some(backdrop) = self.backdrop {
+            backdrop(painter, view);
+            return;
+        }
         match &self.fill {
             Fill::Texture(texture) => {
                 let uv = cover_uv(texture.size_vec2(), view.size());
@@ -124,14 +148,17 @@ impl Background {
         }
     }
 
-    /// Fills a convex polygon with exactly the background behind it: hides
-    /// what's under a lifted sheet without a seam.
-    pub fn paint_polygon(&self, painter: &Painter, view: Rect, points: &[Pos2]) {
+    /// The body of `sheet`, cut to the convex polygon `points`. The plain
+    /// app fills it with exactly the background behind it: a lifted sheet
+    /// hides what's under it without a seam. Over a backdrop, sheets carry
+    /// the paper with them.
+    pub fn paint_sheet(&self, painter: &Painter, view: Rect, sheet: Rect, points: &[Pos2]) {
+        let area = if self.backdrop.is_some() { sheet } else { view };
         let mesh = match &self.fill {
             Fill::Texture(texture) => {
-                let uv = cover_uv(texture.size_vec2(), view.size());
+                let uv = cover_uv(texture.size_vec2(), area.size());
                 let mut mesh = convex_mesh(points, |pos| {
-                    let at = (pos - view.min) / view.size();
+                    let at = (pos - area.min) / area.size();
                     Vertex {
                         pos,
                         uv: uv.min + at * uv.size(),
@@ -148,6 +175,27 @@ impl Background {
             }),
         };
         painter.add(Shape::mesh(mesh));
+    }
+
+    /// The paper of a sheet `size` points flat, bent into `mesh`: each
+    /// vertex's uv is where on the sheet it is (0..=1), its colour a tint.
+    pub fn bent_sheet(&self, size: Vec2, mut mesh: Mesh) -> Mesh {
+        match &self.fill {
+            Fill::Texture(texture) => {
+                let uv = cover_uv(texture.size_vec2(), size);
+                for vertex in &mut mesh.vertices {
+                    vertex.uv = uv.min + vertex.uv.to_vec2() * uv.size();
+                }
+                mesh.texture_id = texture.id();
+            }
+            Fill::Flat(colour) => {
+                for vertex in &mut mesh.vertices {
+                    vertex.uv = WHITE_UV;
+                    vertex.color = vertex.color * *colour;
+                }
+            }
+        }
+        mesh
     }
 }
 
@@ -237,7 +285,7 @@ mod tests {
             background_texture: Some(dir.join("gone.png")),
             ..Look::default()
         };
-        let background = Background::load(&ctx, &mut look);
+        let background = Background::load(&ctx, &mut look, None);
         assert_eq!(look.background_texture, None);
         assert_eq!(look.background, settings::Background::Texture);
         assert_eq!(background.problem(), None);

@@ -1,0 +1,19 @@
+[package]
+name = "typewriter-desk"
+description = "The typewriter on a desk: the immersive edition"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+typewriter-core.workspace = true
+typewriter-app.workspace = true
+eframe.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+typewriter-app = { workspace = true, features = ["snapshot"] }
+
+[lints]
+workspace = true

@@ -1,8 +1,11 @@
-//! The typewriter app. [`run`] opens it; `typewriter-import` shares the
-//! app's folders and settings, the machines, and importing an .odt.
+//! The typewriter app. [`run`] opens it on a [`Stage`]: [`Plain`] for
+//! `typewriter`; the desk edition draws its own through the hooks, with
+//! [`draw`]. `typewriter-import` shares the app's folders and settings, the
+//! machines, and importing an .odt.
 
 mod app;
 mod audio;
+pub mod draw;
 mod filing;
 pub mod import;
 mod input;
@@ -15,6 +18,7 @@ mod render;
 pub mod settings;
 #[cfg(test)]
 mod simulate;
+mod stage;
 pub mod storage;
 #[cfg(not(windows))]
 mod terminal;
@@ -22,7 +26,13 @@ mod terminal;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
+#[cfg(feature = "snapshot")]
+#[doc(hidden)]
+pub use app::snapshot;
+pub use stage::{Plain, Stage};
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Both commands' options, for their help.
 pub const OPTIONS: &str = "\
 options:
@@ -42,12 +52,21 @@ pub fn is_option(arg: &OsStr) -> bool {
     arg.as_encoded_bytes().starts_with(b"-")
 }
 
-/// `typewriter`: a command from the command line, else the window.
-pub fn run() -> anyhow::Result<()> {
+/// The window `stage` asks for.
+fn window_options(stage: &impl Stage) -> eframe::NativeOptions {
+    eframe::NativeOptions {
+        depth_buffer: stage.depth_buffer(),
+        ..Default::default()
+    }
+}
+
+/// A command from the command line, else the window on `stage`. Every
+/// edition shares projects, settings and the one open desk.
+pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
     #[cfg(not(windows))]
     {
         let args: Vec<_> = std::env::args_os().skip(1).collect();
-        if terminal::run(&args)? {
+        if terminal::run(&stage, &args)? {
             return Ok(());
         }
     }
@@ -60,17 +79,17 @@ pub fn run() -> anyhow::Result<()> {
     let settings = settings::SettingsFile::load();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("Typewriter")
-            .with_app_id("typewriter")
+            .with_title(stage.title())
+            .with_app_id(stage.command())
             .with_inner_size([900.0, 1000.0])
             .with_fullscreen(settings.0.look.fullscreen),
-        ..Default::default()
+        ..window_options(&stage)
     };
     eframe::run_native(
-        "typewriter",
+        stage.command(),
         options,
         Box::new(|cc| {
-            let app = app::TypewriterApp::new(cc, settings)?;
+            let app = app::TypewriterApp::new(cc, settings, Box::new(stage))?;
             Ok(Box::new(app))
         }),
     )

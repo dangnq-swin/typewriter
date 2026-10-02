@@ -11,7 +11,7 @@ tab_stops = []
 width_mm = 210.0
 height_mm = 297.0
 
-# Roughly 1 inch on each side and at the top.
+# Roughly 25 mm on each side and at the top.
 [margins]
 left_column = 10
 right_column = 72

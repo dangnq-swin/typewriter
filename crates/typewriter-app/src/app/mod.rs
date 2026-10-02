@@ -5,6 +5,8 @@
 mod desk;
 mod fonts;
 mod intent;
+#[cfg(feature = "snapshot")]
+pub mod snapshot;
 mod view;
 
 use std::path::{Path, PathBuf};
@@ -24,6 +26,7 @@ use crate::render::platen::PlatenView;
 use crate::render::{Metrics, scrunch};
 use crate::render::{folder, pdf};
 use crate::settings::{self, SettingsFile};
+use crate::stage::Stage;
 use crate::storage;
 use desk::{Desk, View};
 use intent::{Effect, Intent, Sound};
@@ -36,6 +39,7 @@ struct Scrunching {
 }
 
 pub struct TypewriterApp {
+    stage: Box<dyn Stage>,
     desk: Desk,
     input: Input,
     picker: Picker,
@@ -67,8 +71,10 @@ impl TypewriterApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         settings: (settings::Settings, SettingsFile, Option<String>),
+        stage: Box<dyn Stage>,
     ) -> anyhow::Result<Self> {
         fonts::install(&cc.egui_ctx);
+        stage.start(&cc.egui_ctx, cc.wgpu_render_state.as_ref());
         // No Ctrl shortcuts, egui's zoom keys included.
         cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
@@ -85,7 +91,9 @@ impl TypewriterApp {
         let platen = PlatenView::new(settings.look.carriage_travel);
         let feed_motion = audio::sheet_feed_motion();
         let mut desk = Desk::new(machine, filing, settings, machines, feed_motion);
-        let background = Background::load(&cc.egui_ctx, &mut desk.settings.look);
+        desk.follow_zoom_min(stage.zoom_min());
+        let look = &mut desk.settings.look;
+        let background = Background::load(&cc.egui_ctx, look, stage.backdrop());
         let background_trouble = background.problem().map(str::to_owned);
         if let Some(trouble) = trouble
             .or(settings_trouble)
@@ -96,6 +104,7 @@ impl TypewriterApp {
         }
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Ok(Self {
+            stage,
             desk,
             input: Input::default(),
             picker: Picker::default(),
@@ -271,14 +280,16 @@ impl TypewriterApp {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot"))]
 impl TypewriterApp {
-    /// The window's parts around a test desk: no sound, nothing on disk.
-    fn for_tests(ctx: &egui::Context) -> Self {
-        let mut desk = desk::testing::desk();
-        let background = Background::load(ctx, &mut desk.settings.look);
+    /// The window's parts around `desk` on `stage`: no sound, nothing on
+    /// disk.
+    fn nowhere(ctx: &egui::Context, stage: Box<dyn Stage>, mut desk: Desk) -> Self {
+        desk.follow_zoom_min(stage.zoom_min());
+        let background = Background::load(ctx, &mut desk.settings.look, stage.backdrop());
         let metrics = Metrics::new(desk.project.machine.profile(), desk.points_per_inch());
         Self {
+            stage,
             desk,
             input: Input::default(),
             picker: Picker::default(),
@@ -296,6 +307,14 @@ impl TypewriterApp {
             listening: None,
             printing: Printing::default(),
         }
+    }
+}
+
+#[cfg(test)]
+impl TypewriterApp {
+    /// The window's parts around a test desk on the plain app.
+    fn for_tests(ctx: &egui::Context) -> Self {
+        Self::nowhere(ctx, Box::new(crate::Plain), desk::testing::desk())
     }
 }
 
@@ -341,6 +360,7 @@ impl eframe::App for TypewriterApp {
         }
 
         if self.desk.is_animating(now)
+            || self.stage.is_animating(self.desk.last_return, now)
             || self.platen.is_animating(now)
             || self.picker.is_open()
             || self.settings_file.is_pending()

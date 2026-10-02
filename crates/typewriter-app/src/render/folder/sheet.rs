@@ -45,13 +45,14 @@ pub fn show_sheet(
     let profile = sheet.profile;
     let painter = ui.painter_at(view);
     painter.rect_filled(view, CornerRadius::ZERO, DIM);
-    let paper_inches = vec2(
+    let paper_mm = vec2(
         profile.paper.width_mm as f32,
         profile.paper.height_mm as f32,
-    ) / MM_PER_INCH;
+    );
     let header = 44.0;
-    let fit = ((view.width() - 40.0) / paper_inches.x)
-        .min((view.height() - 2.0 * header) / paper_inches.y);
+    // Fitted in points a millimetre, turned to points an inch for the clamp.
+    let fit = ((view.width() - 40.0) / paper_mm.x).min((view.height() - 2.0 * header) / paper_mm.y)
+        * MM_PER_INCH;
     let metrics = Metrics::new(profile, fit.min(sheet.max_points_per_inch).max(8.0));
     let origin = view.center() - metrics.paper_size / 2.0;
     let paper_rect = Rect::from_min_size(origin, metrics.paper_size);

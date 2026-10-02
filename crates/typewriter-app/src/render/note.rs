@@ -18,10 +18,10 @@ pub const CAVEAT: &[u8] = include_bytes!("../../../../assets/fonts/caveat/Caveat
 pub const ASCENT_EM: f32 = 0.96;
 pub const LINE_EM: f32 = 1.26;
 /// Em size. Larger than the type, as handwriting is.
-pub const SIZE_INCHES: f32 = 0.2;
+pub const SIZE_MM: f32 = 5.08;
 /// Gaps: paper edge to first line, last line to margin frame.
-const TOP_PAD_INCHES: f32 = 0.12;
-const BOTTOM_PAD_INCHES: f32 = 0.06;
+const TOP_PAD_MM: f32 = 3.05;
+const BOTTOM_PAD_MM: f32 = 1.52;
 /// Soft graphite.
 pub const GRAPHITE: Color32 = Color32::from_rgba_premultiplied(0x40, 0x40, 0x46, 0xD8);
 /// Each note sits a little askew, seeded per sheet.
@@ -47,15 +47,15 @@ pub struct NoteArea {
 impl NoteArea {
     /// Margin to margin in the top margin, for finished sheet `index`.
     pub fn new(metrics: &Metrics, margins: &Margins, index: usize) -> Self {
-        let inch = metrics.points_per_inch;
-        let size = SIZE_INCHES * inch;
+        let per_mm = metrics.points_per_mm();
+        let size = SIZE_MM * per_mm;
         let pitch = LINE_EM * size;
         let left = metrics.cell_offset(0, margins.left_column).x;
         let right = metrics.cell_offset(0, margins.right_column).x;
         let frame = metrics.cell_offset(margins.top_lines * 2, 0).y
-            - super::paper::FRAME_PADDING_MM / super::MM_PER_INCH * inch;
-        let top = TOP_PAD_INCHES * inch;
-        let bottom = frame - BOTTOM_PAD_INCHES * inch;
+            - super::paper::FRAME_PADDING_MM * per_mm;
+        let top = TOP_PAD_MM * per_mm;
+        let bottom = frame - BOTTOM_PAD_MM * per_mm;
         let max_lines = ((bottom - top) / pitch).floor().max(1.0) as usize;
         let bits = splitmix64(index as u64 ^ 0x6E6F7465);
         let unit = unit(bits, 0) * 2.0 - 1.0;

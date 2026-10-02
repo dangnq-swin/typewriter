@@ -149,6 +149,11 @@ impl Metrics {
             )
     }
 
+    /// Screen points per millimetre of paper at this scale.
+    pub fn points_per_mm(&self) -> f32 {
+        self.points_per_inch / MM_PER_INCH
+    }
+
     /// Ascender, baseline and descender heights below a cell's top.
     pub fn type_lines(&self) -> [f32; 3] {
         let size = self.font.size;

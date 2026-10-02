@@ -10,17 +10,17 @@ use eframe::egui::{
 use typewriter_core::Notebook;
 use typewriter_core::notebook::{self as book, SPREADS};
 
-use super::note::{ASCENT_EM, GRAPHITE, LINE_EM, PENCIL_FAMILY, PencilField, SIZE_INCHES};
-use super::notebook::{BOOK_INCHES, CORNER_WIDTHS, KRAFT, KRAFT_EDGE, STAPLE};
-use super::{HIGHLIGHT, button, chevron, smoothstep};
+use super::note::{ASCENT_EM, GRAPHITE, LINE_EM, PENCIL_FAMILY, PencilField, SIZE_MM};
+use super::notebook::{BOOK_MM, CORNER_WIDTHS, KRAFT, KRAFT_EDGE, STAPLE};
+use super::{HIGHLIGHT, MM_PER_INCH, button, chevron, smoothstep};
 
 pub const SLIDE_SECONDS: f32 = 0.25;
 /// Cover showing round the pages.
-const RIM_INCHES: f32 = 0.06;
+const RIM_MM: f32 = 1.52;
 /// Page edge to text.
-const INSET_INCHES: f32 = 0.22;
+const INSET_MM: f32 = 5.59;
 /// Turn buttons, in the bottom outer corners.
-const TURN_INCHES: f32 = 0.16;
+const TURN_MM: f32 = 4.06;
 /// Book to window edge.
 const GAP: f32 = 24.0;
 const PAGE: Color32 = Color32::from_rgb(0xFC, 0xFB, 0xF8);
@@ -34,7 +34,7 @@ pub struct Pad {
     halves: [Rect; 2],
     spread: usize,
     /// At the book's scale.
-    points_per_inch: f32,
+    points_per_mm: f32,
     font: FontId,
     /// Line to line, and the dot pitch.
     pitch: f32,
@@ -45,27 +45,28 @@ impl Pad {
     /// Open at `spread`, bottom right of `view`, `shown` of the way up (0 is
     /// below the window). True to size, smaller if two pages don't fit.
     pub fn rising(view: Rect, points_per_inch: f32, shown: f32, spread: usize) -> Self {
-        let full = vec2(2.0 * BOOK_INCHES.x, BOOK_INCHES.y) * points_per_inch;
+        let points_per_mm = points_per_inch / MM_PER_INCH;
+        let full = vec2(2.0 * BOOK_MM.x, BOOK_MM.y) * points_per_mm;
         let room = view.size() - Vec2::splat(2.0 * GAP);
         let scale = (room.x / full.x).min(room.y / full.y).clamp(0.0, 1.0);
-        let points_per_inch = points_per_inch * scale;
-        let half = BOOK_INCHES * points_per_inch;
+        let points_per_mm = points_per_mm * scale;
+        let half = BOOK_MM * points_per_mm;
         let up = view.bottom() - GAP - half.y;
         let down = view.bottom() + GAP;
         let top = down + (up - down) * smoothstep(shown);
         // The right half stays put as leaves turn.
         let right = Rect::from_min_size(pos2(view.right() - GAP - half.x, top), half);
-        let font_size = SIZE_INCHES * points_per_inch;
+        let font_size = SIZE_MM * points_per_mm;
         let pitch = LINE_EM * font_size;
         // A line on every row of dots: the first baseline sits an inset down,
         // the last half a dot pitch above the page's foot.
-        let page_height = half.y - 2.0 * RIM_INCHES * points_per_inch;
-        let first_baseline = INSET_INCHES * points_per_inch + ASCENT_EM * font_size;
+        let page_height = half.y - 2.0 * RIM_MM * points_per_mm;
+        let first_baseline = INSET_MM * points_per_mm + ASCENT_EM * font_size;
         let below_first = page_height - 0.5 * pitch - first_baseline;
         Self {
             halves: [right.translate(vec2(-half.x, 0.0)), right],
             spread,
-            points_per_inch,
+            points_per_mm,
             font: FontId::new(font_size, FontFamily::Name(PENCIL_FAMILY.into())),
             pitch,
             // Safe cast: a page's worth of lines.
@@ -81,7 +82,7 @@ impl Pad {
     /// A page's paper on `side` (0 left): the rim shows round the book's
     /// outer edges, not at the fold.
     fn page_rect(&self, side: usize) -> Rect {
-        let rim = RIM_INCHES * self.points_per_inch;
+        let rim = RIM_MM * self.points_per_mm;
         let half = self.halves[side];
         match side {
             _ if self.single() => half.shrink(rim),
@@ -97,7 +98,7 @@ impl Pad {
     }
 
     fn text_rect(&self, side: usize) -> Rect {
-        let inset = INSET_INCHES * self.points_per_inch;
+        let inset = INSET_MM * self.points_per_mm;
         let page = self.page_rect(side);
         Rect::from_min_size(
             page.min + Vec2::splat(inset),
@@ -137,14 +138,14 @@ impl Pad {
 
     fn corner_radius(&self) -> u8 {
         // Safe cast: a few points.
-        (CORNER_WIDTHS * BOOK_INCHES.x * self.points_per_inch) as u8
+        (CORNER_WIDTHS * BOOK_MM.x * self.points_per_mm) as u8
     }
 
     /// The buttons that turn a leaf back (-1) or on (1), where there are
     /// leaves to turn.
     fn turn_buttons(&self) -> Vec<(isize, Rect)> {
-        let size = Vec2::splat(TURN_INCHES * self.points_per_inch);
-        let inset = 0.5 * (INSET_INCHES * self.points_per_inch - size.x);
+        let size = Vec2::splat(TURN_MM * self.points_per_mm);
+        let inset = 0.5 * (INSET_MM * self.points_per_mm - size.x);
         let mut buttons = Vec::new();
         if self.spread > 0 {
             let page = self.page_rect(0);

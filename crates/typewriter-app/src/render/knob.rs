@@ -10,14 +10,14 @@ use typewriter_core::Side;
 use super::{HIGHLIGHT, Metrics};
 
 /// Paper edge to collar: just enough shaft that the collar clears the paper.
-const SHAFT_INCHES: f32 = 0.08;
-const SHAFT_DIAMETER_INCHES: f32 = 0.1;
-const COLLAR_INCHES: f32 = 0.22;
-const COLLAR_DIAMETER_INCHES: f32 = 0.5;
-const DISC_INCHES: f32 = 0.3;
-const DISC_DIAMETER_INCHES: f32 = 1.15;
+const SHAFT_MM: f32 = 2.03;
+const SHAFT_DIAMETER_MM: f32 = 2.54;
+const COLLAR_MM: f32 = 5.59;
+const COLLAR_DIAMETER_MM: f32 = 12.7;
+const DISC_MM: f32 = 7.62;
+const DISC_DIAMETER_MM: f32 = 29.21;
 /// The green face, seen edge-on at the disc's outer end.
-const FACE_INCHES: f32 = 0.05;
+const FACE_MM: f32 = 1.27;
 /// Knurled ribs around the disc.
 const RIBS: u16 = 60;
 /// Shading bands across a cylinder.
@@ -45,18 +45,18 @@ pub struct Knob {
 impl Knob {
     /// Beside the paper's `side` edge at `paper_edge`, hanging from `scale_top`.
     pub fn new(metrics: &Metrics, side: Side, paper_edge: f32, scale_top: f32) -> Self {
-        let inches = |v: f32| v * metrics.points_per_inch;
-        let axis = scale_top + inches(DISC_DIAMETER_INCHES) / 2.0;
+        let mm_to_points = |mm: f32| mm * metrics.points_per_mm();
+        let axis = scale_top + mm_to_points(DISC_DIAMETER_MM) / 2.0;
         let part = |left: f32, length: f32, diameter: f32| {
             Rect::from_center_size(
-                pos2(left + inches(length) / 2.0, axis),
-                vec2(inches(length), inches(diameter)),
+                pos2(left + mm_to_points(length) / 2.0, axis),
+                vec2(mm_to_points(length), mm_to_points(diameter)),
             )
         };
         // Laid out rightward, then mirrored about the paper's edge for the left.
-        let shaft = part(paper_edge, SHAFT_INCHES, SHAFT_DIAMETER_INCHES);
-        let collar = part(shaft.right(), COLLAR_INCHES, COLLAR_DIAMETER_INCHES);
-        let disc = part(collar.right(), DISC_INCHES, DISC_DIAMETER_INCHES);
+        let shaft = part(paper_edge, SHAFT_MM, SHAFT_DIAMETER_MM);
+        let collar = part(shaft.right(), COLLAR_MM, COLLAR_DIAMETER_MM);
+        let disc = part(collar.right(), DISC_MM, DISC_DIAMETER_MM);
         let place = |rect: Rect| match side {
             Side::Right => rect,
             Side::Left => Rect::from_x_y_ranges(
@@ -83,7 +83,7 @@ impl Knob {
         let mut mesh = Mesh::default();
         cylinder(&mut mesh, self.shaft, SHAFT, SHAFT_SHADE);
         cylinder(&mut mesh, self.collar, CREAM, CREAM_SHADE);
-        let face_width = FACE_INCHES / DISC_INCHES * self.disc.width();
+        let face_width = FACE_MM / DISC_MM * self.disc.width();
         // The face is at the outer end.
         let (body, face) = match self.side {
             Side::Right => self
@@ -143,8 +143,8 @@ pub fn feed_roll(metrics: &Metrics, from: Option<f32>, to: f32, done: f32, trave
         return start + done;
     };
     // One rib to the next, as paper: the disc's radius over the rib angle.
-    let pitch = DISC_DIAMETER_INCHES * metrics.points_per_inch / 2.0 * std::f32::consts::TAU
-        / f32::from(RIBS);
+    let pitch =
+        DISC_DIAMETER_MM * metrics.points_per_mm() / 2.0 * std::f32::consts::TAU / f32::from(RIBS);
     let offset = (from - start + pitch / 2.0).rem_euclid(pitch) - pitch / 2.0;
     start + done + offset * (1.0 - done / travel)
 }
