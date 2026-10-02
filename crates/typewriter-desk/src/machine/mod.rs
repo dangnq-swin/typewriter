@@ -103,7 +103,7 @@ pub fn paint_behind(
 ) {
     let eye = Eye::new(view, metrics, typing_y);
     body::paint_shadow(painter, &eye);
-    depth::begin(painter, light::frame());
+    depth::begin(painter, light::frame(), eye.camera());
     let canvas = Canvas::depth(painter);
     body::paint_deck(&canvas, &eye);
     let middle = (carriage_x - eye.origin.x) / eye.ppmm;
@@ -245,5 +245,23 @@ mod tests {
         let eye = Eye::testing(1000.0 * TYPING_LINE_SITTING, 48.0);
         let front = eye.at([0.0, CASE_FRONT, DESK_Z]);
         assert!(front.y < 1000.0, "{front:?}");
+    }
+
+    #[test]
+    fn every_vertex_stands_where_it_is_drawn() {
+        // The GPU draws where a solid's millimetres show, the CPU twin
+        // where its vertices stand: `depth::end` checks the two agree, so
+        // a part cannot go missing on screen unseen by snapshots.
+        let ctx = eframe::egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let painter = ui.painter();
+            let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
+            let metrics = metrics(100);
+            let typing_y = view.height() * typing_line_height(view, &metrics, 100);
+            paint_behind(painter, view, &metrics, typing_y, 800.0, 0.0);
+            paint_knobs(painter, view, &metrics, typing_y, (800.0, 0.0), |_| false);
+            paint_front(painter, view, &metrics, typing_y);
+        });
+        output.textures_delta.clear();
     }
 }

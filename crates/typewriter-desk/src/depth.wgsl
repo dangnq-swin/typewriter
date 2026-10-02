@@ -1,6 +1,7 @@
 // egui's shading (egui-wgpu's egui.wgsl), with depth and light: positions
-// come already in normalized device coordinates, depth and all, and each
-// vertex brings the machine millimetres it stands at, so a lamp rather than a
+// arrive in absolute machine millimetres and the camera's rows project
+// them, so the divide makes every blend perspective-correct; each vertex
+// still brings the millimetres it stands at, so a lamp rather than a
 // direction can light each fragment.
 
 struct VertexOutput {
@@ -19,7 +20,8 @@ struct VertexOutput {
     // colour all over.
     @location(5) @interpolate(flat) shine: u32,
     // Where the vertex stands, in machine millimetres from the printing
-    // point: blended across the triangle like `vector`.
+    // point: blended across the triangle like `vector`, perspective-
+    // correctly through the divide.
     @location(6) mm: vec3<f32>,
     @builtin(position) position: vec4<f32>,
 };
@@ -28,6 +30,11 @@ struct VertexOutput {
 // unused; then [2..] chrome's bands, `x` how far down and `yzw` its colour
 // in gamma.
 @group(1) @binding(0) var<uniform> r_lighting: array<vec4<f32>, 7>;
+
+// The eye's clip rows, in order x, y, z, w, over `vec4(x, y, z, 1)` machine
+// millimetres: `Eye::camera` builds them, and its own `at` and `depth`
+// follow the same maths.
+@group(2) @binding(0) var<uniform> r_camera: array<vec4<f32>, 4>;
 
 // [u8; 4] sRGB as u32 to [r, g, b, a] in 0..=1.
 fn unpack_color(color: u32) -> vec4<f32> {
@@ -82,7 +89,6 @@ fn vs_main(
     @location(4) a_spec: f32,
     @location(5) a_material: u32,
     @location(6) a_shine: u32,
-    @location(7) a_mm: vec3<f32>,
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coord = a_tex_coord;
@@ -91,16 +97,22 @@ fn vs_main(
     out.shine = a_shine;
     out.spec = a_spec;
     out.material = a_material;
-    out.mm = a_mm;
-    out.position = vec4<f32>(a_pos, 1.0);
+    out.mm = a_pos;
+    let mm = vec4<f32>(a_pos, 1.0);
+    out.position = vec4<f32>(
+        dot(r_camera[0], mm),
+        dot(r_camera[1], mm),
+        dot(r_camera[2], mm),
+        dot(r_camera[3], mm),
+    );
     return out;
 }
 
 // `gamma` (premultiplied sRGB gamma), standing `mm` away, as its material
 // takes the lamp's light.
 fn lit(gamma: vec4<f32>, in: VertexOutput) -> vec4<f32> {
-    // From this fragment toward the lamp: affine in screen space, as every
-    // other blend is until the GPU projects (3D-FIX section 2).
+    // From this fragment toward the lamp: its millimetres come through the
+    // divide, so they blend perspective-correctly.
     let to_lamp = r_lighting[0].xyz - in.mm;
     let light = to_lamp / max(length(to_lamp), 1e-3);
     let eye = r_lighting[1].xyz;

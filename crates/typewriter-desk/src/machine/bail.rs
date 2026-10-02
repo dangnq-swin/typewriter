@@ -20,7 +20,7 @@ use super::eye::{Eye, FLAT_TEXT};
 use super::light::matte;
 use super::sheet::face_y;
 use super::{CHROME, METAL, METAL_SHINE};
-use crate::depth::{Layer, Solid};
+use crate::depth::{Layer, Placing, Shade, Solid};
 
 /// The bar: half its height, and its depth.
 const HALF_HEIGHT: f32 = 3.0;
@@ -320,7 +320,10 @@ pub(super) fn print_scale(canvas: &Canvas, eye: &Eye, scale: &Scale, carriage: &
             top - vertex.pos.y / FLAT_TEXT,
         ];
         vertex.pos = eye.at(on);
-        Some(eye.depth(on).into())
+        Some(Placing {
+            at: eye.absolute(on),
+            shade: Shade::Unlit,
+        })
     });
     let [top_y, foot_y] = [top, foot].map(|z| eye.at([0.0, front, z]).y);
     let by = eye.scale([0.0, front, (top + foot) / 2.0]) / eye.ppmm;

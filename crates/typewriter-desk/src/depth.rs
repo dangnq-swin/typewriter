@@ -3,15 +3,18 @@
 //! The machine and the sheets draw so, in one callback a frame: [`begin`]
 //! sets its place, parts [`gather`] into it, [`end`] draws it.
 //!
-//! Each vertex is egui's, on screen in points, with a depth added: 0 at the
-//! eye to 1 far off, where it stands in machine millimetres, and how it takes
-//! the frame's light ([`Shade`]). The shader lights each fragment from those
-//! millimetres toward the lamp, so a flat face is not lit evenly. Opaque triangles
+//! Each vertex is egui's, on screen in points, with the machine millimetres
+//! it stands at and how it takes the frame's light ([`Shade`]). The frame's
+//! [`Camera`] projects those millimetres into the window: the shader does
+//! the project and the divide, so uv, colour and millimetres blend
+//! perspective-correctly, and lights each fragment from its own millimetres
+//! toward the lamp, so a flat face is not lit evenly. Opaque triangles
 //! hide what is behind them; decals lie on them (print, edges, glass), hide
 //! nothing and are drawn after, lifted toward the eye by the pass's depth
 //! bias (`decal_bias`) rather than by standing nearer in millimetres. Where
 //! no renderer is installed, as in the snapshot tool, the triangles go out as
-//! data for [`rasterize`] to fill, with the same bias.
+//! data for [`rasterize`] to fill, its CPU twin of the same projection, with
+//! the same bias.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -31,13 +34,20 @@ pub const DEPTH_BITS: u8 = 32;
 const SHADER: &str = include_str!("depth.wgsl");
 /// egui's font atlas, which text and plain fills (`WHITE_UV`) draw from.
 const FONTS: TextureId = TextureId::Managed(0);
-/// Position (3 floats), uv (2), colour (4 bytes), the way it faces (3
-/// floats), its material's parameter (1 float), material (4 bytes),
-/// highlight (4 bytes) and the millimetres it stands at (3 floats).
-const VERTEX_BYTES: u64 = 60;
+/// The millimetres it stands at (3 floats), which the shader projects,
+/// uv (2), colour (4 bytes), the way it faces (3 floats), its material's
+/// parameter (1 float), material (4 bytes) and highlight (4 bytes).
+const VERTEX_BYTES: u64 = 48;
 /// The lamp and the eye as `vec4`s, then chrome's bands as `vec4`s: as many
 /// as the shader's `r_lighting`.
 const LIGHTING_BYTES: u64 = 7 * 16;
+/// The camera's four clip rows as `vec4`s: as many as the shader's
+/// `r_camera`.
+const CAMERA_BYTES: u64 = 4 * 16;
+/// Depth runs from this near the eye, out to far off: the near plane the
+/// clip rows clamp at, in machine millimetres. `Eye` builds its rows with
+/// this, and [`rasterize`] clamps with it.
+pub const NEAR_MM: f32 = 25.4;
 /// How many bands chrome's room has.
 pub const CHROME_BANDS: usize = 5;
 
@@ -117,6 +127,44 @@ impl Lighting {
         for &(down, colour) in &self.chrome {
             let [r, g, b] = gamma_rgb(colour);
             word([down, r, g, b]);
+        }
+        out
+    }
+}
+
+/// The seated eye as clip rows — x, y, z, w — that project absolute
+/// machine millimetres into the window: the shader projects vertices with
+/// them, and `rasterize`'s CPU twin divides by `w` by hand. `Eye::camera`
+/// builds them from the same maths as `Eye::at` and `Eye::depth`, and a
+/// test keeps the two from drifting.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Camera {
+    /// The rows, in order x, y, z, w.
+    pub rows: [[f32; 4]; 4],
+    /// The window's size in points the rows project into: `on_screen`
+    /// divides back out of them.
+    pub points: Vec2,
+}
+
+impl Camera {
+    /// Where the rows show `mm`: the shader's project and divide, by hand.
+    fn on_screen(&self, mm: [f32; 3]) -> Pos2 {
+        let p = [mm[0], mm[1], mm[2], 1.0];
+        let row = |i: usize| self.rows[i].iter().zip(p).map(|(a, b)| a * b).sum::<f32>();
+        let w = row(3).max(NEAR_MM);
+        Pos2::new(
+            (row(0) / w + 1.0) * 0.5 * self.points.x,
+            (1.0 - row(1) / w) * 0.5 * self.points.y,
+        )
+    }
+
+    /// The uniform the shader reads: the rows, one `vec4` each.
+    fn uniform(&self) -> [u8; CAMERA_BYTES as usize] {
+        let mut out = [0u8; CAMERA_BYTES as usize];
+        for (word, row) in out.chunks_mut(16).zip(self.rows) {
+            for (byte, value) in word.chunks_mut(4).zip(row) {
+                byte.copy_from_slice(&value.to_le_bytes());
+            }
         }
         out
     }
@@ -279,55 +327,40 @@ fn unit(v: [f32; 3]) -> [f32; 3] {
     v.map(|c| c / length)
 }
 
-/// Triangles in depth, in one texture: egui's mesh, and each vertex's depth,
-/// the millimetres it stands at, and shade.
+/// Triangles in depth, in one texture: egui's mesh, and each vertex's
+/// millimetres and shade. The pass's `Camera` projects the millimetres:
+/// depth is not carried, it is what they come to.
 #[derive(Debug, Clone, Default)]
 pub struct Solid {
     /// In egui's font atlas ([`FONTS`]), uvs are in texels: the atlas may
     /// grow until the frame ends, so they are normalised as it is drawn.
     pub mesh: Mesh,
-    /// 0 at the eye to 1 far off, one for each of `mesh`'s vertices.
-    pub depths: Vec<f32>,
-    /// Where each of `mesh`'s vertices stands, in machine millimetres from
-    /// the printing point: the lamp lights a fragment from these. What takes
-    /// no shade says `[0.0; 3]`.
+    /// Where each of `mesh`'s vertices stands, in absolute machine
+    /// millimetres: the pass projects these into the window, and the lamp
+    /// lights a fragment from them.
     pub places: Vec<[f32; 3]>,
     /// One for each of `mesh`'s vertices.
     pub shades: Vec<Shade>,
 }
 
 impl Solid {
-    /// `mesh` at `depths`, each vertex its colour as it is.
-    pub fn unlit(mesh: Mesh, depths: Vec<f32>) -> Self {
-        let shades = vec![Shade::Unlit; depths.len()];
-        let places = vec![[0.0; 3]; depths.len()];
+    /// `mesh` standing at `places`, each vertex its colour as it is.
+    pub fn unlit(mesh: Mesh, places: Vec<[f32; 3]>) -> Self {
+        let shades = vec![Shade::Unlit; places.len()];
         Self {
             mesh,
-            depths,
             places,
             shades,
         }
     }
 }
 
-/// Where a vertex shows in a [`Solid`]: its depth, the millimetres it stands
+/// Where a vertex shows in a [`Solid`]: the absolute millimetres it stands
 /// at, and its take of the light.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Placing {
-    pub depth: f32,
     pub at: [f32; 3],
     pub shade: Shade,
-}
-
-impl From<f32> for Placing {
-    /// Unlit, needing no position.
-    fn from(depth: f32) -> Self {
-        Self {
-            depth,
-            at: [0.0; 3],
-            shade: Shade::Unlit,
-        }
-    }
 }
 
 /// What a frame draws in depth.
@@ -342,13 +375,36 @@ impl Solids {
         self.opaque.is_empty() && self.decals.is_empty()
     }
 
+    /// That each vertex's millimetres show where the vertex stands: the
+    /// GPU draws where the millimetres are, the CPU twin where the
+    /// vertices stand, and a producer that gives one without the other
+    /// goes unseen by snapshots and missing on screen — strokes laid off
+    /// their path are the usual culprit.
+    fn check_shown(&self, camera: &Camera) {
+        if camera.points.x <= 0.0 || camera.points.y <= 0.0 {
+            return; // a default camera, as the hand-built test solids carry
+        }
+        for layer in self.layers() {
+            for solid in layer.1 {
+                for (vertex, &mm) in solid.mesh.vertices.iter().zip(&solid.places) {
+                    let shown = camera.on_screen(mm);
+                    assert!(
+                        (shown - vertex.pos).length() < 0.05,
+                        "a vertex stands at {:?}, its millimetres show at {shown:?}",
+                        vertex.pos,
+                    );
+                }
+            }
+        }
+    }
+
     /// Opaque, then decals: the order they are drawn in.
     pub fn layers(&self) -> [(Layer, &[Solid]); 2] {
         [(Layer::Opaque, &self.opaque), (Layer::Decal, &self.decals)]
     }
 
     /// Adds `mesh`, `place` moving each vertex where it shows, maybe tinting
-    /// it, and saying its [`Placing`]: depth, position and shade. `None` hides
+    /// it, and saying its [`Placing`]: millimetres and shade. `None` hides
     /// a vertex, and the triangles touching it.
     pub fn add(
         &mut self,
@@ -368,8 +424,7 @@ impl Solids {
                 let i = i as usize;
                 let new = *kept[i].get_or_insert_with(|| {
                     solid.mesh.vertices.push(mesh.vertices[i]);
-                    let Placing { depth, at, shade } = placed[i].unwrap_or_default();
-                    solid.depths.push(depth);
+                    let Placing { at, shade } = placed[i].unwrap_or_default();
                     solid.places.push(at);
                     solid.shades.push(shade);
                     // Safe cast: a frame's vertices fit egui's own u32 indices.
@@ -422,7 +477,6 @@ impl Solids {
             Some(at) => {
                 let into = &mut solids[at];
                 into.mesh.append(solid.mesh);
-                into.depths.extend(solid.depths);
                 into.places.extend(solid.places);
                 into.shades.extend(solid.shades);
             }
@@ -591,29 +645,35 @@ struct Frame {
     solids: Solids,
     /// How its solids take the light.
     lighting: Lighting,
+    /// How its solids are seen.
+    camera: Camera,
 }
 
-/// A frame's depth pass as drawn: its solids, lit by `lighting`.
+/// A frame's depth pass as drawn: its solids, lit by `lighting`, seen
+/// through `camera`.
 #[derive(Debug, Default)]
 pub struct Pass {
     pub solids: Solids,
     /// How its solids take the light.
     pub lighting: Lighting,
+    /// How its solids are seen.
+    pub camera: Camera,
 }
 
 fn frame_id() -> Id {
     Id::new("depth-pass-frame")
 }
 
-/// Starts the frame's depth pass, lit by `lighting`: what is [`gather`]ed
-/// until [`end`] draws over what `painter` has drawn so far, under what it
-/// draws after.
-pub fn begin(painter: &Painter, lighting: Lighting) {
+/// Starts the frame's depth pass, lit by `lighting` and seen through
+/// `camera`: what is [`gather`]ed until [`end`] draws over what `painter`
+/// has drawn so far, under what it draws after.
+pub fn begin(painter: &Painter, lighting: Lighting, camera: Camera) {
     let slot = painter.add(Shape::Noop);
     let frame = Frame {
         slot: Some(slot),
         solids: Solids::default(),
         lighting,
+        camera,
     };
     painter
         .ctx()
@@ -637,6 +697,7 @@ pub fn end(painter: &Painter) {
         slot,
         solids,
         lighting,
+        camera,
     } = painter
         .ctx()
         .data_mut(|data| data.remove_temp::<Frame>(frame_id()))
@@ -644,9 +705,16 @@ pub fn end(painter: &Painter) {
     if solids.is_empty() {
         return;
     }
+    if cfg!(debug_assertions) {
+        solids.check_shown(&camera);
+    }
     // The whole window: positions stay the window's.
     let rect = painter.ctx().viewport_rect();
-    let pass = Arc::new(Pass { solids, lighting });
+    let pass = Arc::new(Pass {
+        solids,
+        lighting,
+        camera,
+    });
     let callback = if is_installed(painter.ctx()) {
         egui_wgpu::Callback::new_paint_callback(
             rect,
@@ -681,13 +749,28 @@ fn is_installed(ctx: &Context) -> bool {
 /// Readies `render_state`'s window, with a [`DEPTH_BITS`] depth buffer, to
 /// draw solids.
 pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
-    let device = &render_state.device;
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("depth"),
-        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
-    });
-    // As egui's: its textures' bind groups serve.
-    let textures = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    // Devices without depth-bias clamping (some software renderers) cannot
+    // cap the slope term, and an uncapped one would float a decal far off
+    // its face: there the pass lifts by the constant alone.
+    let clamp = render_state
+        .adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::DEPTH_BIAS_CLAMP);
+    let mut pipelines = Pipelines::build(&render_state.device, render_state.target_format, clamp);
+    pipelines.renderer = Arc::downgrade(&render_state.renderer);
+    render_state
+        .renderer
+        .write()
+        .callback_resources
+        .insert(pipelines);
+    ctx.data_mut(|data| data.insert_temp(installed_id(), true));
+}
+
+/// Group 0's layout: a texture and a sampler, as egui's are, so its
+/// textures' bind groups serve the pass — and a stand-in's in a test.
+fn texture_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("depth_textures"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -707,153 +790,169 @@ pub fn install(ctx: &Context, render_state: &egui_wgpu::RenderState) {
                 count: None,
             },
         ],
-    });
-    let lighting_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("depth_lighting"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: wgpu::BufferSize::new(LIGHTING_BYTES),
-            },
-            count: None,
-        }],
-    });
-    let lighting = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("depth_lighting"),
-        size: LIGHTING_BYTES,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let lighting_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("depth_lighting"),
-        layout: &lighting_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: lighting.as_entire_binding(),
-        }],
-    });
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("depth"),
-        bind_group_layouts: &[Some(&textures), Some(&lighting_layout)],
-        immediate_size: 0,
-    });
-    let format = render_state.target_format;
-    // Devices without depth-bias clamping (some software renderers) cannot
-    // cap the slope term, and an uncapped one would float a decal far off
-    // its face: there the pass lifts by the constant alone.
-    let decal_bias = if render_state
-        .adapter
-        .get_downlevel_capabilities()
-        .flags
-        .contains(wgpu::DownlevelFlags::DEPTH_BIAS_CLAMP)
-    {
-        wgpu::DepthBiasState {
-            constant: DECAL_BIAS_UNITS,
-            slope_scale: DECAL_BIAS_SLOPE,
-            clamp: DECAL_BIAS_CLAMP,
-        }
-    } else {
-        wgpu::DepthBiasState {
-            constant: DECAL_BIAS_UNITS,
-            slope_scale: 0.0,
-            clamp: 0.0,
-        }
-    };
-    let pipeline = |layer: Layer| {
-        let opaque = layer == Layer::Opaque;
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(if opaque {
-                "depth_opaque"
-            } else {
-                "depth_decal"
-            }),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: VERTEX_BYTES,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3,
-                        1 => Float32x2,
-                        2 => Uint32,
-                        3 => Float32x3,
-                        4 => Float32,
-                        5 => Uint32,
-                        6 => Uint32,
-                        7 => Float32x3,
-                    ],
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(opaque),
-                depth_compare: Some(if opaque {
-                    wgpu::CompareFunction::Less
-                } else {
-                    wgpu::CompareFunction::LessEqual
-                }),
-                stencil: wgpu::StencilState::default(),
-                // Decals lie on faces they match exactly: the pass lifts
-                // them, so they show without standing nearer in millimetres.
-                bias: if opaque {
-                    wgpu::DepthBiasState::default()
-                } else {
-                    decal_bias
+    })
+}
+
+impl Pipelines {
+    /// The depth pass's two pipelines for `format`, needing only a device:
+    /// [`install`]s on the window's, and the GPU snapshot's on its own.
+    /// `clamp` is whether the backend caps the decal bias.
+    fn build(device: &wgpu::Device, format: wgpu::TextureFormat, clamp: bool) -> Self {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("depth"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
+        let textures = texture_layout(device);
+        let lighting_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("depth_lighting"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(LIGHTING_BYTES),
                 },
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &module,
-                entry_point: Some(if format.is_srgb() {
-                    "fs_main_linear_framebuffer"
+                count: None,
+            }],
+        });
+        let lighting = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("depth_lighting"),
+            size: LIGHTING_BYTES,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let lighting_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("depth_lighting"),
+            layout: &lighting_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: lighting.as_entire_binding(),
+            }],
+        });
+        let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("depth_camera"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(CAMERA_BYTES),
+                },
+                count: None,
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("depth"),
+            bind_group_layouts: &[
+                Some(&textures),
+                Some(&lighting_layout),
+                Some(&camera_layout),
+            ],
+            immediate_size: 0,
+        });
+        let decal_bias = if clamp {
+            wgpu::DepthBiasState {
+                constant: DECAL_BIAS_UNITS,
+                slope_scale: DECAL_BIAS_SLOPE,
+                clamp: DECAL_BIAS_CLAMP,
+            }
+        } else {
+            wgpu::DepthBiasState {
+                constant: DECAL_BIAS_UNITS,
+                slope_scale: 0.0,
+                clamp: 0.0,
+            }
+        };
+        let pipeline = |layer: Layer| {
+            let opaque = layer == Layer::Opaque;
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(if opaque {
+                    "depth_opaque"
                 } else {
-                    "fs_main_gamma_framebuffer"
+                    "depth_decal"
                 }),
-                // Premultiplied, as egui blends.
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
-                            dst_factor: wgpu::BlendFactor::One,
-                            operation: wgpu::BlendOperation::Add,
-                        },
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: VERTEX_BYTES,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![
+                            0 => Float32x3,
+                            1 => Float32x2,
+                            2 => Uint32,
+                            3 => Float32x3,
+                            4 => Float32,
+                            5 => Uint32,
+                            6 => Uint32,
+                        ],
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(opaque),
+                    depth_compare: Some(if opaque {
+                        wgpu::CompareFunction::Less
+                    } else {
+                        wgpu::CompareFunction::LessEqual
                     }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            multiview_mask: None,
-            cache: None,
-        })
-    };
-    let pipelines = Pipelines {
-        opaque: pipeline(Layer::Opaque),
-        decal: pipeline(Layer::Decal),
-        lighting,
-        lighting_group,
-        renderer: Arc::downgrade(&render_state.renderer),
-        buffers: None,
-        draws: Vec::new(),
-    };
-    render_state
-        .renderer
-        .write()
-        .callback_resources
-        .insert(pipelines);
-    ctx.data_mut(|data| data.insert_temp(installed_id(), true));
+                    stencil: wgpu::StencilState::default(),
+                    // Decals lie on faces they match exactly: the pass lifts
+                    // them, so they show without standing nearer in millimetres.
+                    bias: if opaque {
+                        wgpu::DepthBiasState::default()
+                    } else {
+                        decal_bias
+                    },
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &module,
+                    entry_point: Some(if format.is_srgb() {
+                        "fs_main_linear_framebuffer"
+                    } else {
+                        "fs_main_gamma_framebuffer"
+                    }),
+                    // Premultiplied, as egui blends.
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        Self {
+            opaque: pipeline(Layer::Opaque),
+            decal: pipeline(Layer::Decal),
+            lighting,
+            lighting_group,
+            camera_layout,
+            // The window's renderer keeps these; a test's device has none.
+            renderer: Weak::new(),
+            buffers: None,
+            draws: Vec::new(),
+        }
+    }
 }
 
 /// Kept by egui's renderer. Its textures are looked up while drawing, so
@@ -864,6 +963,9 @@ struct Pipelines {
     /// The frame's lighting, written each frame.
     lighting: wgpu::Buffer,
     lighting_group: wgpu::BindGroup,
+    /// The frame's camera, for the buffers' bind group: the vertex shader
+    /// projects with it.
+    camera_layout: wgpu::BindGroupLayout,
     /// Weak: the renderer keeps these.
     renderer: Weak<RwLock<Renderer>>,
     /// Refilled each frame, grown when too small: one pass a frame.
@@ -882,12 +984,21 @@ struct Gpu {
 struct Buffers {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
+    /// The frame's camera, refilled each frame, and its bind group.
+    camera: wgpu::Buffer,
+    camera_group: wgpu::BindGroup,
 }
 
 impl Buffers {
     /// Room for at least `vertex_bytes` and `index_bytes`, to the next
-    /// power of two: a growing page grows them seldom.
-    fn new(device: &wgpu::Device, vertex_bytes: u64, index_bytes: u64) -> Self {
+    /// power of two: a growing page grows them seldom. The camera is one
+    /// fixed uniform, bound once a pass.
+    fn new(
+        device: &wgpu::Device,
+        camera_layout: &wgpu::BindGroupLayout,
+        vertex_bytes: u64,
+        index_bytes: u64,
+    ) -> Self {
         let buffer = |label, bytes: u64, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -896,9 +1007,20 @@ impl Buffers {
                 mapped_at_creation: false,
             })
         };
+        let camera = buffer("depth_camera", CAMERA_BYTES, wgpu::BufferUsages::UNIFORM);
+        let camera_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("depth_camera"),
+            layout: camera_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera.as_entire_binding(),
+            }],
+        });
         Self {
             vertices: buffer("depth_vertices", vertex_bytes, wgpu::BufferUsages::VERTEX),
             indices: buffer("depth_indices", index_bytes, wgpu::BufferUsages::INDEX),
+            camera,
+            camera_group,
         }
     }
 
@@ -907,14 +1029,11 @@ impl Buffers {
     }
 }
 
-/// `solids` as the GPU takes them, for a window `size` points and the font
-/// atlas `fonts` texels, as it is once the frame is over: vertex and index
-/// bytes, and a draw for each solid, opaque first.
-fn pack(
-    solids: &Solids,
-    [width, height]: [f32; 2],
-    fonts: [usize; 2],
-) -> (Vec<u8>, Vec<u8>, Vec<Draw>) {
+/// `solids` as the GPU takes them, for the font atlas `fonts` texels as it
+/// is once the frame is over: vertex and index bytes, and a draw for each
+/// solid, opaque first. Positions go out in absolute machine millimetres;
+/// the `Camera` uniform projects them.
+fn pack(solids: &Solids, fonts: [usize; 2]) -> (Vec<u8>, Vec<u8>, Vec<Draw>) {
     let all = || {
         let layers = solids.layers().into_iter();
         layers.flat_map(|(layer, solids)| solids.iter().map(move |solid| (layer, solid)))
@@ -928,13 +1047,14 @@ fn pack(
     let (mut first, mut base) = (0, 0);
     for (layer, solid) in all() {
         let texels = texel_scale(solid.mesh.texture_id, fonts);
-        let placed = solid.depths.iter().zip(&solid.places).zip(&solid.shades);
-        for (vertex, ((depth, &at), shade)) in solid.mesh.vertices.iter().zip(placed) {
-            let x = 2.0 * vertex.pos.x / width - 1.0;
-            let y = 1.0 - 2.0 * vertex.pos.y / height;
+        let placed = solid.places.iter().zip(&solid.shades);
+        for (vertex, (&at, shade)) in solid.mesh.vertices.iter().zip(placed) {
             let uv = vertex.uv.to_vec2() * texels;
             let (material, vector, spec, shine) = shade.parts();
-            for value in [x, y, *depth, uv.x, uv.y] {
+            for value in at {
+                vertices.extend_from_slice(&value.to_le_bytes());
+            }
+            for value in [uv.x, uv.y] {
                 vertices.extend_from_slice(&value.to_le_bytes());
             }
             vertices.extend_from_slice(&vertex.color.to_array());
@@ -943,9 +1063,6 @@ fn pack(
             }
             vertices.extend_from_slice(&material.to_le_bytes());
             vertices.extend_from_slice(&shine.to_array());
-            for value in at {
-                vertices.extend_from_slice(&value.to_le_bytes());
-            }
         }
         for index in &solid.mesh.indices {
             indices.extend_from_slice(&index.to_le_bytes());
@@ -989,26 +1106,24 @@ impl CallbackTrait for Gpu {
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        screen: &ScreenDescriptor,
+        _screen: &ScreenDescriptor,
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(pipelines) = resources.get_mut::<Pipelines>() else {
             return Vec::new();
         };
-        let size = screen
-            .size_in_pixels
-            .map(|pixels| pixels as f32 / screen.pixels_per_point);
         // The frame is over: the atlas is as large as it gets this frame.
         let fonts = self.ctx.fonts(|fonts| fonts.font_image_size());
-        let (vertices, indices, draws) = pack(&self.pass.solids, size, fonts);
+        let (vertices, indices, draws) = pack(&self.pass.solids, fonts);
         queue.write_buffer(&pipelines.lighting, 0, &self.pass.lighting.uniform());
         // Safe casts: byte counts.
         let (vertex_bytes, index_bytes) = (vertices.len() as u64, indices.len() as u64);
         let buffers = match pipelines.buffers.take() {
             Some(buffers) if buffers.holds(vertex_bytes, index_bytes) => buffers,
-            _ => Buffers::new(device, vertex_bytes, index_bytes),
+            _ => Buffers::new(device, &pipelines.camera_layout, vertex_bytes, index_bytes),
         };
+        queue.write_buffer(&buffers.camera, 0, &self.pass.camera.uniform());
         queue.write_buffer(&buffers.vertices, 0, &vertices);
         queue.write_buffer(&buffers.indices, 0, &indices);
         pipelines.buffers = Some(buffers);
@@ -1037,6 +1152,7 @@ impl CallbackTrait for Gpu {
         render_pass.set_vertex_buffer(0, buffers.vertices.slice(..));
         render_pass.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
         render_pass.set_bind_group(1, &pipelines.lighting_group, &[]);
+        render_pass.set_bind_group(2, &buffers.camera_group, &[]);
         for draw in &pipelines.draws {
             let Some(texture) = renderer.texture(&draw.texture) else {
                 continue;
@@ -1059,7 +1175,12 @@ pub fn rasterize(
     clip: eframe::egui::Rect,
     raster: &mut typewriter_app::snapshot::Raster,
 ) {
-    let Some(Pass { solids, lighting }) = callback.callback.downcast_ref::<Pass>() else {
+    let Some(Pass {
+        solids,
+        lighting,
+        camera,
+    }) = callback.callback.downcast_ref::<Pass>()
+    else {
         return;
     };
     let [width, height] = raster.size();
@@ -1077,9 +1198,36 @@ pub fn rasterize(
             for vertex in &mut mesh.vertices {
                 vertex.uv = (vertex.uv.to_vec2() * texels).to_pos2();
             }
+            // The shader's twin: the camera's rows on each vertex's
+            // millimetres. `w` clamps at the near plane as `Eye::distance`
+            // does; the hardware would clip such a vertex instead, unseen.
+            let row = |k: usize, [x, y, z]: [f32; 3]| {
+                let row = camera.rows[k];
+                row[0] * x + row[1] * y + row[2] * z + row[3]
+            };
+            let mut inv_w = Vec::with_capacity(solid.places.len());
+            let mut depths = Vec::with_capacity(solid.places.len());
+            for &at in &solid.places {
+                let w = row(3, at).max(NEAR_MM);
+                inv_w.push(1.0 / w);
+                depths.push(1.0 - NEAR_MM / w);
+            }
+            // Perspective-correct blending of what a triangle's own blend
+            // cannot give: weight each vertex's attribute by its screen
+            // weight over its `w`, and divide by that of `1 / w`.
+            let divide = |weights: [f32; 3], triangle: [u32; 3]| {
+                (0..3)
+                    .map(|k| weights[k] * inv_w[triangle[k] as usize])
+                    .sum::<f32>()
+            };
             let keep = |pixel: usize, triangle: [u32; 3], weights: [f32; 3]| {
+                // Window depth is the one blend that takes no divide: it
+                // runs affine in screen space, as the hardware's own
+                // interpolation does. Perspective-correcting it would
+                // pull big triangles toward the eye mid-face, where the
+                // GPU does not, and their coplanar decals would sink.
                 let depth: f32 = (0..3)
-                    .map(|k| solid.depths[triangle[k] as usize] * weights[k])
+                    .map(|k| depths[triangle[k] as usize] * weights[k])
                     .sum();
                 let there = &mut buffer[pixel];
                 match layer {
@@ -1089,7 +1237,7 @@ pub fn rasterize(
                     }
                     // The decal pipeline's bias, applied as the GPU would.
                     Layer::Decal => {
-                        let lift = decal_bias(decal_slope(&mesh, &solid.depths, triangle));
+                        let lift = decal_bias(decal_slope(&mesh, &depths, triangle));
                         depth - lift <= *there
                     }
                     Layer::Opaque => false,
@@ -1097,16 +1245,21 @@ pub fn rasterize(
             };
             let shade = |triangle: [u32; 3], weights: [f32; 3], rgba| {
                 // The shader blends each vertex's millimetres across the
-                // triangle affine, in screen space: this blends them the same
-                // way, to find the fragment's place on the lamp.
+                // triangle perspective-correctly, through the divide: so
+                // this, to find the fragment's place on the lamp.
+                let sum = divide(weights, triangle);
                 let at = [0, 1, 2].map(|k| {
                     (0..3)
-                        .map(|c| weights[c] * solid.places[triangle[c] as usize][k])
-                        .sum()
+                        .map(|c| {
+                            let vertex = triangle[c] as usize;
+                            weights[c] * inv_w[vertex] * solid.places[vertex][k]
+                        })
+                        .sum::<f32>()
+                        / sum
                 });
-                pixel_shade(&solid.shades, triangle, weights).apply(rgba, lighting, at)
+                pixel_shade(&solid.shades, triangle, weights, &inv_w).apply(rgba, lighting, at)
             };
-            raster.fill(&mesh, clip, keep, shade);
+            raster.fill_projected(&mesh, clip, &inv_w, keep, shade);
         }
     }
     raster.frame = Some(Box::new(buffer));
@@ -1131,25 +1284,31 @@ fn decal_slope(mesh: &Mesh, depths: &[f32], triangle: [u32; 3]) -> f32 {
     dzdx.abs().max(dzdy.abs())
 }
 
-/// The shade at a pixel `weights` across `triangle`, as the shader makes it:
-/// the way the surface faces or runs along and the material's parameters
-/// blended across it, its material and its highlight taken from the first
-/// corner, which is what the shader's flat attributes give.
+/// The shade at a pixel of screen `weights` across `triangle`, as the shader
+/// makes it: the way the surface faces or runs along and the material's
+/// parameters blended across it perspective-correctly — screen weights
+/// over each vertex's `w` (`inv_w`), divided by their blend — its material
+/// and its highlight taken from the first corner, which is what the
+/// shader's flat attributes give.
 #[cfg(test)]
-fn pixel_shade(shades: &[Shade], triangle: [u32; 3], weights: [f32; 3]) -> Shade {
+fn pixel_shade(shades: &[Shade], triangle: [u32; 3], weights: [f32; 3], inv_w: &[f32]) -> Shade {
     let corners = triangle.map(|i| shades[i as usize]);
     let first = corners[0];
     if first == Shade::Unlit {
         return first;
     }
+    let sum: f32 = (0..3)
+        .map(|k| weights[k] * inv_w[triangle[k] as usize])
+        .sum();
     let mut vector = [0.0; 3];
     let mut spec = 0.0;
-    for (shade, weight) in corners.into_iter().zip(weights) {
+    for (k, (shade, weight)) in corners.into_iter().zip(weights).enumerate() {
+        let blend = weight * inv_w[triangle[k] as usize] / sum;
         let (_, faced, param, _) = shade.parts();
-        for k in 0..3 {
-            vector[k] += faced[k] * weight;
+        for j in 0..3 {
+            vector[j] += faced[j] * blend;
         }
-        spec += param * weight;
+        spec += param * blend;
     }
     vector = unit(vector);
     let (sharpness, down) = (spec, spec);
@@ -1172,7 +1331,7 @@ fn pixel_shade(shades: &[Shade], triangle: [u32; 3], weights: [f32; 3]) -> Shade
 
 #[cfg(test)]
 mod tests {
-    use eframe::egui::{Rect, Stroke, pos2};
+    use eframe::egui::{Rect, Stroke, pos2, vec2};
 
     use super::*;
 
@@ -1248,12 +1407,13 @@ mod tests {
             mesh.add_triangle(0, 1, 2);
             mesh
         };
-        let mut lit = Solid::unlit(triangle(Color32::RED), vec![0.25; 3]);
+        let mut lit = Solid::unlit(triangle(Color32::RED), vec![[1.0, 2.0, 3.5]; 3]);
         lit.shades = vec![Shade::Matte([0.0, 0.0, 1.0]); 3];
-        lit.places = vec![[1.0, 2.0, 3.5]; 3];
         solids.push(Layer::Opaque, lit);
-        solids.add(Layer::Decal, triangle(Color32::BLUE), |_| Some(0.5.into()));
-        let (vertices, indices, draws) = pack(&solids, [1600.0, 1000.0], [64, 32]);
+        solids.add(Layer::Decal, triangle(Color32::BLUE), |_| {
+            Some(Placing::default())
+        });
+        let (vertices, indices, draws) = pack(&solids, [64, 32]);
         assert_eq!(vertices.len(), 6 * VERTEX_BYTES as usize);
         assert_eq!(indices.len(), 6 * 4);
         let runs: Vec<_> = draws
@@ -1262,28 +1422,29 @@ mod tests {
             .collect();
         assert_eq!(runs, [(Layer::Opaque, 0..3, 0), (Layer::Decal, 3..6, 3)]);
         let float = |at: usize| f32::from_le_bytes(vertices[at..at + 4].try_into().unwrap());
-        // The window's middle, then its top right, in device coordinates.
-        assert_eq!([float(0), float(4), float(8)], [0.0, 0.0, 0.25]);
+        // Where each lit vertex stands, in machine millimetres: the shader
+        // projects these, and the camera's matrix decides the depth.
+        assert_eq!([float(0), float(4), float(8)], [1.0, 2.0, 3.5]);
         assert_eq!(
             [
                 float(VERTEX_BYTES as usize),
-                float(VERTEX_BYTES as usize + 4)
+                float(VERTEX_BYTES as usize + 4),
+                float(VERTEX_BYTES as usize + 8)
             ],
-            [1.0, 1.0]
+            [1.0, 2.0, 3.5]
         );
         assert_eq!(vertices[20..24], Color32::RED.to_array());
-        // Its normal, parameters, material and shine, then the unlit decal's.
+        // Its normal, parameters, material and shine, then the unlit
+        // decal's, standing at the printing point.
         assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
         assert_eq!(float(36), 0.0);
         assert_eq!(vertices[40..44], 1u32.to_le_bytes());
-        // And where it stands, in millimetres, for the lamp.
-        assert_eq!([float(48), float(52), float(56)], [1.0, 2.0, 3.5]);
         let next = 3 * VERTEX_BYTES as usize;
-        assert_eq!(vertices[next + 40..next + 44], 0u32.to_le_bytes());
         assert_eq!(
-            [float(next + 48), float(next + 52), float(next + 56)],
+            [float(next), float(next + 4), float(next + 8)],
             [0.0, 0.0, 0.0]
         );
+        assert_eq!(vertices[next + 40..next + 44], 0u32.to_le_bytes());
     }
 
     #[test]
@@ -1328,13 +1489,13 @@ mod tests {
             sharpness: 24.0,
         };
         let mut solids = Solids::default();
-        let mut lit = Solid::unlit(mesh.clone(), vec![0.25; 3]);
+        let mut lit = Solid::unlit(mesh.clone(), vec![[0.0; 3]; 3]);
         lit.shades = vec![polished; 3];
         solids.push(Layer::Opaque, lit);
-        let mut down = Solid::unlit(mesh, vec![0.5; 3]);
+        let mut down = Solid::unlit(mesh, vec![[0.0; 3]; 3]);
         down.shades = vec![Shade::Chrome(0.75); 3];
         solids.push(Layer::Opaque, down);
-        let (vertices, _, _) = pack(&solids, [1600.0, 1000.0], [64, 32]);
+        let (vertices, _, _) = pack(&solids, [64, 32]);
         let float = |at: usize| f32::from_le_bytes(vertices[at..at + 4].try_into().unwrap());
         // A polished vertex: its normal, its sharpness, its material, its shine.
         assert_eq!([float(24), float(28), float(32)], [0.0, 0.0, 1.0]);
@@ -1460,7 +1621,12 @@ mod tests {
             (Layer::Decal, 2),
             (Layer::Decal, 1),
         ] {
-            solids.add(layer, quad(texture), |v| Some(v.pos.x.into()));
+            solids.add(layer, quad(texture), |v| {
+                Some(Placing {
+                    at: [v.pos.x, 0.0, 0.0],
+                    shade: Shade::Unlit,
+                })
+            });
         }
         let [(_, opaque), (_, decals)] = solids.layers();
         let textures = |solids: &[Solid]| -> Vec<TextureId> {
@@ -1469,10 +1635,10 @@ mod tests {
         assert_eq!(textures(opaque), [TextureId::User(1), TextureId::User(2)]);
         let order = [1, 2, 1].map(TextureId::User);
         assert_eq!(textures(decals), order);
-        // The joined mesh indexes its own vertices, each with its depth.
+        // The joined mesh indexes its own vertices, each with its place.
         let joined = &opaque[0];
         assert_eq!(joined.mesh.indices, [0, 1, 2, 3, 4, 5]);
-        assert_eq!(joined.depths.len(), joined.mesh.vertices.len());
+        assert_eq!(joined.places.len(), joined.mesh.vertices.len());
     }
 
     #[test]
@@ -1542,26 +1708,31 @@ mod tests {
     #[test]
     fn one_pass_a_frame_where_it_began() {
         let ctx = Context::default();
-        let triangle = |depth: f32| {
+        let triangle = |x: f32| {
             let mut mesh = Mesh::default();
             for (x, y) in [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)] {
                 mesh.colored_vertex(pos2(x, y), Color32::WHITE);
             }
             mesh.add_triangle(0, 1, 2);
             let mut solids = Solids::default();
-            solids.add(Layer::Opaque, mesh, |_| Some(depth.into()));
+            solids.add(Layer::Opaque, mesh, |_| {
+                Some(Placing {
+                    at: [x, 0.0, 0.0],
+                    shade: Shade::Unlit,
+                })
+            });
             solids
         };
         let mut output = ctx.run_ui(Default::default(), |ui| {
             let painter = ui.painter();
-            begin(painter, Lighting::default());
-            gather(&ctx, triangle(0.5));
+            begin(painter, Lighting::default(), Camera::default());
+            gather(&ctx, triangle(12.7));
             painter.rect_filled(
                 Rect::from_min_size(pos2(0.0, 0.0), Vec2::splat(5.0)),
                 0,
                 Color32::RED,
             );
-            gather(&ctx, triangle(0.25));
+            gather(&ctx, triangle(3.5));
             end(painter);
         });
         output.textures_delta.clear();
@@ -1582,8 +1753,11 @@ mod tests {
         let [(_, opaque), _] = solids.layers();
         assert_eq!(opaque.len(), 1);
         assert_eq!(
-            opaque[0].depths,
-            [0.5; 3].into_iter().chain([0.25; 3]).collect::<Vec<_>>()
+            opaque[0].places,
+            [[12.7, 0.0, 0.0]; 3]
+                .into_iter()
+                .chain([[3.5, 0.0, 0.0]; 3])
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1598,13 +1772,329 @@ mod tests {
         let mut solids = Solids::default();
         solids.add(Layer::Opaque, mesh, |v| {
             v.pos.y += 1.0;
-            (v.pos.x < 2.5).then(|| (v.pos.x / 10.0).into())
+            (v.pos.x < 2.5).then(|| Placing {
+                at: [v.pos.x / 10.0, 0.0, 0.0],
+                shade: Shade::Unlit,
+            })
         });
         let [(_, opaque), (_, decals)] = solids.layers();
         assert!(decals.is_empty());
         let solid = &opaque[0];
         assert_eq!(solid.mesh.indices, [0, 1, 2]);
-        assert_eq!(solid.depths, [0.0, 0.1, 0.2]);
+        assert_eq!(
+            solid.places,
+            [[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.2, 0.0, 0.0]]
+        );
         assert_eq!(solid.mesh.vertices[1].pos, pos2(1.0, 1.0));
+    }
+
+    /// Polls `future` out: natively wgpu's futures do their work when
+    /// polled, so no executor is wanted.
+    fn wait<T>(future: impl std::future::Future<Output = T>) -> T {
+        use std::task::{Context, Poll};
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        let mut future = std::pin::pin!(future);
+        loop {
+            match future.as_mut().poll(&mut cx) {
+                Poll::Ready(value) => return value,
+                Poll::Pending => std::thread::yield_now(),
+            }
+        }
+    }
+
+    /// The whole machine painted as a frame, in the tall snapshot's view,
+    /// zoom and typing line, its pass taken as the CPU twin's `rasterize`
+    /// does, with the font atlas's size as the draw reads it.
+    fn machine_pass() -> (Pass, [usize; 2]) {
+        let ctx = Context::default();
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(1400.0, 2400.0));
+        let sm9 = include_str!("../../../profiles/olympia-sm9.toml");
+        let profile = typewriter_core::Profile::from_toml_str(sm9).unwrap();
+        let metrics = typewriter_app::draw::Metrics::new(
+            &profile,
+            typewriter_app::draw::points_per_inch(100),
+        );
+        let typing_y = view.height() * crate::machine::typing_line_height(view, &metrics, 100);
+        let middle = view.center().x;
+        let mut output = ctx.run_ui(
+            eframe::egui::RawInput {
+                screen_rect: Some(view),
+                ..Default::default()
+            },
+            |ui| {
+                let painter = ui.painter();
+                crate::machine::paint_behind(painter, view, &metrics, typing_y, middle, 0.0);
+                crate::machine::paint_knobs(
+                    painter,
+                    view,
+                    &metrics,
+                    typing_y,
+                    (middle, 0.0),
+                    |_| false,
+                );
+                crate::machine::paint_front(painter, view, &metrics, typing_y);
+            },
+        );
+        output.textures_delta.clear();
+        let fonts = ctx.fonts(|fonts| fonts.font_image_size());
+        let pass = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                Shape::Callback(callback) => {
+                    callback.callback.downcast_ref::<Pass>().map(|pass| Pass {
+                        solids: pass.solids.clone(),
+                        lighting: pass.lighting,
+                        camera: pass.camera,
+                    })
+                }
+                _ => None,
+            })
+            .expect("the machine ends its frame with a pass");
+        (pass, fonts)
+    }
+
+    /// Draws `pass` on a headless device through [`Pipelines::build`] and
+    /// the packed draws, as `Gpu::paint` does, into a gamma `Rgba8Unorm`
+    /// the size of the view with a `Depth32Float` beside it, cleared black
+    /// like the twin's raster; `white` stands for the font atlas, so plain
+    /// fills and shadows read true and glyphs not. Returns the pixels as a
+    /// PPM: the snapshot tool's twin goes by [`rasterize`] instead.
+    fn gpu_capture(
+        backends: wgpu::Backends,
+        pass: &Pass,
+        fonts: [usize; 2],
+    ) -> Result<(wgpu::Backend, Vec<u8>), String> {
+        let (width, height) = (pass.camera.points.x as u32, pass.camera.points.y as u32);
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.backends = backends;
+        let instance = wgpu::Instance::new(desc);
+        let adapter =
+            wait(instance.request_adapter(&Default::default())).map_err(|why| why.to_string())?;
+        let info = adapter.get_info();
+        eprintln!("adapter: {:?} {}", info.backend, info.name);
+        let backend = info.backend;
+        let clamp = adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::DEPTH_BIAS_CLAMP);
+        let (device, queue) = wait(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .map_err(|why| why.to_string())?;
+        let pipelines = Pipelines::build(&device, wgpu::TextureFormat::Rgba8Unorm, clamp);
+        let textures = texture_layout(&device);
+        // A white texel: colour reaches the shader through vertices, not
+        // the texture — but the glyph regions, which the twin shares.
+        let white = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gpu_snapshot_white"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            white.as_image_copy(),
+            &[0xFF; 4],
+            Default::default(),
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let white_view = white.create_view(&Default::default());
+        let white_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gpu_snapshot_white"),
+            layout: &textures,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&white_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let (vertices, indices, draws) = pack(&pass.solids, fonts);
+        let buffers = Buffers::new(
+            &device,
+            &pipelines.camera_layout,
+            vertices.len() as u64,
+            indices.len() as u64,
+        );
+        queue.write_buffer(&pipelines.lighting, 0, &pass.lighting.uniform());
+        queue.write_buffer(&buffers.camera, 0, &pass.camera.uniform());
+        queue.write_buffer(&buffers.vertices, 0, &vertices);
+        queue.write_buffer(&buffers.indices, 0, &indices);
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gpu_snapshot_target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let depth = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gpu_snapshot_depth"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&Default::default());
+        let depth_view = depth.create_view(&Default::default());
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut render = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("gpu_snapshot"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            render.set_vertex_buffer(0, buffers.vertices.slice(..));
+            render.set_index_buffer(buffers.indices.slice(..), wgpu::IndexFormat::Uint32);
+            render.set_bind_group(1, &pipelines.lighting_group, &[]);
+            render.set_bind_group(2, &buffers.camera_group, &[]);
+            for draw in &draws {
+                render.set_pipeline(match draw.layer {
+                    Layer::Opaque => &pipelines.opaque,
+                    Layer::Decal => &pipelines.decal,
+                });
+                render.set_bind_group(0, &white_group, &[]);
+                render.draw_indexed(draw.indices.clone(), draw.base, 0..1);
+            }
+        }
+        queue.submit([encoder.finish()]);
+        // The copy wants rows a multiple of 256 bytes.
+        let row_bytes = (width * 4).next_multiple_of(256);
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gpu_snapshot_readback"),
+            size: u64::from(row_bytes) * u64::from(height),
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(row_bytes),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        readback
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |mapped| {
+                let _ = sender.send(mapped);
+            });
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        receiver
+            .recv()
+            .map_err(|_| "no mapping")?
+            .map_err(|why| why.to_string())?;
+        let mapped = readback
+            .get_mapped_range(..)
+            .map_err(|why| why.to_string())?;
+        let mut ppm = format!("P6\n{width} {height}\n255\n").into_bytes();
+        for row in 0..height {
+            let start = usize::try_from(row)
+                .unwrap()
+                .checked_mul(row_bytes as usize)
+                .unwrap();
+            let row = &mapped[start..start + width as usize * 4];
+            for texel in row.as_chunks::<4>().0 {
+                ppm.extend_from_slice(&texel[..3]);
+            }
+        }
+        drop(mapped);
+        readback.unmap();
+        Ok((backend, ppm))
+    }
+
+    /// The real GPU path, headless: paints the whole machine into one pass
+    /// and draws it on every backend's device that answers, writing
+    /// `tall-<backend>.ppm` for each into `$TYPEWRITER_GPU_SNAPSHOT`, to
+    /// look at what a screen shows where the twin's [`rasterize`] does
+    /// not. Not for CI: it wants a device.
+    ///
+    /// ```sh
+    /// TYPEWRITER_GPU_SNAPSHOT=<folder> xvfb-run -a cargo test -p typewriter-desk -- \
+    ///     gpu_snapshot -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn gpu_snapshot() {
+        let Some(folder) = std::env::var_os("TYPEWRITER_GPU_SNAPSHOT") else {
+            return;
+        };
+        let folder = std::path::PathBuf::from(folder);
+        let (pass, fonts) = machine_pass();
+        let mut captured = 0;
+        for backends in [wgpu::Backends::VULKAN, wgpu::Backends::GL] {
+            match gpu_capture(backends, &pass, fonts) {
+                Ok((backend, ppm)) => {
+                    let name = format!("tall-{:?}.ppm", backend).to_lowercase();
+                    std::fs::write(folder.join(name), ppm).unwrap();
+                    eprintln!("captured {backend:?}");
+                    captured += 1;
+                }
+                Err(why) => eprintln!("{backends:?}: no device: {why}"),
+            }
+        }
+        assert!(captured > 0, "no headless device answered");
     }
 }

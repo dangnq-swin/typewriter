@@ -75,10 +75,8 @@ pub(super) fn front_at(eye: &Eye, along: f32) -> f32 {
 /// A point of a sheet on its way.
 struct Placed {
     pos: Pos2,
-    /// 0 at the eye to 1 far off: the print lies on it, and the decal pass
-    /// lifts the print to show.
-    depth: f32,
-    /// Where it stands, machine millimetres: the lamp lights it from there.
+    /// Where it stands, machine millimetres: the pass projects these, and
+    /// the lamp lights it from there.
     at: [f32; 3],
     /// Its seen side's normal: paper as a matte material, its take of the
     /// light the shader's, not a tint.
@@ -108,7 +106,6 @@ pub fn paint_sheets(
         let seen = if facing { normal } else { normal.map(|c| -c) };
         Placed {
             pos: eye.at(p),
-            depth: eye.depth(p),
             at: p,
             normal: seen,
             facing,
@@ -124,7 +121,6 @@ pub fn paint_sheets(
             let placed = place(vertex.pos);
             vertex.pos = placed.pos;
             Some(Placing {
-                depth: placed.depth,
                 at: placed.at,
                 shade: Shade::Matte(placed.normal),
             })
@@ -137,7 +133,6 @@ pub fn paint_sheets(
             let placed = place(vertex.pos);
             vertex.pos = placed.pos;
             placed.facing.then_some(Placing {
-                depth: placed.depth,
                 at: placed.at,
                 shade: Shade::Matte(placed.normal),
             })

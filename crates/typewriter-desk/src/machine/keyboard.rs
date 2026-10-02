@@ -9,7 +9,7 @@ use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
 use super::light::{Paint, brighten, matte, paint_steel, polished, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
-use crate::depth::{Layer, Solid};
+use crate::depth::{Layer, Placing, Shade, Solid};
 
 /// Keys: the far row's centre `(y, z)` of its tops, one row to the next.
 pub(super) const KEY_ROW: (f32, f32) = (138.0, -67.0);
@@ -293,15 +293,15 @@ fn paint_key_shadow(
     .map(|[x, y, _]| pos2(x, y))
     .collect();
     let mesh = soft(&outline, 2.5, Color32::from_black_alpha(150));
-    // Each vertex as deep as the plane it lies drawn on, where it shows:
-    // whatever stands through that plane, the walls and the caps' own feet,
-    // hides the shadow there.
-    let depths = mesh
+    // Each vertex stands on the plane the shadow is drawn on: whatever
+    // comes through that plane, the walls and the caps' own feet, hides
+    // the shadow there.
+    let places = mesh
         .vertices
         .iter()
-        .map(|v| eye.depth([v.pos.x, v.pos.y, z]))
+        .map(|v| eye.absolute([v.pos.x, v.pos.y, z]))
         .collect();
-    let mut solid = Solid::unlit(mesh, depths);
+    let mut solid = Solid::unlit(mesh, places);
     for vertex in &mut solid.mesh.vertices {
         vertex.pos = eye.at([vertex.pos.x, vertex.pos.y, z]);
     }
@@ -475,7 +475,10 @@ fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &st
         canvas.lay(shapes, |vertex| {
             let on = on_top(vertex.pos.x / FLAT_TEXT, vertex.pos.y / FLAT_TEXT);
             vertex.pos = eye.at(on);
-            Some(eye.depth(on).into())
+            Some(Placing {
+                at: eye.absolute(on),
+                shade: Shade::Unlit,
+            })
         });
     } else if shifted.is_empty() {
         paint_flat_text(

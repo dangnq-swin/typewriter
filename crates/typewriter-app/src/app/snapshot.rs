@@ -211,6 +211,31 @@ impl Raster<'_> {
         &mut self,
         mesh: &Mesh,
         clip: Rect,
+        keep: impl FnMut(usize, [u32; 3], [f32; 3]) -> bool,
+        shade: impl Fn([u32; 3], [f32; 3], Rgba) -> Rgba,
+    ) {
+        self.fill_at(mesh, clip, None, keep, shade);
+    }
+
+    /// [`Raster::fill`] with `inv_w`, one over each vertex's clip `w`:
+    /// uv and colour blend perspective-correctly, as the depth shader's
+    /// divide makes them. `keep` and `shade` still get the screen weights.
+    pub fn fill_projected(
+        &mut self,
+        mesh: &Mesh,
+        clip: Rect,
+        inv_w: &[f32],
+        keep: impl FnMut(usize, [u32; 3], [f32; 3]) -> bool,
+        shade: impl Fn([u32; 3], [f32; 3], Rgba) -> Rgba,
+    ) {
+        self.fill_at(mesh, clip, Some(inv_w), keep, shade);
+    }
+
+    fn fill_at(
+        &mut self,
+        mesh: &Mesh,
+        clip: Rect,
+        inv_w: Option<&[f32]>,
         mut keep: impl FnMut(usize, [u32; 3], [f32; 3]) -> bool,
         shade: impl Fn([u32; 3], [f32; 3], Rgba) -> Rgba,
     ) {
@@ -225,6 +250,7 @@ impl Raster<'_> {
             if !bounds.is_positive() {
                 continue;
             }
+            let over_w = inv_w.map(|w| [0, 1, 2].map(|k| w[triangle[k] as usize]));
             // Safe casts: inside the window.
             let (x0, x1) = (bounds.min.x.floor() as usize, bounds.max.x.ceil() as usize);
             let (y0, y1) = (bounds.min.y.floor() as usize, bounds.max.y.ceil() as usize);
@@ -244,9 +270,27 @@ impl Raster<'_> {
                         continue;
                     }
                     let [ca, cb, cc] = [a.color, b.color, c.color].map(rgba);
-                    let colour: Rgba =
-                        [0, 1, 2, 3].map(|k| w[0] * ca[k] + w[1] * cb[k] + w[2] * cc[k]);
-                    let uv = a.uv.to_vec2() * w[0] + b.uv.to_vec2() * w[1] + c.uv.to_vec2() * w[2];
+                    let (colour, uv) = match over_w {
+                        None => (
+                            [0, 1, 2, 3].map(|k| w[0] * ca[k] + w[1] * cb[k] + w[2] * cc[k]),
+                            a.uv.to_vec2() * w[0] + b.uv.to_vec2() * w[1] + c.uv.to_vec2() * w[2],
+                        ),
+                        Some([ia, ib, ic]) => {
+                            // Perspective-correct: blend each attribute
+                            // over its own `w`, and divide by that of `1 / w`.
+                            let sum = w[0] * ia + w[1] * ib + w[2] * ic;
+                            (
+                                [0, 1, 2, 3].map(|k| {
+                                    (w[0] * ia * ca[k] + w[1] * ib * cb[k] + w[2] * ic * cc[k])
+                                        / sum
+                                }),
+                                (a.uv.to_vec2() * (w[0] * ia)
+                                    + b.uv.to_vec2() * (w[1] * ib)
+                                    + c.uv.to_vec2() * (w[2] * ic))
+                                    / sum,
+                            )
+                        }
+                    };
                     let texel = texture.map_or([1.0; 4], |t| sample(t, uv));
                     let source = shade(*triangle, w, [0, 1, 2, 3].map(|k| colour[k] * texel[k]));
                     let target = &mut self.pixels[y * width + x];

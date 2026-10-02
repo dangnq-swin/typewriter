@@ -15,6 +15,7 @@ use super::geometry::rounded;
 use super::light::{matte, paint_chrome};
 use super::sheet::face_y;
 use super::{EDGE, METAL_SHINE};
+use crate::depth::{Placing, Shade};
 use typewriter_app::draw::Metrics;
 
 /// The alignment guide's plates, pressed on the paper either side of the
@@ -185,9 +186,14 @@ fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
             // On screen, so the marks fall on the sheet's columns exactly.
             let x = eye.origin.x + side * (k as f32 - 0.5) * column;
             let mark = [pos2(x, mark_top), pos2(x, mark_top + MARK_LENGTH * ppmm)];
-            let depth = eye.depth(on);
             let shape = Shape::line_segment(mark, Stroke::new(1.0, SCALE_MARK));
-            canvas.lay(vec![shape], |_| Some(depth.into()));
+            // Each end keeps its spot on screen: see `cover::speckle`.
+            canvas.lay(vec![shape], |vertex| {
+                Some(Placing {
+                    at: eye.mm_under(on, vertex.pos),
+                    shade: Shade::Unlit,
+                })
+            });
         }
     }
 }

@@ -2,7 +2,7 @@
 
 use std::f32::consts::PI;
 
-use crate::depth::{Layer, Solid};
+use crate::depth::{Layer, Placing, Shade, Solid};
 use eframe::egui::{Color32, Shape};
 
 use super::canvas::Canvas;
@@ -323,9 +323,15 @@ fn speckle(
             Color32::from_black_alpha(50)
         };
         let radius = (0.3 * eye.scale(p)).max(0.6);
-        let depth = eye.depth(p);
         let speck = Shape::circle_filled(eye.at(p), radius, colour);
-        canvas.lay(vec![speck], |_| Some(depth.into()));
+        // Each vertex keeps its spot on screen: its millimetres beside `p`,
+        // or the pass would draw the whole speck at one point.
+        canvas.lay(vec![speck], |vertex| {
+            Some(Placing {
+                at: eye.mm_under(p, vertex.pos),
+                shade: Shade::Unlit,
+            })
+        });
     }
 }
 
