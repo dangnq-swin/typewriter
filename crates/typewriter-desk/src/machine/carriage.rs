@@ -170,7 +170,8 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
     let front_corner = corner(front_centre, 3.0 * FRAC_PI_2);
     let at_x = |x: f32| move |(y, z): (f32, f32)| [x, y, z];
     let face = |points: &[[f32; 3]], normal: [f32; 3]| {
-        // Faces turned away only cost: the depth buffer hides them anyway.
+        // Culling, not ordering: faces turned away only cost; the depth
+        // buffer hides them anyway. Same for the outlines below.
         if eye.faces(points[0], normal) {
             let lit = matte(CHROME, normal);
             eye.fill(canvas, points, |_| lit);

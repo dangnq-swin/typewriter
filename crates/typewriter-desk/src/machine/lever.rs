@@ -121,6 +121,7 @@ fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
         [x1, front, bottom],
         [x1, back, bottom],
     ];
+    // Culling, not ordering: turned away only costs; depth hides it anyway.
     if eye.faces(inner[0], [1.0, 0.0, 0.0]) {
         eye.fill(canvas, &inner, |_| METAL);
     }
@@ -152,6 +153,7 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: [f32; 3]) {
     for i in 0..n {
         let j = (i + 1) % n;
         let outward = sub(add(base[i], base[j]), scaled(at, 2.0));
+        // Culling, not ordering: the rim's far side only costs; depth hides it.
         if eye.faces(base[i], outward) {
             eye.fill(canvas, &[face[i], face[j], base[j], base[i]], |_| METAL);
         }

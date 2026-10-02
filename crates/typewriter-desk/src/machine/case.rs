@@ -140,7 +140,7 @@ fn paint_well_shade(canvas: &Canvas, eye: &Eye) {
     ] {
         let at = |(x, y): (f32, f32)| [x, y, bed];
         let inside = |(x, y): (f32, f32)| at((x + inward.0, y + inward.1));
-        eye.lying_quad(
+        eye.quad(
             &mut solid,
             [
                 (at(a), dark),
@@ -188,6 +188,8 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
                 let [a, b] = [pair[0], pair[1]];
                 let along = sub(b, a);
                 let facing = [-side * along[1], side * along[0], 0.0];
+                // Culling, not ordering: a face turned away only costs; the
+                // depth buffer hides it anyway.
                 if !Eye::sees(a, facing) {
                     continue;
                 }
@@ -308,7 +310,8 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
     let mut solid = Solid::default();
     for i in 0..front.len() - 1 {
         let (a, b) = (front[i], front[i + 1]);
-        // Round the corners it turns away onto the sides: skip that.
+        // Round the corners it turns away onto the sides: skip that. Only
+        // cost, not ordering: the depth buffer hides a turned face anyway.
         let along = sub(b, a);
         if !Eye::sees(a, [along[1], -along[0], 0.0]) {
             continue;
