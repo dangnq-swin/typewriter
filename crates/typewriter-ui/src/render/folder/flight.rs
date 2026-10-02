@@ -2,7 +2,7 @@
 //! it flies there shrinking during the wind-out and slips in; the icon answers with a dip,
 //! a glow and its count turning over.
 
-use eframe::egui::{Pos2, Vec2, pos2, vec2};
+use eframe::egui::{Pos2, Vec2, pos2, remap, vec2};
 use emath::easing;
 
 use crate::render::smoothstep;
@@ -140,7 +140,7 @@ impl Flight {
         let centre_at = |top: f32| pos2(mouth.x, top + 0.5 * end_scale * size.y);
         if t < self.wind_out {
             // An arc: across the top first, then down into the folder.
-            let u = ease_in_out(((t - pull_end) / (self.wind_out - pull_end)) as f32);
+            let u = ease_in_out(remap(t, pull_end..=self.wind_out, 0.0..=1.0) as f32);
             let end = centre_at(peek_top - ABOVE_PEEK);
             let bend = pos2(
                 end.x + 0.15 * (pulled.x - end.x),
@@ -211,9 +211,8 @@ impl Flight {
             0.0
         };
         let glow_in = smoothstep((a / GLOW_IN_SECONDS) as f32);
-        let glow_out = smoothstep(
-            ((a - GLOW_OUT_FROM_SECONDS) / (ANSWER_SECONDS - GLOW_OUT_FROM_SECONDS)) as f32,
-        );
+        let glow_out =
+            smoothstep(remap(a, GLOW_OUT_FROM_SECONDS..=ANSWER_SECONDS, 0.0..=1.0) as f32);
         Answer {
             dip,
             glow: glow_in * (1.0 - glow_out),

@@ -1,7 +1,7 @@
 //! The front panel falling to the keyboard, and its controls where the
 //! maker's badge would be: spacing, zoom, correction, goal and save.
 
-use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke, lerp};
+use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke, remap};
 use glam::Vec3;
 use typewriter_core::{EraseMode, LineSpacing};
 
@@ -61,7 +61,7 @@ pub(super) fn paint_face(canvas: &Canvas, eye: &Eye) {
 pub(super) fn on_panel(x: f32, y: f32) -> Vec3 {
     let (y0, z0) = COVER_FRONT;
     let (y1, z1) = PANEL_BOTTOM;
-    Vec3::new(x, y, lerp(z0..=z1, (y - y0) / (y1 - y0)))
+    Vec3::new(x, y, remap(y, y0..=y1, z0..=z1))
 }
 
 /// Down the panel's slope, toward the writer, unit length.

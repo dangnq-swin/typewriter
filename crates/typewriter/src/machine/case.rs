@@ -3,7 +3,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use eframe::egui::{Color32, lerp};
+use eframe::egui::{Color32, lerp, remap_clamp};
 use glam::Vec3;
 use typewriter_ui::draw::smoothstep;
 
@@ -53,10 +53,9 @@ pub(super) fn wall_top(y: f32) -> f32 {
     let (y0, z0) = PANEL_BOTTOM;
     let (start, end) = WALL_SWOOP;
     if y <= start {
-        let t = ((y - y0) / (start - y0)).clamp(0.0, 1.0);
-        lerp(z0..=WALL_EASE_Z, t)
+        remap_clamp(y, y0..=start, z0..=WALL_EASE_Z)
     } else {
-        let t = ((y - start) / (end - start)).clamp(0.0, 1.0);
+        let t = remap_clamp(y, start..=end, 0.0..=1.0);
         WALL_EASE_Z + (SHELF_Z - WALL_EASE_Z) * smoothstep(t)
     }
 }

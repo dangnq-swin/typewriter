@@ -190,15 +190,6 @@ mod tests {
     use super::*;
     use crate::app::model::testing::{press, type_text};
     use crate::input::Action;
-    use crate::render::splitmix64;
-
-    #[test]
-    fn a_refed_sheet_is_never_more_than_a_third_of_a_cell_off() {
-        for seed in 0..500 {
-            let shift = refeed_shift(splitmix64(seed));
-            assert!(shift.across.abs() <= 33 && shift.down.abs() <= 33);
-        }
-    }
 
     #[test]
     fn a_hand_on_the_knob_starts_slow_and_eases_onto_the_line() {

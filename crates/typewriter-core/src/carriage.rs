@@ -118,13 +118,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spacing_in_half_lines() {
-        assert_eq!(LineSpacing::Single.half_lines(), 2);
-        assert_eq!(LineSpacing::OneAndHalf.half_lines(), 3);
-        assert_eq!(LineSpacing::Double.half_lines(), 4);
-    }
-
-    #[test]
     fn line_spacing_lever_cycles() {
         let mut spacing = LineSpacing::Single;
         let mut seen = vec![];

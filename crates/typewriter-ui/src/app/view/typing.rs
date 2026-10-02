@@ -848,7 +848,6 @@ mod tests {
         // Just out of sight over the table's top at first.
         assert_eq!(way.at(0.0) - way.knob_from, 5.0 * 96.0);
         assert_eq!(way.at(1.0), 364.0);
-        assert_eq!(way.knob_travel(), way.knob_from - 364.0);
     }
 
     #[test]

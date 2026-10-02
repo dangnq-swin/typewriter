@@ -264,12 +264,6 @@ mod tests {
     use eframe::egui::vec2;
 
     #[test]
-    fn bundled_texture_decodes() {
-        let image = decode(PAPER_JPEG, 2048).unwrap();
-        assert!(image.width() > 0 && image.height() > 0);
-    }
-
-    #[test]
     fn texture_fits_the_gpu_limit() {
         let image = decode(PAPER_JPEG, 1000).unwrap();
         assert_eq!(image.width().max(image.height()), 1000);

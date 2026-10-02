@@ -392,6 +392,10 @@ mod tests {
             last = Some(i);
         }
         assert!(seen.iter().all(|&s| s));
+        // One item always lands on it without repeating; none gives nothing.
+        assert_eq!(v.index(1), Some(0));
+        assert_eq!(v.index(1), Some(0));
+        assert_eq!(v.index(0), None);
     }
 
     #[test]
@@ -456,20 +460,15 @@ mod tests {
     }
 
     #[test]
-    fn sheet_feed_ends_once_the_sheet_has_settled() {
+    fn sheet_winds_in_with_the_knob_turns() {
         let m = sheet_feed_motion();
-        let seconds = m.duration();
         // Not the full 8.46 s of sound: its end is quiet.
+        let seconds = m.duration();
         assert!(
             seconds > 6.0 && seconds < 8.46 - SETTLE_SECONDS,
             "{seconds}"
         );
         assert_eq!(m.progress(seconds - SETTLE_SECONDS), 1.0);
-    }
-
-    #[test]
-    fn sheet_winds_in_with_the_knob_turns() {
-        let m = sheet_feed_motion();
         // The finished sheet winds out steadily during the clicks, before
         // the new one moves.
         assert!(

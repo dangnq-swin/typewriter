@@ -2,7 +2,7 @@
 //! clicks; the new one rises in step with the knob turns heard in its sound.
 
 use eframe::egui::epaint::{Mesh, Shadow, Vertex};
-use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, lerp, pos2};
+use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, lerp, pos2, remap_clamp};
 
 use super::background::Background;
 use super::smoothstep;
@@ -45,7 +45,7 @@ impl FeedMotion {
         let loudest = db.iter().copied().fold(f32::MIN, f32::max);
         let turning: Vec<f32> = db
             .iter()
-            .map(|d| ((d - loudest + STILL_DB) / (STILL_DB - TURNING_DB)).clamp(0.0, 1.0))
+            .map(|d| remap_clamp(*d, (loudest - STILL_DB)..=(loudest - TURNING_DB), 0.0..=1.0))
             .collect();
         // Average neighbours: eases each turn in and out.
         let smoothed: Vec<f32> = (0..turning.len())

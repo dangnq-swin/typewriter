@@ -147,11 +147,14 @@ mod tests {
     #[test]
     fn backspace_does_not_erase_so_next_strike_overtypes() {
         let mut tw = sm9();
-        type_str(&mut tw, "o");
-        assert_eq!(tw.apply(Command::Backspace), [Event::Backspace]);
-        type_str(&mut tw, "/");
-        let cell = tw.page().cell(12, 10).unwrap();
-        assert_eq!(cell.visible_glyphs().collect::<String>(), "o/");
+        type_str(&mut tw, "no");
+        tw.apply(Command::Backspace);
+        tw.apply(Command::Backspace);
+        type_str(&mut tw, "--");
+        for (col, original) in [(10, 'n'), (11, 'o')] {
+            let glyphs: String = tw.page().cell(12, col).unwrap().visible_glyphs().collect();
+            assert_eq!(glyphs, format!("{original}-"));
+        }
     }
 
     #[test]

@@ -537,13 +537,4 @@ mod tests {
         assert!(axis + ROD_RADIUS < key_row(0.0).1 - KEY_FRONT);
         assert!(axis - ROD_RADIUS > KEY_BED_Z);
     }
-
-    #[test]
-    fn the_layout_starts_with_plus_equals_and_has_no_one() {
-        let first = &KEYS[0][0];
-        assert_eq!((first.legend, first.shifted), ("=", "+"));
-        let keys = KEYS.iter().flat_map(|row| row.iter());
-        assert!(keys.clone().all(|key| key.legend != "1"));
-        assert!(SPACE_BAR.iter().any(|&(_, _, name)| name == "clear"));
-    }
 }

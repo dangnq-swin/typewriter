@@ -1,8 +1,6 @@
 //! The sheet and everything struck or painted on it.
 
-use eframe::egui::{
-    Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, Vec2, lerp, pos2, vec2,
-};
+use eframe::egui::{Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
 use typewriter_core::accents;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::page::{Correction, Mark, Page};
@@ -304,7 +302,7 @@ fn fluid(out: &mut Vec<Drawn>, cell: Rect, wet: f32, seed: u64) {
         let radius = vec2(0.55 + 0.1 * unit(shift + 4), 0.36 + 0.06 * unit(shift + 12)) * size;
         (centre, radius)
     });
-    let fill = lerp_color(FLUID, FLUID_WET, wet);
+    let fill = FLUID.lerp_to_gamma(FLUID_WET, wet);
     for (centre, radius) in dabs {
         out.push(Drawn::Ellipse {
             centre,
@@ -343,16 +341,6 @@ fn smudged(out: &mut Vec<Drawn>, at: Pos2, c: char, color: Color32, scale: f32, 
             color: color.gamma_multiply(0.35),
         });
     }
-}
-
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-    let mix = |x: u8, y: u8| lerp(f32::from(x)..=f32::from(y), t).round() as u8;
-    Color32::from_rgba_premultiplied(
-        mix(a.r(), b.r()),
-        mix(a.g(), b.g()),
-        mix(a.b(), b.b()),
-        mix(a.a(), b.a()),
-    )
 }
 
 /// Offset and density for one strike. Seeded by position: stable across

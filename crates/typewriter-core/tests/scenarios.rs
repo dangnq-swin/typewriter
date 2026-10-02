@@ -80,17 +80,3 @@ fn page_ends_after_the_last_line() {
     );
     assert_eq!(tw.carriage().half_line, 138);
 }
-
-#[test]
-fn strikeout_by_overtyping_keeps_both_layers() {
-    let mut tw = sm9();
-    type_str(&mut tw, "no");
-    tw.apply(Command::Backspace);
-    tw.apply(Command::Backspace);
-    type_str(&mut tw, "--");
-    let row = tw.carriage().half_line;
-    for (col, original) in [(10, 'n'), (11, 'o')] {
-        let glyphs: String = tw.page().cell(row, col).unwrap().visible_glyphs().collect();
-        assert_eq!(glyphs, format!("{original}-"));
-    }
-}

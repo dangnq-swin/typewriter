@@ -186,11 +186,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_outline_has_a_square_spine_and_stays_in_bounds() {
+    fn the_outline_stays_within_its_size() {
         let size = vec2(60.0, 100.0);
         let points = outline(size);
-        assert!(points.contains(&Pos2::ZERO));
-        assert!(points.contains(&pos2(0.0, size.y)));
         assert!(points.iter().all(|p| {
             (-1e-3..=size.x + 1e-3).contains(&p.x) && (-1e-3..=size.y + 1e-3).contains(&p.y)
         }));

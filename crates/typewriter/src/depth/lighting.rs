@@ -146,7 +146,7 @@ impl Shade {
         if self == Self::Unlit {
             return colour;
         }
-        let rgba = colour.to_array().map(|c| f32::from(c) / 255.0);
+        let rgba = colour.to_normalized_gamma_f32();
         // Safe cast: clamped to a byte.
         let [r, g, b, a] = self
             .apply(rgba, lighting, at)
@@ -194,8 +194,8 @@ fn chrome(bands: &[(f32, Color32); CHROME_BANDS], t: f32) -> [f32; 3] {
 
 /// `colour`'s rgb in gamma 0..=1.
 fn gamma_rgb(colour: Color32) -> [f32; 3] {
-    let [r, g, b, _] = colour.to_array();
-    [r, g, b].map(|c| f32::from(c) / 255.0)
+    let [r, g, b, _] = colour.to_normalized_gamma_f32();
+    [r, g, b]
 }
 
 #[cfg(test)]

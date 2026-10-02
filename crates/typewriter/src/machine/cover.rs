@@ -37,6 +37,11 @@ const SEGMENT_CORE: f32 = 24.0;
 const SEGMENT_RIM: f32 = 28.0;
 const SEGMENT_Z: f32 = -19.0;
 const TYPE_BAR_REACH: (f32, f32) = (97.0, -48.0);
+// The bars must fan wider than the opening's front (the cover crops them)
+// and reach past it. sin is not const, so the outermost bar's 84° lean is a
+// literal: sin(84°) = 0.9945.
+const _: () = assert!(OPENING_BACK.0 - 4.0 + TYPE_BAR_REACH.0 > OPENING_FRONT.0);
+const _: () = assert!(TYPE_BAR_REACH.0 * 0.9945 > OPENING_FRONT.1);
 /// How far the cover's shadow reaches inside the opening.
 pub(super) const OPENING_SHADE_MM: f32 = 8.0;
 const INSIDE: Color32 = Color32::from_rgb(0x16, 0x12, 0x0E);
@@ -334,18 +339,5 @@ fn speckle(canvas: &Canvas, eye: &Eye, count: u64, seed: u64, place: impl Fn(f32
                 shade: Shade::Unlit,
             })
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_type_bars_reach_past_the_opening() {
-        let back = OPENING_BACK.0 - 4.0;
-        let reach = TYPE_BAR_REACH.0;
-        assert!(back + reach > OPENING_FRONT.0);
-        assert!(reach * 84.0_f32.to_radians().sin() > OPENING_FRONT.1);
     }
 }
