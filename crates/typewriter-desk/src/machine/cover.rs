@@ -7,8 +7,8 @@ use eframe::egui::{Color32, Shape};
 
 use super::canvas::Canvas;
 use super::eye::Eye;
-use super::geometry::{add, fillet, normalized, sub};
-use super::light::{Paint, brighten, brushed, matte, streak};
+use super::geometry::{fillet, normalized, sub};
+use super::light::{Paint, brighten, brushed, matte, paint_steel};
 use super::{IVORY, IVORY_SHADE, METAL, METAL_SHINE};
 use typewriter_app::draw::{splitmix64, unit};
 
@@ -240,13 +240,8 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     for i in 0..bars {
         let angle = (-86.0 + 172.0 * f32::from(i) / f32::from(bars - 1)).to_radians();
         let (from, to) = (at(angle, SEGMENT_RIM, SEGMENT_Z), at(angle, reach, low));
-        eye.line(canvas, &[from, to], 2.0, TYPE_BAR);
-        // A streak down its lit edge, bright where it points to catch the light.
-        let shine = streak(sub(to, from), 12);
-        let aside = [-0.6 * angle.cos(), 0.6 * angle.sin(), 0.0];
-        let edge = [add(from, aside), add(to, aside)];
-        let colour = METAL_SHINE.gamma_multiply(0.12 + 0.88 * shine);
-        eye.line(canvas, &edge, 0.5, colour);
+        // Steel, lit like the key levers'.
+        paint_steel(canvas, eye, &[from, to], TYPE_BAR, METAL_SHINE);
     }
 
     // The rim: brushed, so its streak runs round it.
@@ -330,7 +325,7 @@ fn speckle(
         let radius = (0.3 * eye.scale(p)).max(0.6);
         let depth = eye.lying_depth(p);
         let speck = Shape::circle_filled(eye.at(p), radius, colour);
-        canvas.lay(vec![speck], |at| (at, depth));
+        canvas.lay(vec![speck], |_| Some(depth.into()));
     }
 }
 

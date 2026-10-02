@@ -313,9 +313,14 @@ pub(super) fn print_scale(canvas: &Canvas, eye: &Eye, scale: &Scale, carriage: &
     // up close.
     let flat = scale.stretched(origin, FLAT_TEXT / eye.ppmm, 0.0, (top - foot) * FLAT_TEXT);
     let marks = ruler::scale_marks(canvas.painter(), &flat, carriage);
-    canvas.lay(marks, |p| {
-        let on = [(p.x - origin) / FLAT_TEXT, front, top - p.y / FLAT_TEXT];
-        (eye.at(on), eye.lying_depth(on))
+    canvas.lay(marks, |vertex| {
+        let on = [
+            (vertex.pos.x - origin) / FLAT_TEXT,
+            front,
+            top - vertex.pos.y / FLAT_TEXT,
+        ];
+        vertex.pos = eye.at(on);
+        Some(eye.lying_depth(on).into())
     });
     let [top_y, foot_y] = [top, foot].map(|z| eye.at([0.0, front, z]).y);
     let by = eye.scale([0.0, front, (top + foot) / 2.0]) / eye.ppmm;

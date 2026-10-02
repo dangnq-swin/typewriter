@@ -3,14 +3,14 @@
 //! enough to be believed, far enough never to be in the way. It burns the
 //! room's own white: what it lights is what is there, brighter where it
 //! turns. The shader lights what stands in depth from it, per fragment;
-//! [`Paint::lit`] is its twin at the machine's middle for what is drawn flat
-//! or as a line.
+//! [`Paint::lit`] is its twin at the machine's middle for the few parts the
+//! CPU still lights, one colour a frame.
 
 use eframe::egui::Color32;
 
 use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
-use super::geometry::{dot, normalized};
+use super::geometry::{add, dot, normalized, scaled, sub};
 use super::{METAL, METAL_SHINE};
 use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
 
@@ -55,8 +55,8 @@ impl From<Color32> for Paint {
 }
 
 impl Paint {
-    /// Lit at the machine's middle, for what takes no shade in the shader:
-    /// lines, and flat drawing.
+    /// Lit at the machine's middle, for the parts the CPU still lights
+    /// itself, one colour a frame.
     pub(super) fn lit(self) -> Color32 {
         self.shade.colour(self.colour, &frame(), [0.0; 3])
     }
@@ -98,13 +98,60 @@ pub(super) fn brushed(colour: Color32, shine: Color32, tangent: [f32; 3], sharpn
 
 /// How bright a thin metal part running along `tangent` catches the light,
 /// 0..=1: brushed and milled metal streaks along its grain (Heidrich–Seidel).
-/// `sharpness` narrows the streak. For lines, which take no shade: what
-/// stands in depth is [`brushed`] instead.
+/// `sharpness` narrows the streak. For parts the CPU lights, one colour a
+/// frame: what stands in depth is [`brushed`] instead.
 pub(super) fn streak(tangent: [f32; 3], sharpness: i32) -> f32 {
     let tangent = normalized(tangent);
     let (lt, vt) = (dot(toward_light(), tangent), dot(toward_eye(), tangent));
     let across = (1.0 - lt * lt).max(0.0).sqrt() * (1.0 - vt * vt).max(0.0).sqrt();
     (across - lt * vt).max(0.0).powi(sharpness)
+}
+
+/// A steel bar of the machine — key lever or type bar — one width, its hair
+/// of light one aside, one floor under the streak.
+const BAR_MM: f32 = 1.6;
+const BAR_HAIR_MM: f32 = 0.4;
+const BAR_HAIR_ASIDE_MM: f32 = 0.5;
+const BAR_HAIR_SHARPNESS: f32 = 10.0;
+const BAR_HAIR_FLOOR: f32 = 0.2;
+
+/// A steel bar along `path`: a dark stroke with a hair of `shine` down its
+/// lit edge, in `body`'s steel. Both stand in depth; the hair takes the
+/// lamp's streak per pixel, along the bar it runs, brightening where it
+/// turns to catch the light.
+pub(super) fn paint_steel(
+    canvas: &Canvas,
+    eye: &Eye,
+    path: &[[f32; 3]],
+    body: Color32,
+    shine: Color32,
+) {
+    for pair in path.windows(2) {
+        let [a, b] = [pair[0], pair[1]];
+        eye.line(canvas, &[a, b], BAR_MM, body);
+        let along = normalized(sub(b, a));
+        let aside = scaled(lit_side(along), BAR_HAIR_ASIDE_MM);
+        let hair = [add(a, aside), add(b, aside)];
+        let base = body.lerp_to_gamma(shine, BAR_HAIR_FLOOR);
+        eye.line(
+            canvas,
+            &hair,
+            BAR_HAIR_MM,
+            brushed(base, shine, along, BAR_HAIR_SHARPNESS),
+        );
+    }
+}
+
+/// The unit side of a bar running `along` that shows the lamp: squared off
+/// in the desk's plane and turned to the writer's left, where the lamp
+/// stands; of an upright bar, straight left.
+fn lit_side(along: [f32; 3]) -> [f32; 3] {
+    let aside = normalized([-along[1], along[0], 0.0]);
+    if aside[0] < 0.0 {
+        aside
+    } else {
+        [-1.0, 0.0, 0.0]
+    }
 }
 
 /// An upright chrome plate facing the writer over `x` at depth `y`, from
@@ -229,5 +276,20 @@ mod tests {
         assert!(chrome_at(0.55).r() > chrome_at(0.4).r());
         assert!(chrome_at(0.55).r() > chrome_at(0.7).r());
         assert_eq!(chrome_at(2.0), bottom, "past its foot it stays the room");
+    }
+
+    #[test]
+    fn a_bars_lit_edge_turns_to_the_lamp() {
+        // Away from the writer, toward them, square across, and upright:
+        // every bar shows its writer-left side, squared off the bar where
+        // it runs flat.
+        let flat = [[0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.7, 0.7, 0.0]];
+        for along in flat.into_iter().chain([[0.0, 0.0, -1.0]]) {
+            let side = lit_side(along);
+            assert!(side[0] <= 0.0, "{along:?} lit side {side:?}");
+            if dot([along[0], along[1], 0.0], [along[0], along[1], 0.0]) > 1e-6 {
+                assert!(dot(side, along).abs() < 1e-3);
+            }
+        }
     }
 }

@@ -49,7 +49,7 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
 
 ## 1. Hand-made shading and offsets the GPU could do
 
-- [ ] **Light in the shader.**
+- [x] **Light in the shader.**
       - [x] **Matte in the shader.** Depth vertices carry a `Shade` (a material and a
             normal), the light is a uniform, and `depth.wgsl` lights matte plastic per pixel;
             `Shade::apply` is its Rust twin, for the snapshot rasterizer and flat canvases.
@@ -85,7 +85,7 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
             carriage's shade), `case::paint_well`, `case::paint_inner_walls`'
             `[top, foot]`, `cover::paint_plate_wall`'s foot, the cover's shadow in
             its opening and the keys' shadows.
-- [ ] **One kind of bar: the key levers and the type bars.** Both draw an elongated steel
+- [x] **One kind of bar: the key levers and the type bars.** Both draw an elongated steel
       bar the same way — a dark stroke with a bright hair along its lit edge — and each does
       it its own way. `keyboard::paint_steel` (the key levers, the stems the key tops sit
       on, and the lock's and the selectors' posts through it): 1.27 of `STEM` with 0.36 of
@@ -99,6 +99,17 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
       lerp a feathered decal's straight rgb toward its shine, not its premultiplied colour,
       or the halo shines. A point light makes a streak baked once per bar wrong anyway,
       since it changes along the bar: do this with the lamp.
+      - Done: `light::paint_steel` draws both — 1.6 mm of steel with 0.4 of shine 0.5 mm
+        to the writer's left, per segment, the hair a `Shade::Streak` along it and the
+        floor (0.2) in the hair's own colour, which the streak turns up to the shine.
+        `Eye::line` takes a `Paint` and `Canvas::lay` a `Placing` per vertex, so a stroke
+        in depth carries its millimetres and its shade and the lamp lights it per pixel;
+        flat canvases light the same vertices on the CPU. The streak turns toward
+        `shine` premultiplied in the shader and its twins, so a feather's halo stays as
+        dim as its alpha. The lock's and selectors' posts lost their baked `post_shine`;
+        the type bars' loop is one call. Retuned against the snapshots: the bars read as
+        one metal across the fan, brighter toward the lamp; the plain app's pixels are
+        unchanged.
 - [ ] **Depth bias instead of offsets.** Things that lie on a face are set nearer by hand:
       `eye::LYING_MM` with `lying_depth`, `carriage::UNDER_PAPER_MM`,
       `printing_point::GUIDE_OFF_PAPER`, and the `+ 0.05` on the wall marks in

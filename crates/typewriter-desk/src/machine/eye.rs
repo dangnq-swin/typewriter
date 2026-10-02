@@ -6,9 +6,9 @@ use eframe::egui::{Align2, Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, pos
 
 use super::EDGE;
 use super::canvas::Canvas;
-use super::geometry::{add, convex_grid, dot, sub};
+use super::geometry::{add, convex_grid, dot, lerp3, sub};
 use super::light::Paint;
-use crate::depth::{Layer, Shade, Solid};
+use crate::depth::{Layer, Placing, Shade, Solid};
 use typewriter_app::draw::{Metrics, convex_mesh};
 
 /// The eye from the printing point, and how far it looks down.
@@ -241,23 +241,22 @@ impl Eye {
     }
 
     /// A line through `points`, `width_mm` thick where it starts, lying
-    /// on what it runs along.
-    pub(super) fn line(
+    /// on what it runs along: `paint` its colour, and where it stands in
+    /// depth, its take of the light.
+    pub(super) fn line<P: Into<Paint>>(
         &self,
         canvas: &Canvas,
         points: &[[f32; 3]],
         width_mm: f32,
-        colour: Color32,
+        paint: P,
     ) {
+        let paint = paint.into();
         let Some(&start) = points.first() else {
             return;
         };
         let width = width_mm * self.scale(start);
-        self.stroke(
-            canvas,
-            points,
-            Shape::line(self.polygon(points), Stroke::new(width, colour)),
-        );
+        let shape = Shape::line(self.polygon(points), Stroke::new(width, paint.colour));
+        self.stroke_laid(canvas, points, shape, paint.shade);
     }
 
     pub(super) fn outline(&self, canvas: &Canvas, points: &[[f32; 3]]) {
@@ -275,11 +274,20 @@ impl Eye {
     /// `shape`, drawn on screen along `points`, lying on them: each of its
     /// vertices as deep as the nearest place along them.
     pub(super) fn stroke(&self, canvas: &Canvas, points: &[[f32; 3]], shape: Shape) {
-        let path: Vec<(Pos2, f32)> = points
+        self.stroke_laid(canvas, points, shape, Shade::Unlit);
+    }
+
+    /// `shape` along `points` as [`Eye::stroke`], its vertices taking
+    /// `shade` from the millimetres they stand at.
+    fn stroke_laid(&self, canvas: &Canvas, points: &[[f32; 3]], shape: Shape, shade: Shade) {
+        let on: Vec<(Pos2, [f32; 3], f32)> = points
             .iter()
-            .map(|&p| (self.at(p), self.lying_depth(p)))
+            .map(|&p| (self.at(p), add(p, self.anchor), self.lying_depth(p)))
             .collect();
-        canvas.lay(vec![shape], |at| (at, nearest_depth(&path, at)));
+        canvas.lay(vec![shape], move |vertex| {
+            let (at, depth) = nearest_place(&on, vertex.pos);
+            Some(Placing { depth, at, shade })
+        });
     }
 }
 
@@ -288,16 +296,22 @@ fn depth_at(distance: f32) -> f32 {
     1.0 - NEAR_MM / distance.max(NEAR_MM)
 }
 
-/// The depth along `path`, points on screen and their depths, nearest `at`.
-fn nearest_depth(path: &[(Pos2, f32)], at: Pos2) -> f32 {
-    let mut best = (f32::INFINITY, path.first().map_or(1.0, |&(_, d)| d));
+/// The place along `path`, points on screen with the millimetres they stand
+/// at and their depths, nearest `at`: those millimetres, and the depth
+/// between them.
+fn nearest_place(path: &[(Pos2, [f32; 3], f32)], at: Pos2) -> ([f32; 3], f32) {
+    let mut best = (
+        f32::INFINITY,
+        path.first()
+            .map_or(([0.0; 3], 1.0), |&(_, mm, depth)| (mm, depth)),
+    );
     for pair in path.windows(2) {
-        let [(a, da), (b, db)] = [pair[0], pair[1]];
+        let [(a, ma, da), (b, mb, db)] = [pair[0], pair[1]];
         let along = b - a;
         let t = ((at - a).dot(along) / along.length_sq().max(1e-6)).clamp(0.0, 1.0);
         let off = (a + along * t - at).length_sq();
         if off < best.0 {
-            best = (off, da + (db - da) * t);
+            best = (off, (lerp3(ma, mb, t), da + (db - da) * t));
         }
     }
     best.1
@@ -322,9 +336,10 @@ pub(super) fn paint_flat_text(
     );
     let at = anchor.anchor_size(Pos2::ZERO, galley.size()).min;
     let shapes = vec![Shape::galley(at, galley, colour)];
-    canvas.lay(shapes, |p| {
-        let on = place(p.x / FLAT_TEXT, p.y / FLAT_TEXT);
-        (eye.at(on), eye.lying_depth(on))
+    canvas.lay(shapes, |vertex| {
+        let on = place(vertex.pos.x / FLAT_TEXT, vertex.pos.y / FLAT_TEXT);
+        vertex.pos = eye.at(on);
+        Some(eye.lying_depth(on).into())
     });
 }
 

@@ -6,7 +6,7 @@ use super::canvas::Canvas;
 use super::case::{OPENING_HALF, PANEL_EDGE_MM};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
 use super::geometry::{add, lerp3, normalized, rounded_rect, soft, sub};
-use super::light::{Paint, brighten, matte, polished, streak, toward_light};
+use super::light::{Paint, brighten, matte, paint_steel, polished, toward_light};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
 use crate::depth::{Layer, Solid};
@@ -322,8 +322,7 @@ pub(super) fn paint_levers(canvas: &Canvas, eye: &Eye, levers: &[[f32; 3]]) {
 fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: [f32; 3]) {
     let [x, y, z] = under_cap;
     let [foot, end] = lever_path(under_cap);
-    let shine = streak(sub(end, foot), 10).max(0.25);
-    paint_steel(canvas, eye, &[under_cap, foot, end], shine);
+    paint_steel(canvas, eye, &[under_cap, foot, end], STEM, STEM_SHINE);
     let turns = 4u8;
     let coil: Vec<[f32; 3]> = (0..=2 * turns)
         .map(|i| {
@@ -337,14 +336,6 @@ fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: [f32; 3]) {
         let colour = if i % 2 == 0 { SPRING_LIT } else { SPRING_DARK };
         eye.line(canvas, strand, 0.56, colour);
     }
-}
-
-/// A steel rod along `path`, a streak of light `shine` bright (0..=1) down
-/// its lit side.
-pub(super) fn paint_steel(canvas: &Canvas, eye: &Eye, path: &[[f32; 3]], shine: f32) {
-    eye.line(canvas, path, 1.27, STEM);
-    let lit: Vec<[f32; 3]> = path.iter().map(|&[x, y, z]| [x - 0.46, y, z]).collect();
-    eye.line(canvas, &lit, 0.36, STEM_SHINE.gamma_multiply(shine));
 }
 
 /// The caps, far row first, then the tab clear key, the space bar and the
@@ -481,9 +472,10 @@ fn legend(canvas: &Canvas, eye: &Eye, centre: [f32; 3], main: &str, shifted: &st
                 stroke,
             ),
         ];
-        canvas.lay(shapes, |p| {
-            let on = on_top(p.x / FLAT_TEXT, p.y / FLAT_TEXT);
-            (eye.at(on), eye.lying_depth(on))
+        canvas.lay(shapes, |vertex| {
+            let on = on_top(vertex.pos.x / FLAT_TEXT, vertex.pos.y / FLAT_TEXT);
+            vertex.pos = eye.at(on);
+            Some(eye.lying_depth(on).into())
         });
     } else if shifted.is_empty() {
         paint_flat_text(

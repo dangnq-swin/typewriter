@@ -153,7 +153,11 @@ impl Shade {
                 let (lt, vt) = (dot(tangent, light), dot(tangent, eye));
                 let across = (1.0 - lt * lt).max(0.0).sqrt() * (1.0 - vt * vt).max(0.0).sqrt();
                 let streak = (across - lt * vt).max(0.0).powf(sharpness);
-                lit(1.0, gamma_rgb(shine), streak)
+                // Toward `shine` premultiplied, as the shader: a feathered
+                // decal's rgb is premultiplied, and the raw colour would
+                // make its clear halo shine.
+                let toward = gamma_rgb(shine).map(|c| c * a);
+                lit(1.0, toward, streak)
             }
             Self::Chrome(t) => chrome(&lighting.chrome, t),
         };
@@ -1279,6 +1283,26 @@ mod tests {
         // Across the light: the whole highlight. Along it: none at all.
         assert!(streak([1.0, 0.0, 0.0]) > 0.99);
         assert!((streak([0.0, 0.0, 1.0]) - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_streaked_feather_turns_to_its_shine_premultiplied() {
+        let shine = Color32::from_rgb(0xFF, 0xFF, 0xFF);
+        let streaked = |rgba: [f32; 4]| {
+            Shade::Streak {
+                tangent: [1.0, 0.0, 0.0],
+                shine,
+                sharpness: 6.0,
+            }
+            .apply(rgba, &above(), [0.0; 3])
+        };
+        // The half-covered edge of a feather, its rgb premultiplied, where
+        // the whole highlight falls: it stays under its alpha, so the halo
+        // does not shine.
+        let feather = streaked([0.25, 0.25, 0.25, 0.5]);
+        assert!(feather[0] <= 0.5 + 1e-3);
+        // Opaque, it reaches the whole shine as ever.
+        assert!(streaked([0.5, 0.5, 0.5, 1.0])[0] > 0.99);
     }
 
     #[test]

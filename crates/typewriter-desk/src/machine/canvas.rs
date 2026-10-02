@@ -6,8 +6,9 @@
 use std::cell::RefCell;
 
 use super::light::frame;
-use crate::depth::{self, Layer, Solid, Solids};
-use eframe::egui::{Mesh, Painter, Pos2, Shape};
+use crate::depth::{self, Layer, Placing, Shade, Solid, Solids};
+use eframe::egui::epaint::{Vertex, WHITE_UV};
+use eframe::egui::{Color32, Mesh, Painter, Shape};
 use typewriter_app::draw::warp;
 
 pub(super) struct Canvas<'a> {
@@ -58,27 +59,46 @@ impl<'a> Canvas<'a> {
     }
 
     /// `shapes` drawn flat, lying on the machine: `place` puts each point
-    /// where it shows and gives its depth. Small, or flat where they lie:
-    /// only their points are placed.
-    pub(super) fn lay(&self, shapes: Vec<Shape>, place: impl Fn(Pos2) -> (Pos2, f32)) {
+    /// where it shows and says its [`Placing`]: depth, millimetres and
+    /// shade. Small, or flat where they lie: only their points are placed.
+    pub(super) fn lay(
+        &self,
+        shapes: Vec<Shape>,
+        place: impl FnMut(&mut Vertex) -> Option<Placing>,
+    ) {
         match &self.solids {
             None => {
-                let mesh: Mesh = warp(self.painter, shapes, |p| place(p).0);
+                let place = RefCell::new(place);
+                let mut mesh: Mesh = warp(self.painter, shapes, |p| {
+                    let mut spot = Vertex {
+                        pos: p,
+                        uv: WHITE_UV,
+                        color: Color32::WHITE,
+                    };
+                    match (*place.borrow_mut())(&mut spot) {
+                        Some(_) => spot.pos,
+                        None => p,
+                    }
+                });
+                // The depth shader's twin: flat canvases light what takes a
+                // shade on the CPU, from the millimetres it stands at.
+                for vertex in &mut mesh.vertices {
+                    let mut spot = *vertex;
+                    if let Some(Placing { at, shade, .. }) = (*place.borrow_mut())(&mut spot)
+                        && shade != Shade::Unlit
+                    {
+                        vertex.color = shade.colour(vertex.color, &frame(), at);
+                    }
+                }
                 self.painter.add(Shape::mesh(mesh));
             }
-            Some(solids) => {
-                solids.borrow_mut().add_shapes(
-                    self.painter,
-                    Layer::Decal,
-                    shapes,
-                    f32::INFINITY,
-                    |vertex| {
-                        let (pos, depth) = place(vertex.pos);
-                        vertex.pos = pos;
-                        Some(depth.into())
-                    },
-                );
-            }
+            Some(solids) => solids.borrow_mut().add_shapes(
+                self.painter,
+                Layer::Decal,
+                shapes,
+                f32::INFINITY,
+                place,
+            ),
         }
     }
 

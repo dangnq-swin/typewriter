@@ -187,7 +187,7 @@ fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
             let mark = [pos2(x, mark_top), pos2(x, mark_top + MARK_LENGTH * ppmm)];
             let depth = eye.lying_depth(on);
             let shape = Shape::line_segment(mark, Stroke::new(1.0, SCALE_MARK));
-            canvas.lay(vec![shape], |at| (at, depth));
+            canvas.lay(vec![shape], |_| Some(depth.into()));
         }
     }
 }

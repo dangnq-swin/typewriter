@@ -120,10 +120,12 @@ fn lit(gamma: vec4<f32>, in: VertexOutput) -> vec4<f32> {
             let body = min(gamma.rgb * (0.5 + 0.6 * facing), vec3<f32>(1.0));
             return vec4<f32>(mix(body, shine, highlight), gamma.a);
         }
-        // Brushed metal: `shine` streaked along its grain.
+        // Brushed metal: `shine` streaked along its grain. A feathered
+        // decal's rgb is premultiplied, so turn toward `shine` premultiplied
+        // too: toward the raw colour its clear halo would shine.
         case 3u: {
             let streak = streak_along(in.vector, light, in.spec);
-            return vec4<f32>(mix(gamma.rgb, shine, streak), gamma.a);
+            return vec4<f32>(mix(gamma.rgb, shine * gamma.a, streak), gamma.a);
         }
         // Chrome: the room, by how far down the plate it lies.
         case 4u: {

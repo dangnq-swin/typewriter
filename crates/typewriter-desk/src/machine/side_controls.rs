@@ -7,10 +7,10 @@ use super::canvas::Canvas;
 use super::case::{OPENING_HALF, wall_top};
 use super::eye::Eye;
 use super::geometry::rounded_rect;
-use super::keyboard::{INTO_MACHINE, KEY_FRONT, key_row, paint_cap, paint_steel};
-use super::light::{brighten, matte, paint_chrome, streak};
+use super::keyboard::{INTO_MACHINE, KEY_FRONT, key_row, paint_cap};
+use super::light::{brighten, matte, paint_chrome, paint_steel};
 use super::panel::{PANEL_BOTTOM, PANEL_HALF_BOTTOM};
-use super::{ENGRAVED, METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM};
+use super::{ENGRAVED, METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
 
 /// In the gaps between the keys and the walls, `x` from the middle: the
 /// carriage lock by the far row, its green cap's half width and half depth.
@@ -113,7 +113,7 @@ fn paint_lock(canvas: &Canvas, eye: &Eye, top: [f32; 3]) {
     let [x, y, z] = top;
     let foot = [x, y, z - KEY_FRONT - LOCK_DROP];
     let path = [[x, y, z - KEY_FRONT], foot, into_machine(foot)];
-    paint_steel(canvas, eye, &path, post_shine());
+    paint_steel(canvas, eye, &path, STEM, STEM_SHINE);
     let (half, depth) = LOCK_CAP;
     let colours = [SHIFT_CAP, SHIFT_FRONT];
     paint_cap(
@@ -135,7 +135,13 @@ fn paint_selector(canvas: &Canvas, eye: &Eye, post: [f32; 3]) {
     let bend = [x, y, top - height];
     // Its post runs well down, then back into the machine under the lock's.
     let foot = [x, y, bend[2] - SELECTOR_DROP];
-    paint_steel(canvas, eye, &[bend, foot, into_machine(foot)], post_shine());
+    paint_steel(
+        canvas,
+        eye,
+        &[bend, foot, into_machine(foot)],
+        STEM,
+        STEM_SHINE,
+    );
     let paddle_y = y + SELECTOR_REACH;
     eye.line(canvas, &[bend, [x, paddle_y, top - height]], 1.3, STEM);
     // Its top edge behind its face.
@@ -147,11 +153,6 @@ fn paint_selector(canvas: &Canvas, eye: &Eye, post: [f32; 3]) {
     ];
     eye.fill(canvas, &rim, |_| METAL_SHINE);
     paint_chrome(canvas, eye, [x - half, x + half], paddle_y, top, height);
-}
-
-/// How bright the upright posts' streak is.
-fn post_shine() -> f32 {
-    streak([0.0, 0.0, 1.0], 4).max(0.35)
 }
 
 /// From `foot` straight back, level, into the machine under the panel.
