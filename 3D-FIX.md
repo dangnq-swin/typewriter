@@ -137,4 +137,11 @@ the desk's `stage.rs` with `Desk` and `Plain`, in debug and `--release`. For a s
       with `w`), and the GPU interpolates correctly and does the divide. Needs section 1
       first; the machine's shadow on the desk and the panel's controls (`Panel::paint`, after
       the depth pass), still flat, line up with `Eye::at` on the CPU. The click rects (`Panel::rect`, knobs) still need `Eye::at` on the CPU. Large: do
-      it last, and only if the earlier items leave a reason.
+      it last, and only if the earlier items leave a reason — the ROADMAP's free camera and
+      moving components are that reason.
+      - Give the shader one camera interface: a view-projection matrix uniform that CPU
+        `Eye::at` builds the same matrix from — click rects and flat parts can't then drift
+        from the GPU's, the eye direction the lighting takes comes from it too, and a moving
+        camera is just a new matrix.
+      - Say where each solid's transform, from its millimetres to the machine's, lives: a
+        moving part will want its own, not one baked into its vertices.

@@ -107,6 +107,18 @@ each group tried on its own before the next.
 - [ ] ❓ Desk: a scene rather than fixed screen positions: the copy holder stands left of the
       document at a fixed angle, and the view (position, field of view) can be moved and zoomed,
       more like a game camera than a page on screen, on the desk's 3D drawing
+- [ ] Desk: a camera that moves: once the GPU projects (`3D-FIX` 2), the seated eye is one
+      matrix and moving the view is building a new one. Solids that stand still are built once
+      in their millimetres and kept, rebuilt only when what they show changes — a page's print,
+      a part's state — never re-tessellated a frame.
+- [ ] Desk: the machine's moving components: each part draws through its own transform from its
+      millimetres to the machine's — the carriage's slide, the knobs, the throw, the type bars
+      striking — moved, not rebuilt.
+- [ ] Desk: real shadows from the lamp: what the desk hides by hand goes — `body::paint_deck`,
+      `case::paint_well`, the inner walls' `[top, foot]`, the cover's foot and its shadow, the
+      keys' shadows — and a depth pass from the lamp, or a shadow map, casts them instead.
+- [ ] ❓ Desk: whether the depth pass becomes a conventional 3D renderer, its own branch once
+      `desk-viewpoint` merges: judged on the measurements the camera and its cache leave behind
 - [ ] ❓ Desk: drawers holding the projects: open one by pulling its folder out
 - [ ] ❓ Desk: a wastepaper basket for scrunched sheets
 - [ ] ❓ Desk: a shelf of machines: change profile by lifting another typewriter onto the desk
