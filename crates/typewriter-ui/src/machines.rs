@@ -200,7 +200,13 @@ mod tests {
         let machines = Machines::load_in(Some(not_a_dir.clone())).unwrap();
         assert_eq!(machines.all().len(), BUILT_IN.len(), "only the built-ins");
         assert_eq!(machines.problems.len(), 1, "{:?}", machines.problems);
-        assert!(machines.problems[0].contains("Not a directory"));
+        // The message names the folder and carries the OS's reason, which
+        // words itself differently per platform; the telling is the point.
+        assert!(
+            machines.problems[0].contains("machines-not-a-dir: "),
+            "{:?}",
+            machines.problems
+        );
         fs::remove_file(not_a_dir).unwrap();
     }
 }
