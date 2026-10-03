@@ -130,7 +130,12 @@ impl Model {
     /// Once a reopened sheet is in, turns the platen knob down to where
     /// typing stopped, a click per line.
     fn wind_back(&mut self, now: f64) {
-        if self.feed.feeding.is_some() {
+        // A project switched in mid-frame has only just begun: its first
+        // sheet is still pending or winding, and a clock started now would
+        // be a feed's length into the animation by the time the sheet is
+        // in. Wait for it, as on a cold open — where `start_frame` winds
+        // the sheet in before the first `move_sheets` runs.
+        if self.feed.first_sheet_pending || self.feed.feeding.is_some() {
             return;
         }
         let Some(wind) = &mut self.feed.wind_back else {
@@ -222,6 +227,51 @@ mod tests {
         assert!(!model.is_busy(30.0));
         model.start_frame(30.0);
         assert!(model.take_effects().is_empty(), "only once");
+    }
+
+    #[test]
+    fn a_switched_project_winds_back_only_once_its_sheet_is_in() {
+        use crate::app::intent::Intent;
+        use crate::app::model::Answer;
+        use crate::filing::Filing;
+        use typewriter_core::Command;
+
+        let path = crate::storage::test_desktop().join("wind-back-timing/novel.typr");
+        let mut writer = super::super::testing::model();
+        writer.project.filing = Filing::at(path.clone());
+        type_text(&mut writer, "one", 10.0);
+        press(&mut writer, &[Action::Machine(Command::Return)], 20.0);
+        type_text(&mut writer, "two", 21.0);
+        press(&mut writer, &[Action::Machine(Command::Return)], 30.0);
+        writer.put_away().unwrap();
+
+        let mut model = super::super::testing::model();
+        type_text(&mut model, "work in hand", 40.0);
+        model.update(Intent::OpenFile(path.clone()), 50.0);
+        model.update(Intent::Leave(Answer::DontSave), 51.0);
+        let wind = model.feed.wind_back.as_ref().expect("reopened winds back");
+        assert!(wind.started.is_none());
+        // The frame it came in on: the sheet has not started winding.
+        model.tick(51.0);
+        assert!(
+            model.feed.wind_back.as_ref().unwrap().started.is_none(),
+            "the clock waits for the sheet"
+        );
+        // The sheet winds in; the clock starts once it is in.
+        model.start_frame(51.1);
+        let in_at = 51.1 + model.feed.motion.duration();
+        model.tick(in_at - 0.1);
+        assert!(model.feed.wind_back.as_ref().unwrap().started.is_none());
+        model.tick(in_at + 0.1);
+        let (started, from) = model
+            .feed
+            .wind_back
+            .expect("still winding back")
+            .started
+            .unwrap();
+        assert!(started >= in_at, "no elapsed behind the feeding");
+        assert_eq!(from, 12, "from the first line");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]
