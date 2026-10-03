@@ -110,6 +110,7 @@ pub fn show(
             dimming: Dimming::NONE,
             wetness: &paper::dry,
             drying: false,
+            magnify: None,
         },
         &holder.page,
     );

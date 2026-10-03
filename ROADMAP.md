@@ -20,7 +20,7 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
       rects and flat parts both read: the paper's texture and light shade
       perspective-correct (hence today's fine sheet mesh and the 1.27 mm
       bends), a moving view is just a new matrix.
-- [ ] Desk: text where the sheet comes nearer the eye than the typing line,
+- [x] Desk: text where the sheet comes nearer the eye than the typing line,
       toward its top, is laid out larger to stay as sharp.
 - [ ] Desk: real shadows from the lamp: what the desk hides by hand goes —
       `body::paint_deck`, `case::paint_well`, the inner walls' `[top, foot]`,

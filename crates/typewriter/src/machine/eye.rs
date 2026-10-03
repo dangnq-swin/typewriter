@@ -109,9 +109,21 @@ impl Eye {
 
     /// Millimetres from the eye to `p`, along its line of sight.
     pub(super) fn distance(&self, p: Vec3) -> f32 {
-        let p = p + self.anchor;
-        let (sin, cos) = self.tilt;
+        Self::distance_mm(self.absolute(p))
+    }
+
+    /// Millimetres from the seated eye to absolute machine millimetres `p`,
+    /// along its line of sight: the eye sits at one tilt wherever it looks.
+    pub(super) fn distance_mm(p: Vec3) -> f32 {
+        let (sin, cos) = EYE_TILT_DEGREES.to_radians().sin_cos();
         (EYE_MM - p.y * cos - p.z * sin).max(NEAR_MM)
+    }
+
+    /// How much larger `p` shows than a mark at the printing point: what
+    /// lying nearer the eye makes of it. Never smaller — no mark wants
+    /// shrinking.
+    pub(super) fn magnified(p: Vec3) -> f32 {
+        (EYE_MM / Self::distance_mm(p)).max(1.0)
     }
 
     /// `p`'s depth: 0 at the eye to 1 far off, as the pass's `Camera` rows

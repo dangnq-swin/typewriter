@@ -362,6 +362,15 @@ pub trait Stage {
     /// [`draws_sheets`](Stage::draws_sheets).
     fn paint_sheets(&self, _painter: &Painter, _scene: &Scene, _sheets: Vec<FlatSheet>) {}
 
+    /// Print `along_mm` millimetres above the typing line shows this much
+    /// larger as this stage draws its sheets: nearer the eye toward their
+    /// top. Such type is laid out by it, and drawn back to the place the
+    /// flat sheet gives it, to stay as sharp as it shows. 1.0: the sheet
+    /// goes to the screen as laid.
+    fn print_magnify(&self, _along_mm: f32) -> f32 {
+        1.0
+    }
+
     /// Its own platen knobs, calm or not, turned by `rolled` points of paper,
     /// the one under the pointer lit if `active`: draws them and pushes their
     /// grips into `parts`, to drag. Pushes nothing: the plain app's knobs,

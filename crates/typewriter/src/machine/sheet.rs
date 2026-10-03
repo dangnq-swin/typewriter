@@ -73,6 +73,15 @@ pub(super) fn front_at(eye: &Eye, along: f32) -> f32 {
     eye.at(Vec3::new(0.0, y, z)).y
 }
 
+/// How much larger print shows at `along` millimetres up the way from the
+/// printing point: the sheet comes nearer the seated eye as it rises.
+/// Below the point the platen turns it away again, and nothing wants
+/// shrinking: 1.0 answers there.
+pub fn print_magnify(along: f32) -> f32 {
+    let ([y, z], _) = way(along.max(0.0));
+    Eye::magnified(Vec3::new(0.0, y, z))
+}
+
 /// A point of a sheet on its way.
 struct Placed {
     pos: Pos2,
@@ -223,6 +232,22 @@ mod tests {
             (quad.vertices[0].pos, quad.vertices[2].pos)
         );
         assert_eq!(mesh.vertices[width].pos.y, 70.0);
+    }
+
+    #[test]
+    fn print_rises_toward_the_eye_as_its_magnify_grows() {
+        let eye = Eye::testing(500.0, 96.0);
+        for along in [0.0, 25.4, 101.6, 203.2, 297.0] {
+            let ([y, z], _) = way(along);
+            let scale = eye.scale(Vec3::new(0.0, y, z)) / eye.ppmm;
+            assert!(
+                (print_magnify(along) - scale.max(1.0)).abs() < 1e-6,
+                "{along}"
+            );
+        }
+        assert!(print_magnify(101.6) > print_magnify(25.4));
+        // Below the point the way turns away again: nothing shrinks.
+        assert_eq!(print_magnify(-30.0), 1.0);
     }
 
     #[test]

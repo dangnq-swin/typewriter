@@ -216,6 +216,14 @@ impl TypewriterApp {
         let table = table.as_ref();
         // The stage draws them: handed over as they come.
         let mut handed = self.stage.draws_sheets().then(Vec::new);
+        // A stage that draws the sheets in perspective brings their tops
+        // nearer the eye than the typing line: its type is laid out
+        // magnified to stay as sharp as it shows.
+        let scale = |along| self.stage.print_magnify(along);
+        let magnify = self.stage.draws_sheets().then_some(paper::Magnify {
+            strike_y: layout.strike_point.y,
+            scale: &scale,
+        });
         let flight = self.model.feed.flight.filter(|f| !f.is_over(now));
         let answer = flight.map_or(folder::Answer::STILL, |f| f.answer(now));
         if let Some(feeding) = &self.model.feed.feeding {
@@ -242,7 +250,7 @@ impl TypewriterApp {
                         // Still rolling out, full size: drawn as in the machine.
                         Some(pose) if pose.mouth.is_none() => {
                             let origin = old_origin + (pose.centre - route.from);
-                            let sheet = (old_page, dimming);
+                            let sheet = (old_page, dimming, magnify);
                             let (on, lift) = (handed.as_mut(), pose.lift);
                             self.paint_going_out(painter, on, scene, origin, lift, sheet);
                         }
@@ -257,7 +265,7 @@ impl TypewriterApp {
                     wound_out = (rolled.unwrap_or(1.0) * exit, exit);
                     if let Some(rolled) = rolled {
                         let old_origin = old_origin - vec2(0.0, rolled * exit);
-                        let sheet = (old_page, dimming);
+                        let sheet = (old_page, dimming, magnify);
                         let on = handed.as_mut();
                         self.paint_going_out(painter, on, scene, old_origin, 1.0, sheet);
                     }
@@ -302,7 +310,7 @@ impl TypewriterApp {
         let wetness = |half_line, column| self.model.project.wetness(now, half_line, column);
         if let Some(mut handed) = handed {
             let sheet = (machine.page(), dimming, &wetness as paper::Wetness);
-            handed.push(self.flat_sheet(painter, paper_origin, sheet));
+            handed.push(self.flat_sheet(painter, paper_origin, sheet, magnify));
             self.stage.paint_sheets(painter, scene, handed);
         } else {
             self.paint_page(painter, machine.page(), paper_origin, dimming, &wetness);
@@ -598,6 +606,7 @@ impl TypewriterApp {
             dimming,
             wetness,
             drying: self.model.project.is_drying(),
+            magnify: None,
         };
         paper::paint_sheet_cached(painter, &mut self.print_typing.borrow_mut(), &look, page);
     }
@@ -656,11 +665,11 @@ impl TypewriterApp {
         scene: &Scene,
         origin: Pos2,
         lift: f32,
-        (page, dimming): (&Page, Dimming),
+        (page, dimming, magnify): (&Page, Dimming, Option<paper::Magnify<'_>>),
     ) {
         if let Some(handed) = handed {
             let sheet = (page, dimming, &paper::dry as paper::Wetness);
-            handed.push(self.flat_sheet(painter, origin, sheet));
+            handed.push(self.flat_sheet(painter, origin, sheet, magnify));
             return;
         }
         self.paint_lifted(painter, scene.view, origin, 0.0, lift);
@@ -669,11 +678,14 @@ impl TypewriterApp {
 
     /// The sheet at `origin`, for a stage that draws the sheets itself: all
     /// its marks, as it may show more of the sheet than the window's clip.
+    /// `magnify` lays its type larger where the stage brings the sheet
+    /// nearer the eye than the typing line.
     fn flat_sheet(
         &self,
         painter: &Painter,
         origin: Pos2,
         (page, dimming, wetness): (&Page, Dimming, paper::Wetness<'_>),
+        magnify: Option<paper::Magnify<'_>>,
     ) -> FlatSheet {
         let size = self.metrics.paper_size;
         let mut quad = egui::Mesh::default();
@@ -701,6 +713,7 @@ impl TypewriterApp {
             dimming,
             wetness,
             drying: self.model.project.is_drying(),
+            magnify,
         };
         // Everything: the stage may show more of the sheet than the window.
         let mut cached = self.print_typing.borrow_mut();

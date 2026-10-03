@@ -33,7 +33,7 @@ mod support;
 
 pub use lever::Throw;
 pub use panel::{Control, Panel};
-pub use sheet::paint_sheets;
+pub use sheet::{paint_sheets, print_magnify};
 pub use support::paper_table;
 
 use eframe::egui::{Color32, Painter, Rect, lerp};

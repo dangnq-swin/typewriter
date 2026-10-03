@@ -84,6 +84,7 @@ pub fn show_sheet(
             dimming: Dimming::NONE,
             wetness: &paper::dry,
             drying: false,
+            magnify: None,
         },
         sheet.page,
     );

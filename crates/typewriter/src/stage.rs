@@ -92,6 +92,11 @@ impl Stage for Desk {
         machine::paint_sheets(painter, view, metrics, typing_y, sheets);
     }
 
+    /// The sheet bends off the platen toward the seated eye as it rises.
+    fn print_magnify(&self, along_mm: f32) -> f32 {
+        machine::print_magnify(along_mm)
+    }
+
     /// Behind the platen: sheets go in over it.
     fn paper_table(&self, scene: &Scene) -> Option<PaperTable> {
         Some(machine::paper_table(

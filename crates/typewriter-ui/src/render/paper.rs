@@ -1,6 +1,9 @@
 //! The sheet and everything struck or painted on it.
 
-use eframe::egui::{Color32, CornerRadius, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
+use eframe::egui::epaint::Vertex;
+use eframe::egui::{
+    Color32, CornerRadius, Mesh, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2,
+};
 use typewriter_core::accents;
 use typewriter_core::carriage::Carriage;
 use typewriter_core::page::{Correction, Mark, Page};
@@ -135,17 +138,29 @@ pub fn paint_sheet(
         wetness,
         |cell| clip.intersects(cell),
     );
-    painter.extend(shapes(painter, metrics, marks));
+    painter.extend(shapes(painter, metrics, marks, None));
 }
 
-/// `marks` as shapes, `painter` laying out their glyphs.
-pub fn shapes(painter: &Painter, metrics: &Metrics, marks: Vec<Drawn>) -> Vec<Shape> {
+/// `marks` as shapes, `painter` laying out their glyphs. With `magnify`,
+/// type above the typing line is laid out larger and drawn back to its
+/// place: only its glyph raster keeps the size. See [`Magnify`].
+pub fn shapes(
+    painter: &Painter,
+    metrics: &Metrics,
+    marks: Vec<Drawn>,
+    magnify: Option<Magnify<'_>>,
+) -> Vec<Shape> {
     let mut shapes = Vec::new();
     for drawn in marks {
         match drawn {
             Drawn::Glyph { at, c, color } => {
-                let galley = painter.layout_no_wrap(c.to_string(), metrics.font.clone(), color);
-                shapes.push(Shape::galley(at, galley, color));
+                let m = magnify.map_or(1.0, |m| m.factor(metrics, at));
+                if m > 1.0 {
+                    shapes.push(magnified_glyph(painter, metrics, at, c, color, m));
+                } else {
+                    let galley = painter.layout_no_wrap(c.to_string(), metrics.font.clone(), color);
+                    shapes.push(Shape::galley(at, galley, color));
+                }
             }
             Drawn::Patch { rect, color } => {
                 shapes.push(Shape::rect_filled(rect, CornerRadius::same(3), color));
@@ -178,6 +193,70 @@ pub fn shapes(painter: &Painter, metrics: &Metrics, marks: Vec<Drawn>) -> Vec<Sh
     shapes
 }
 
+/// `c` laid out `m` times the sheet's size at `at`, its quads then drawn
+/// back toward `at` by `1/m`: the mesh covers the cell the flat print
+/// would, but its uvs — left in atlas texels, as the depth pass wants them
+/// — span the fuller raster.
+fn magnified_glyph(
+    painter: &Painter,
+    metrics: &Metrics,
+    at: Pos2,
+    c: char,
+    color: Color32,
+    m: f32,
+) -> Shape {
+    let mut font = metrics.font.clone();
+    font.size *= m;
+    let galley = painter.layout_no_wrap(c.to_string(), font, color);
+    let mut mesh = Mesh::default();
+    for row in &galley.rows {
+        let row_mesh = &row.visuals.mesh;
+        if row_mesh.is_empty() {
+            continue;
+        }
+        mesh.texture_id = row_mesh.texture_id;
+        let first = mesh.vertices.len() as u32;
+        let offset = row.pos.to_vec2();
+        mesh.vertices
+            .extend(row_mesh.vertices.iter().map(|v| Vertex {
+                pos: at + (offset + v.pos.to_vec2()) / m,
+                uv: v.uv,
+                color: if v.color == Color32::PLACEHOLDER {
+                    color
+                } else {
+                    v.color
+                },
+            }));
+        mesh.indices
+            .extend(row_mesh.indices.iter().map(|&i| i + first));
+    }
+    Shape::mesh(mesh)
+}
+
+/// A stage that draws the sheet in perspective brings its top nearer the
+/// eye than the printing point: type up there shows larger than it is
+/// laid, and its raster in the font atlas would stretch thin. Such type
+/// is laid out by `scale` and drawn back to the place the flat sheet
+/// gives it — same shape on screen, fuller glyph.
+#[derive(Clone, Copy)]
+pub struct Magnify<'a> {
+    /// The typing line, screen points: `scale` counts millimetres above it.
+    pub strike_y: f32,
+    /// How much larger print shows `along` millimetres above the line.
+    pub scale: &'a dyn Fn(f32) -> f32,
+}
+
+impl Magnify<'_> {
+    /// The factor for type laid flat with its top-left at `at`, rounded up
+    /// to 5 % steps: each size laid out is another set of glyph rasters
+    /// for the atlas to hold, and a finer step is invisible between them.
+    fn factor(&self, metrics: &Metrics, at: Pos2) -> f32 {
+        let along = (self.strike_y - at.y) / metrics.points_per_mm();
+        let m = (self.scale)(along).max(1.0);
+        ((m * 20.0).ceil() / 20.0).max(1.0)
+    }
+}
+
 /// Everything a print depends on beyond the sheet itself.
 #[derive(Clone, Copy)]
 pub struct SheetLook<'a> {
@@ -189,6 +268,9 @@ pub struct SheetLook<'a> {
     /// Fluid on the sheet is drying: its shine moves every frame, so the
     /// print animates and cannot wait for the stamp.
     pub drying: bool,
+    /// The sheet is drawn in perspective, nearer the eye toward its top:
+    /// see [`Magnify`]. `None`: it goes to the screen as laid.
+    pub magnify: Option<Magnify<'a>>,
 }
 
 /// The print a sheet makes on screen, kept from one frame to the next.
@@ -214,6 +296,9 @@ struct Painted {
     ink_realism: bool,
     dimming: Dimming,
     clip: Rect,
+    /// The typing line a magnified print was laid out against: the factor
+    /// moves with every millimetre of scroll. `None`: laid out flat.
+    strike_y: Option<f32>,
 }
 
 impl SheetPrint {
@@ -233,6 +318,7 @@ impl SheetPrint {
             dimming,
             wetness,
             drying,
+            magnify,
         } = *look;
         let key = Painted {
             sheet: page.stamp(),
@@ -241,6 +327,7 @@ impl SheetPrint {
             ink_realism,
             dimming,
             clip,
+            strike_y: magnify.map(|m| m.strike_y),
         };
         if drying
             || self
@@ -257,7 +344,7 @@ impl SheetPrint {
                 wetness,
                 |cell| clip.intersects(cell),
             );
-            self.painted = Some((key, shapes(painter, metrics, marks)));
+            self.painted = Some((key, shapes(painter, metrics, marks, magnify)));
         }
         match &self.painted {
             Some((_, shapes)) => shapes,
@@ -630,6 +717,7 @@ mod tests {
                 dimming: Dimming::NONE,
                 wetness: &dry,
                 drying: false,
+                magnify: None,
             };
             first = cache
                 .shapes(painter, &look, &page, Rect::EVERYTHING)
@@ -681,6 +769,7 @@ mod tests {
                 dimming: Dimming::NONE,
                 wetness: &dry,
                 drying: false,
+                magnify: None,
             };
             n = cache.shapes(painter, &look, &page, Rect::EVERYTHING).len();
             // The dab wets up: without `drying` the stamp alone says nothing
@@ -696,6 +785,117 @@ mod tests {
                 .len();
         });
         assert!(with_shine > n, "the wet highlight is drawn");
+    }
+
+    #[test]
+    fn magnified_type_keeps_its_place_with_a_fulter_raster() {
+        let profile = sm9();
+        let metrics = Metrics::new(&profile, 96.0);
+        let mut page = page_on(&profile);
+        page.strike(12, 10, 'a');
+        let span = |mesh: &Mesh| {
+            let (mut lo, mut hi) = (vec2(f32::MAX, f32::MAX), vec2(f32::MIN, f32::MIN));
+            for v in &mesh.vertices {
+                lo = lo.min(v.uv.to_vec2());
+                hi = hi.max(v.uv.to_vec2());
+            }
+            hi - lo
+        };
+        frame(|painter| {
+            let marks = sheet_marks(
+                &metrics,
+                &page,
+                Pos2::ZERO,
+                false,
+                Dimming::NONE,
+                &dry,
+                |_| true,
+            );
+            let flat = shapes(painter, &metrics, marks.clone(), None);
+            let twice = |_: f32| 2.0;
+            let big = shapes(
+                painter,
+                &metrics,
+                marks,
+                Some(Magnify {
+                    strike_y: 0.0,
+                    scale: &twice,
+                }),
+            );
+            let (Shape::Text(text), Shape::Mesh(mesh)) = (&flat[0], &big[0]) else {
+                panic!("{flat:?} {big:?}");
+            };
+            // The cell it stands in is the same, to a hair.
+            let (a, b) = (
+                flat[0].visual_bounding_rect(),
+                big[0].visual_bounding_rect(),
+            );
+            assert!(
+                (a.min - b.min).length() < 1.0 && (a.max - b.max).length() < 1.0,
+                "{a} {b}"
+            );
+            // The raster is twofold: tessellate the flat galley the pass's
+            // way — a one-texel atlas leaves uvs in texels alike.
+            let mut tessellator = eframe::egui::epaint::Tessellator::new(
+                1.0,
+                eframe::egui::epaint::TessellationOptions::default(),
+                [1, 1],
+                Vec::new(),
+            );
+            let mut flat_mesh = Mesh::default();
+            tessellator.tessellate_shape(Shape::Text(text.clone()), &mut flat_mesh);
+            let (flat, big) = (span(&flat_mesh), span(mesh));
+            assert!(
+                flat.x > 0.0 && (big.x / flat.x - 2.0).abs() < 0.4,
+                "{flat:?} {big:?}"
+            );
+            // Ink, never a placeholder: the colour was told to the mesh.
+            assert!(
+                mesh.vertices
+                    .iter()
+                    .all(|v| v.color != Color32::PLACEHOLDER)
+            );
+        });
+    }
+
+    #[test]
+    fn the_print_follows_the_typing_line_it_was_magnified_against() {
+        let profile = sm9();
+        let metrics = Metrics::new(&profile, 96.0);
+        let mut page = page_on(&profile);
+        page.strike(12, 10, 'a');
+        let mut cache = SheetPrint::default();
+        // A desk's rise: a tenth larger per inch of paper above the line.
+        let scale = |along: f32| (1.0 + along / 254.0).max(1.0);
+        let look = |strike_y| SheetLook {
+            metrics: &metrics,
+            origin: Pos2::ZERO,
+            ink_realism: false,
+            dimming: Dimming::NONE,
+            wetness: &dry,
+            drying: false,
+            magnify: Some(Magnify {
+                strike_y,
+                scale: &scale,
+            }),
+        };
+        frame(|painter| {
+            let before = cache
+                .shapes(painter, &look(100.0), &page, Rect::EVERYTHING)
+                .to_vec();
+            // Nothing moved: the kept print answers.
+            assert_eq!(
+                cache.shapes(painter, &look(100.0), &page, Rect::EVERYTHING),
+                &before[..]
+            );
+            // Only the typing line moved: every factor moved with it, and
+            // the print is remade fuller.
+            let after = cache
+                .shapes(painter, &look(200.0), &page, Rect::EVERYTHING)
+                .to_vec();
+            assert_eq!(before.len(), after.len());
+            assert_ne!(before, after, "the raised line magnifies the cell");
+        });
     }
 
     fn glyphs(shapes: &[Shape]) -> Vec<char> {
