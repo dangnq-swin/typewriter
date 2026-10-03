@@ -4176,7 +4176,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typewriter"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4188,7 +4188,7 @@ dependencies = [
 
 [[package]]
 name = "typewriter-core"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "jiff",
  "ron",
@@ -4200,7 +4200,7 @@ dependencies = [
 
 [[package]]
 name = "typewriter-ui"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "atomic-write-file",
