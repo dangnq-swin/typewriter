@@ -57,6 +57,20 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Adds `solids` after what this canvas has gathered: kept standing
+    /// parts, joined to these as if they had been built now.
+    pub(super) fn add_solids(&self, solids: Solids) {
+        if let Some(kept) = &self.solids {
+            kept.borrow_mut().append(solids);
+        }
+    }
+
+    /// What a depth canvas gathered, without handing it to the frame's
+    /// pass: for building standing solids to keep.
+    pub(super) fn take_solids(self) -> Solids {
+        self.solids.map_or_default(|solids| solids.into_inner())
+    }
+
     /// `shapes` drawn flat, lying on the machine: `place` puts each point
     /// where it shows and says its [`Placing`]: millimetres and shade.
     /// Small, or flat where they lie: only their points are placed.

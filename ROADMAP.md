@@ -13,32 +13,6 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
 
 ---
 
-## The desk's foundations: restructure, no change of look
-
-- [x] Split `depth.rs` (1600 lines, four contracts in one file): the pass's
-      life (`begin`/`gather`/`end`), the vertex packing and pipelines, the CPU
-      rasterizer, and the lighting math the shader mirrors. The "keep in step
-      with `depth.wgsl`" twins become a reviewable surface; the WGSL parse test
-      sits with the lighting.
-- [x] Cache the print: `render::paper::sheet_marks` walks every visible sheet's
-      cells afire a frame, in both modes — nothing in the app caches today.
-      Keep a sheet's marks between a strike, a correction, a fluid drying and a
-      sheet change. The core says when a sheet took a mark; answer the rest in
-      the app.
-- [x] Desk: a click contract for the machine. The `Stage` hooks return bespoke
-      rects — `[Rect; 5]` for the panel, `[Rect; 2]` for the knobs, the
-      `Scale`'s own stops — and a new clickable part means a new hook. One
-      named thing on the machine with its rect, `Intent`s for *taken* and
-      *released*; the desk's levers, keys and rack below build on it rather
-      than beside it.
-- [ ] Desk: the machine's standing solids, built once in their millimetres and
-      kept — the case, the cover, the panel, the keyboard — each moving part
-      through its own transform (the carriage's slide, the knobs' turn, the
-      throw, the bail's anchoring), never re-tessellated a frame
-      (~317 solids a frame today). Zoom and the typing line change only the
-      projection, which needs the section below: do them together if the bench
-      says the cache can't pay for itself alone.
-
 ## The desk's foundations: the GPU projects
 
 - [x] Desk: positions to the GPU in millimetres, `Eye` building one

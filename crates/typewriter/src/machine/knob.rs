@@ -107,11 +107,13 @@ pub(super) fn grips(eye: &Eye, ends: [f32; 2]) -> [Rect; 2] {
     })
 }
 
-/// The knobs at the carriage's `ends`, `eye` about the platen's axis,
-/// turned `turned` radians with the platen (its front rising), each lit if
-/// `hovered`.
-pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hovered: [bool; 2]) {
-    for (knob, hovered) in knobs(ends).into_iter().zip(hovered) {
+/// The knob bodies at the carriage's `ends`, `eye` about the platen's axis:
+/// collars, discs and faces. The cylinder bands stand at fixed angles and
+/// the lamp turns their shine per pixel, so these neither move nor change
+/// as the knob does: a kept solid, shifted with the carriage. The face's
+/// inner side and rim are the disc's ends; only the ribs turn.
+pub(super) fn paint_bodies(canvas: &Canvas, eye: &Eye, ends: [f32; 2]) {
+    for knob in knobs(ends) {
         let mut solid = Solid::default();
         let round = |x, radius| (x, (0.0, 0.0), radius);
         let cream = [CREAM, CREAM_SHINE];
@@ -143,6 +145,14 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hov
             let lit = matte(colour, normal);
             eye.fill(canvas, &circle(x, radius), |_| lit);
         }
+    }
+}
+
+/// The knurled ribs of the knobs at `ends`, turned `turned` radians with
+/// the platen (its front rising). Each is lit at its angle on the lamp, so
+/// a turn rebuilds them rather than rotating stale colour.
+pub(super) fn paint_ribs(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32) {
+    for knob in knobs(ends) {
         let [from, to] = knob.body();
         for rib in 0..RIBS {
             // From the top round the front: rising at the front, it turns back.
@@ -157,6 +167,12 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32, hov
                 colour,
             );
         }
+    }
+}
+
+/// The rim of each knob whose grip is `hovered`, lit.
+pub(super) fn paint_hover(canvas: &Canvas, eye: &Eye, ends: [f32; 2], hovered: [bool; 2]) {
+    for (knob, hovered) in knobs(ends).into_iter().zip(hovered) {
         if hovered {
             for x in [knob.at(COLLAR.0), knob.at(COLLAR.0 + DISC.0)] {
                 let mut rim = circle(x, DISC.1);

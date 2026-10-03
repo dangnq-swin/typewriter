@@ -2,6 +2,10 @@
 //! the millimetres each vertex stands at and how it takes the light;
 //! [`Solids`] gathers them, joined by texture into as few draws as the
 //! layers allow. [`Layer`] says whether a solid hides what is behind it.
+//! The millimetres are the truth and the screen positions follow them —
+//! [`Solids::show`] redraws them at the end of a frame — so a solid built
+//! once can be kept across frames and [`Solids::shifted`] into a moving
+//! part's place without being re-tessellated.
 
 use std::collections::HashMap;
 
@@ -71,24 +75,38 @@ impl Solids {
         self.opaque.is_empty() && self.decals.is_empty()
     }
 
-    /// That each vertex's millimetres show where the vertex stands: the
-    /// GPU draws where the millimetres are, the CPU twin where the
-    /// vertices stand, and a producer that gives one without the other
-    /// goes unseen by snapshots and missing on screen — strokes laid off
-    /// their path are the usual culprit.
-    pub(super) fn check_shown(&self, camera: &Camera) {
-        if camera.points.x <= 0.0 || camera.points.y <= 0.0 {
-            return; // a default camera, as the hand-built test solids carry
+    /// `self` with every vertex standing `by` millimetres further off:
+    /// a moving part gathered from solids kept at rest. What a kept mesh's
+    /// vertices show on screen is stale by then; [`Solids::show`] redraws
+    /// them, and the shade a face takes rides in vectors that a shift
+    /// cannot change — a turning part wants its producer to rebuild rather
+    /// than rotate.
+    pub fn shifted(&self, by: Vec3) -> Self {
+        let mut out = self.clone();
+        for (_, solids) in out.layers_mut() {
+            for solid in solids {
+                for place in &mut solid.places {
+                    *place += by;
+                }
+            }
         }
-        for layer in self.layers() {
-            for solid in layer.1 {
-                for (vertex, &mm) in solid.mesh.vertices.iter().zip(&solid.places) {
-                    let shown = camera.on_screen(mm);
-                    assert!(
-                        (shown - vertex.pos).length() < 0.05,
-                        "a vertex stands at {:?}, its millimetres show at {shown:?}",
-                        vertex.pos,
-                    );
+        out
+    }
+
+    /// Redraw each vertex where its own millimetres show through `camera`:
+    /// what the GPU projects from, and now what the CPU twin fills and
+    /// [`Solids::shifted`] leave stale. The producer's screen positions are
+    /// only the frame they were built in: a kept solid owes the pass its
+    /// millimetres, not those. Skipped for a default camera, as the
+    /// hand-built test solids carry: there the producers' positions stand.
+    pub(super) fn show(&mut self, camera: &Camera) {
+        if camera.points.x <= 0.0 || camera.points.y <= 0.0 {
+            return;
+        }
+        for (_, solids) in self.layers_mut() {
+            for solid in solids {
+                for (vertex, &mm) in solid.mesh.vertices.iter_mut().zip(&solid.places) {
+                    vertex.pos = camera.on_screen(mm);
                 }
             }
         }
@@ -97,6 +115,13 @@ impl Solids {
     /// Opaque, then decals: the order they are drawn in.
     pub fn layers(&self) -> [(Layer, &[Solid]); 2] {
         [(Layer::Opaque, &self.opaque), (Layer::Decal, &self.decals)]
+    }
+
+    fn layers_mut(&mut self) -> [(Layer, &mut Vec<Solid>); 2] {
+        [
+            (Layer::Opaque, &mut self.opaque),
+            (Layer::Decal, &mut self.decals),
+        ]
     }
 
     /// Adds `mesh`, `place` moving each vertex where it shows, maybe tinting
@@ -456,6 +481,38 @@ mod tests {
         runs.dedup();
         assert_eq!(runs, [Color32::RED, Color32::GREEN, Color32::BLUE]);
         assert!(colours.len() > 3, "cut");
+    }
+
+    #[test]
+    fn a_shifted_solid_travels_whole_and_keeps_its_colour() {
+        let mut mesh = Mesh::default();
+        for (x, y) in [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)] {
+            mesh.colored_vertex(pos2(x, y), Color32::WHITE);
+        }
+        mesh.add_triangle(0, 1, 2);
+        let mut solids = Solids::default();
+        solids.add(Layer::Opaque, mesh, |v| {
+            Some(Placing {
+                at: Vec3::new(v.pos.x, 0.0, v.pos.y),
+                shade: Shade::Matte(Vec3::Z),
+            })
+        });
+        let shifted = solids.shifted(Vec3::new(0.0, 12.7, 0.0));
+        let [(_, opaque), _] = shifted.layers();
+        assert_eq!(
+            opaque[0].places,
+            [
+                Vec3::new(0.0, 12.7, 0.0),
+                Vec3::new(10.0, 12.7, 0.0),
+                Vec3::new(0.0, 12.7, 10.0)
+            ]
+        );
+        // The shade vectors, and everything else in the mesh, ride along untouched.
+        assert_eq!(opaque[0].shades, solids.layers()[0].1[0].shades);
+        assert_eq!(
+            opaque[0].mesh.vertices,
+            solids.layers()[0].1[0].mesh.vertices
+        );
     }
 
     #[test]

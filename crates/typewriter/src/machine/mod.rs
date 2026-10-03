@@ -8,7 +8,9 @@
 //! The machine is drawn in depth, in one pass a frame from [`paint_behind`]
 //! to [`paint_front`]: what stands in front hides what is behind, whatever
 //! the order. Flat are only its shadow on the desk, under it all, and the
-//! panel's controls ([`Panel::paint`]), over it.
+//! panel's controls ([`Panel::paint`]), over it. Its parts are standing
+//! solids, built once and kept ([`standing`]); a frame gathers them, shifted
+//! where the carriage has travelled.
 
 mod bail;
 mod body;
@@ -26,6 +28,7 @@ mod panel;
 mod printing_point;
 mod sheet;
 mod side_controls;
+mod standing;
 mod support;
 
 pub use lever::Throw;
@@ -34,6 +37,7 @@ pub use sheet::paint_sheets;
 pub use support::paper_table;
 
 use eframe::egui::{Color32, Painter, Rect, lerp};
+use glam::Vec3;
 
 use crate::depth;
 use canvas::Canvas;
@@ -93,6 +97,10 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
 /// the carriage, the paper support, and the carriage for the sheet centred
 /// at `carriage_x` with its bail and its return lever, thrown `throw`
 /// (0..=1). Begins the frame's depth pass.
+///
+/// All but the support are kept standing solids ([`standing`]): the
+/// carriage's parts travel with `middle`, the lever's steel is keyed to the
+/// throw it was built in.
 pub fn paint_behind(
     painter: &Painter,
     view: Rect,
@@ -104,14 +112,17 @@ pub fn paint_behind(
     let eye = Eye::new(view, metrics, typing_y);
     body::paint_shadow(painter, &eye);
     depth::begin(painter, light::frame(), eye.camera());
+    let standing = standing::Standing::of(painter, &eye);
     let canvas = Canvas::depth(painter);
-    body::paint_deck(&canvas, &eye);
+    canvas.add_solids(standing.deck.clone());
     let middle = (carriage_x - eye.origin.x) / eye.ppmm;
     support::paint(&canvas, &eye, metrics, middle);
-    carriage::paint(&canvas, &eye, middle);
-    bail::paint(&canvas, &eye, middle);
+    canvas.add_solids(standing.carriage.shifted(Vec3::X * middle));
+    canvas.add_solids(standing.bail.shifted(Vec3::X * middle));
     let [left, _] = carriage::ends(middle);
-    lever::paint(&canvas, &eye.about(carriage::platen_axis()), left, throw);
+    let platen = eye.about(carriage::platen_axis());
+    canvas.add_solids(standing.bracket.shifted(Vec3::X * left));
+    standing.gather_lever(&canvas, &platen, throw, left);
     canvas.finish();
 }
 
@@ -136,7 +147,9 @@ pub fn print_scale(
 /// The platen knobs at the carriage's ends, for the sheet centred at
 /// `carriage_x`, turned by `rolled` points of paper, each lit if its grip
 /// is `hovered`: their grips on screen, left then right. Into the frame's
-/// depth pass.
+/// depth pass. The bodies are standing solids travelling with the
+/// carriage; the ribs take the lamp at the angle they stand, so they are
+/// kept only while the turn holds.
 pub fn paint_knobs(
     painter: &Painter,
     view: Rect,
@@ -145,40 +158,48 @@ pub fn paint_knobs(
     (carriage_x, rolled): (f32, f32),
     hovered: impl Fn(Rect) -> bool,
 ) -> [Rect; 2] {
-    let eye = Eye::new(view, metrics, typing_y);
-    let middle = (carriage_x - eye.origin.x) / eye.ppmm;
+    let plain = Eye::new(view, metrics, typing_y);
+    let middle = (carriage_x - plain.origin.x) / plain.ppmm;
     let ends = carriage::ends(middle);
-    let eye = eye.about(carriage::platen_axis());
+    let eye = plain.about(carriage::platen_axis());
     let grips = knob::grips(&eye, ends);
+    let standing = standing::Standing::of(painter, &plain);
     let canvas = Canvas::depth(painter);
+    canvas.add_solids(standing.knob_bodies.shifted(Vec3::X * middle));
     let turned = rolled / eye.ppmm / knob::DISC.1;
-    knob::paint(&canvas, &eye, ends, turned, grips.map(hovered));
+    standing.gather_ribs(&canvas, &eye, turned, middle);
+    knob::paint_hover(&canvas, &eye, ends, grips.map(hovered));
     canvas.finish();
     grips
 }
 
 /// In front of the sheet, after it: the alignment guide, ribbon and card
 /// holder at the printing point, the ribbon cover over the type bars, the
-/// front panel and the keyboard. Ends the frame's depth pass.
+/// front panel and the keyboard. Ends the frame's depth pass. All standing
+/// solids but the guide's tape and the keys' legends, which are laid on
+/// screen: the tape for the sheet's columns, the legends because the font
+/// atlas may move a glyph between frames.
 pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f32) {
     let eye = Eye::new(view, metrics, typing_y);
+    let standing = standing::Standing::of(painter, &eye);
     let canvas = Canvas::depth(painter);
-    cover::paint_opening(&canvas, &eye);
-    printing_point::paint(&canvas, &eye, metrics);
-    cover::paint(&canvas, &eye);
-    panel::paint_face(&canvas, &eye);
-    let levers = keyboard::key_levers();
-    case::paint_well(&canvas, &eye);
-    keyboard::paint_rod(&canvas, &eye, &levers);
-    case::paint_inner_walls(&canvas, &eye);
-    // Decals blend in order: the levers over the shadows.
-    keyboard::paint_shadows(&canvas, &eye);
-    keyboard::paint_levers(&canvas, &eye, &levers);
-    side_controls::paint(&canvas, &eye);
-    case::paint_panel_edge(&canvas, &eye);
-    keyboard::paint_caps(&canvas, &eye);
-    case::paint_frame(&canvas, &eye);
-    side_controls::paint_marks(&canvas, &eye);
+    standing.gather_opening(&canvas, &eye);
+    canvas.add_solids(standing.guide_plates.clone());
+    printing_point::paint_scale(&canvas, &eye, metrics);
+    canvas.add_solids(standing.guide_rest.clone());
+    canvas.add_solids(standing.cover.clone());
+    canvas.add_solids(standing.panel.clone());
+    canvas.add_solids(standing.rod.clone());
+    canvas.add_solids(standing.well.clone());
+    canvas.add_solids(standing.inner_walls.clone());
+    canvas.add_solids(standing.key_shadows.clone());
+    canvas.add_solids(standing.key_levers.clone());
+    canvas.add_solids(standing.side_controls.clone());
+    canvas.add_solids(standing.panel_edge.clone());
+    canvas.add_solids(standing.caps.clone());
+    keyboard::paint_legends(&canvas, &eye);
+    canvas.add_solids(standing.case_frame.clone());
+    canvas.add_solids(standing.selector_marks.clone());
     canvas.finish();
     // The behind, the sheets and this in one pass.
     depth::end(painter);
@@ -246,20 +267,107 @@ mod tests {
     }
 
     #[test]
-    fn every_vertex_stands_where_it_is_drawn() {
-        // The GPU draws where a solid's millimetres show, the CPU twin
-        // where its vertices stand: `depth::end` checks the two agree, so
-        // a part cannot go missing on screen unseen by snapshots.
+    fn a_kept_solid_shows_where_the_eye_of_its_frame_looks() {
+        // The standing solids are built once and kept; the pass redraws
+        // every vertex from its own millimetres, so a later eye — a new
+        // zoom, a new typing line — shows them fresh, and the GPU and its
+        // CPU twin cannot part ways.
         let ctx = eframe::egui::Context::default();
-        let mut output = ctx.run_ui(Default::default(), |ui| {
-            let painter = ui.painter();
-            let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
-            let metrics = metrics(100);
-            let typing_y = view.height() * typing_line_height(view, &metrics, 100);
-            paint_behind(painter, view, &metrics, typing_y, 800.0, 0.0);
-            paint_knobs(painter, view, &metrics, typing_y, (800.0, 0.0), |_| false);
-            paint_front(painter, view, &metrics, typing_y);
-        });
-        output.textures_delta.clear();
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
+        for zoom in [100, 50] {
+            let metrics = metrics(zoom);
+            let typing_y = view.height() * typing_line_height(view, &metrics, zoom);
+            let eye = Eye::new(view, &metrics, typing_y);
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let painter = ui.painter();
+                paint_behind(painter, view, &metrics, typing_y, 800.0, 0.0);
+                paint_knobs(painter, view, &metrics, typing_y, (800.0, 0.0), |_| false);
+                paint_front(painter, view, &metrics, typing_y);
+            });
+            output.textures_delta.clear();
+            let passes: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    eframe::egui::Shape::Callback(c) => c.callback.downcast_ref::<depth::Pass>(),
+                    _ => None,
+                })
+                .collect();
+            let [pass] = passes[..] else {
+                panic!("one depth pass a frame, got {}", passes.len());
+            };
+            for (_, solids) in pass.solids.layers() {
+                for solid in solids {
+                    for (vertex, &mm) in solid.mesh.vertices.iter().zip(&solid.places) {
+                        assert!(
+                            (eye.at(mm) - vertex.pos).length() < 2e-2,
+                            "{mm:?} drawn at {:?}",
+                            vertex.pos,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_shifted_solid_travels_whole() {
+        // The carriage's standing solids, kept at rest and shifted, travel
+        // whole with it: no vertex is left behind, none turns on the way.
+        let ctx = eframe::egui::Context::default();
+        let view = Rect::from_min_size(Pos2::ZERO, vec2(1600.0, 1000.0));
+        let metrics = metrics(100);
+        let typing_y = view.height() * typing_line_height(view, &metrics, 100);
+        let draw = |carriage_x: f32| {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let painter = ui.painter();
+                paint_behind(painter, view, &metrics, typing_y, carriage_x, 0.0);
+                depth::end(painter);
+            });
+            output.textures_delta.clear();
+            output
+        };
+        let places = |output: &eframe::egui::FullOutput| {
+            let mut all = Vec::new();
+            for shape in &output.shapes {
+                if let eframe::egui::Shape::Callback(c) = &shape.shape
+                    && let Some(pass) = c.callback.downcast_ref::<depth::Pass>()
+                {
+                    for (_, solids) in pass.solids.layers() {
+                        for solid in solids {
+                            all.extend(solid.places.iter().map(|p| (p.x, p.y, p.z)));
+                        }
+                    }
+                }
+            }
+            all
+        };
+        let (out_home, out_shift) = (draw(800.0), draw(800.0 + 12.7 * metrics.points_per_mm()));
+        let (home, shifted) = (places(&out_home), places(&out_shift));
+        assert_eq!(home.len(), shifted.len());
+        // Every vertex either stood still — the body, the paper support —
+        // or travelled with the carriage. Standing solids shifted whole:
+        // their places are bit-identical plus `by`. What is rebuilt a
+        // frame knows the slide in its own millimetres, and a stroke laid
+        // off its path leans differently on the way across the platen:
+        // that much, a tenth of a millimetre, is all a kept travel may not
+        // share with one built in place.
+        let (mut still, mut travelled) = (0, 0);
+        for (a, b) in home.iter().zip(&shifted) {
+            if a == b {
+                still += 1;
+                continue;
+            }
+            travelled += 1;
+            let (dx, dy, dz) = (b.0 - a.0, b.1 - a.1, b.2 - a.2);
+            assert!(
+                (dx - 12.7).abs() < 0.1 && dy.abs() < 0.1 && dz.abs() < 0.1,
+                "{a:?} -> {b:?}"
+            );
+        }
+        assert!(
+            still > 0 && travelled > still,
+            "the carriage travelled, the body stayed"
+        );
     }
 }

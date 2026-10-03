@@ -346,16 +346,19 @@ fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: Vec3) {
 }
 
 /// The caps, far row first, then the tab clear key, the space bar and the
-/// tab set key.
+/// tab set key: standing solids. Their legends ride the font atlas, which
+/// may move a glyph between frames, so [`paint_legends`] is gathered a
+/// frame; one outline may fall before a legend it never shares a pixel
+/// with, and the blend cannot tell.
 pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
     let (space_y, space_z) = SPACE_ROW;
     for (row, keys) in KEYS.iter().enumerate() {
         let (y, z) = key_row(row as f32);
         for key in keys.iter() {
-            paint_key(canvas, eye, key, Vec3::new(key.x(), y, z));
+            paint_cap_geometry(canvas, eye, key, Vec3::new(key.x(), y, z));
         }
     }
-    for (left, right, name) in SPACE_BAR {
+    for (left, right, _) in SPACE_BAR {
         let (back, front) = (space_y - SPACE_HALF_DEPTH, space_y + SPACE_HALF_DEPTH);
         paint_cap(
             canvas,
@@ -365,6 +368,31 @@ pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
             space_z,
             [CAP, CAP_FRONT],
         );
+    }
+}
+
+/// Every key's legends, and the space bar's.
+pub(super) fn paint_legends(canvas: &Canvas, eye: &Eye) {
+    for (row, keys) in KEYS.iter().enumerate() {
+        let (y, z) = key_row(row as f32);
+        for key in keys.iter() {
+            let size = if key.legend.chars().count() > 1 {
+                0.6
+            } else {
+                1.0
+            };
+            legend(
+                canvas,
+                eye,
+                Vec3::new(key.x(), y, z),
+                key.legend,
+                key.shifted,
+                size,
+            );
+        }
+    }
+    let (space_y, space_z) = SPACE_ROW;
+    for (left, right, name) in SPACE_BAR {
         legend(
             canvas,
             eye,
@@ -376,8 +404,8 @@ pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
     }
 }
 
-/// A key's cap, its top's centre at `top`, with its legends.
-fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: Vec3) {
+/// A key's cap, its top's centre at `top`, and its legends.
+fn paint_cap_geometry(canvas: &Canvas, eye: &Eye, key: &Key, top: Vec3) {
     let half = key.half_width();
     let depth = KEY_CAP.1 / 2.0;
     let colours = if key.shift {
@@ -393,12 +421,6 @@ fn paint_key(canvas: &Canvas, eye: &Eye, key: &Key, top: Vec3) {
         top.z,
         colours,
     );
-    let size = if key.legend.chars().count() > 1 {
-        0.6
-    } else {
-        1.0
-    };
-    legend(canvas, eye, top, key.legend, key.shifted, size);
 }
 
 /// A rounded cap over `x` and `y` ranges, its top at `z`: its sides down to

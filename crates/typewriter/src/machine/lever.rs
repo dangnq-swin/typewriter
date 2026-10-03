@@ -101,10 +101,10 @@ impl Throw {
     }
 }
 
-/// The bracket on the carriage's left end at `left` millimetres, `eye` about the
-/// platen's axis; the lever in it thrown `amount` (0..=1), and the screw.
-pub(super) fn paint(canvas: &Canvas, eye: &Eye, left: f32, amount: f32) {
-    paint_bracket(canvas, eye, left);
+/// The lever and its screw on the carriage's left end at `left` millimetres,
+/// `eye` about the platen's axis, thrown `amount` (0..=1): what moves with
+/// the carriage and the throw, kept at rest and shifted a frame.
+pub(super) fn paint_moving(canvas: &Canvas, eye: &Eye, left: f32, amount: f32) {
     let strap = Strap::new(left, amount);
     paint_strap(canvas, eye, &strap.frames);
     paint_screw(canvas, eye, strap.screw);
@@ -112,7 +112,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, left: f32, amount: f32) {
 
 /// The bracket's faces toward the eye, for the carriage's left end at
 /// `left` millimetres.
-fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
+pub(super) fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
     let ((x0, x1), (back, front), (bottom, top)) = (BRACKET_X, BRACKET_Y, BRACKET_Z);
     let (x0, x1) = (x0 + left, x1 + left);
     let inner = [

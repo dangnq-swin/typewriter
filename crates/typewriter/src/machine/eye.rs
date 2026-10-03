@@ -71,8 +71,9 @@ impl Eye {
     /// The same eye, taking points from `anchor` rather than the printing
     /// point. A solid's mm→machine transform lives in the absolute
     /// millimetres its vertices carry, this offset folded in at build time:
-    /// a moving part will want a per-draw model matrix instead, and nothing
-    /// here is baked that cannot move.
+    /// the standing solids travel through [`crate::depth::Solids::shifted`],
+    /// which is all the carriage and its parts turn out to need, and
+    /// nothing here is baked that cannot move.
     pub(super) fn about(self, anchor: Vec3) -> Self {
         Self { anchor, ..self }
     }

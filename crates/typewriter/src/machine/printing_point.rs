@@ -66,15 +66,6 @@ const SCALE_MARK: Color32 = Color32::from_rgb(0xEC, 0xEC, 0xE6);
 const RIBBON_INK: Color32 = Color32::from_rgb(0x1E, 0x1D, 0x20);
 const RIBBON_RED: Color32 = Color32::from_rgb(0xB0, 0x2C, 0x28);
 
-/// The guide, the ribbon, the card holder and the vibrator.
-pub(super) fn paint(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
-    paint_plates(canvas, eye);
-    paint_scale(canvas, eye, metrics);
-    paint_ribbon(canvas, eye);
-    paint_card_holder(canvas, eye);
-    paint_vibrator(canvas, eye);
-}
-
 /// `points` round again to the first.
 fn closed(points: &[Vec3]) -> Vec<Vec3> {
     points.iter().chain(points.first()).copied().collect()
@@ -118,8 +109,11 @@ fn guide_height() -> f32 {
     GUIDE_Z.1 - GUIDE_Z.0
 }
 
-/// The guide's perspex plates, their top edges catching the light.
-fn paint_plates(canvas: &Canvas, eye: &Eye) {
+/// The guide's perspex plates, their top edges catching the light: a
+/// standing solid. The tape's marks fall on the sheet's columns on screen,
+/// so only [`paint_scale`] is gathered a frame; the ribbon, card holder and
+/// vibrator stand too, in [`paint_rest`].
+pub(super) fn paint_plates(canvas: &Canvas, eye: &Eye) {
     let (inner, outer) = GUIDE_X;
     for side in [-1.0, 1.0] {
         let flat = guide_outline([
@@ -143,8 +137,9 @@ fn paint_plates(canvas: &Canvas, eye: &Eye) {
 
 /// The scale along each plate's foot, from a black notch with a white V at
 /// its inner end out `SCALE_MARKS` columns, marked on the columns' edges so
-/// it lines up with the type.
-fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
+/// it lines up with the type. Gathered a frame: its marks snap to the sheet's
+/// columns on screen.
+pub(super) fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
     let inner = GUIDE_X.0;
     let (ppmm, column) = (eye.ppmm, metrics.column_width);
     let (notch_in, notch_width) = PENCIL_NOTCH;
@@ -197,6 +192,14 @@ fn paint_scale(canvas: &Canvas, eye: &Eye, metrics: &Metrics) {
             });
         }
     }
+}
+
+/// The two-colour ribbon on edge, black over red, the card holder's wire
+/// and the vibrator: standing solids under the plates.
+pub(super) fn paint_rest(canvas: &Canvas, eye: &Eye) {
+    paint_ribbon(canvas, eye);
+    paint_card_holder(canvas, eye);
+    paint_vibrator(canvas, eye);
 }
 
 /// The ribbon's top edge, left spool to right: out of sight under the cover

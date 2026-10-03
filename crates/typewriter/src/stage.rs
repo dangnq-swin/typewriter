@@ -7,9 +7,10 @@
 //! `draw.rs`: share a helper there by re-exporting it, not by making an app
 //! module public.
 //!
-//! Drawing is in depth — one wgpu callback a frame, a depth buffer,
-//! positions projected on the CPU (`depth/`, `machine/canvas.rs`). A part
-//! moved into depth needs its real shape, not the order it was drawn in.
+//! Drawing is in depth — one wgpu callback a frame, a depth buffer, the
+//! pass's camera projecting the machine's millimetres (`depth/`,
+//! `machine/canvas.rs`). A part moved into depth needs its real shape, not
+//! the order it was drawn in.
 
 use eframe::egui::{Context, Painter, Rect, Ui};
 use eframe::egui_wgpu::RenderState;

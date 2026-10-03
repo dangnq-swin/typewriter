@@ -13,13 +13,16 @@
 //! [`Camera`] projects those millimetres into the window: the shader does
 //! the project and the divide, so uv, colour and millimetres blend
 //! perspective-correctly, and lights each fragment from its own millimetres
-//! toward the lamp, so a flat face is not lit evenly. Opaque triangles
-//! hide what is behind them; decals lie on them (print, edges, glass), hide
-//! nothing and are drawn after, lifted toward the eye by the pass's depth
-//! bias (`decal_bias`) rather than by standing nearer in millimetres. Where
-//! no renderer is installed, as in the snapshot tool, the triangles go out as
-//! data for `rasterize` to fill, its CPU twin of the same projection, with
-//! the same bias.
+//! toward the lamp, so a flat face is not lit evenly. What the screen
+//! positions are for, the twin fills its triangles by them — so [`end`]
+//! redraws each one from its millimetres before handing the pass out, and a
+//! producer may build solids once and keep them across frames, only placing
+//! them afresh. Opaque triangles hide what is behind them; decals lie on
+//! them (print, edges, glass), hide nothing and are drawn after, lifted
+//! toward the eye by the pass's depth bias (`decal_bias`) rather than by
+//! standing nearer in millimetres. Where no renderer is installed, as in
+//! the snapshot tool, the triangles go out as data for `rasterize` to fill,
+//! its CPU twin of the same projection, with the same bias.
 
 pub mod gpu;
 pub mod lighting;
@@ -197,7 +200,7 @@ fn record_counts(painter: &Painter, solids: &Solids) {
 pub fn end(painter: &Painter) {
     let Frame {
         slot,
-        solids,
+        mut solids,
         lighting,
         camera,
     } = painter
@@ -209,9 +212,9 @@ pub fn end(painter: &Painter) {
     if solids.is_empty() {
         return;
     }
-    if cfg!(debug_assertions) {
-        solids.check_shown(&camera);
-    }
+    // A kept solid's vertices show where they were built; the pass draws
+    // from their millimetres, and its CPU twin fills by these.
+    solids.show(&camera);
     // The whole window: positions stay the window's.
     let rect = painter.ctx().viewport_rect();
     let pass = Arc::new(Pass {
@@ -255,6 +258,60 @@ mod tests {
     use eframe::egui::{Color32, Mesh, Rect, pos2};
 
     use super::*;
+
+    #[test]
+    fn end_draws_every_vertex_where_its_millimetres_show() {
+        // A kept solid comes with stale screen positions; the pass must
+        // redraw them from the millimetres, which is all the GPU and the
+        // CPU twin can then disagree about.
+        let camera = Camera {
+            rows: [
+                Vec4::new(1.0, 0.0, 0.0, 0.0),
+                Vec4::new(0.0, 1.0, 0.0, 0.0),
+                Vec4::new(0.0, 0.0, 1.0, 0.0),
+                Vec4::new(0.0, 0.0, 0.0, 2.0),
+            ],
+            points: Vec2::splat(100.0),
+        };
+        let ctx = Context::default();
+        let mut mesh = Mesh::default();
+        for (x, y) in [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)] {
+            mesh.colored_vertex(pos2(x + 999.0, y + 999.0), Color32::WHITE);
+        }
+        mesh.add_triangle(0, 1, 2);
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            let painter = ui.painter();
+            begin(painter, Lighting::default(), camera);
+            let mut solids = Solids::default();
+            for mm in [Vec3::X, Vec3::Y, Vec3::Z] {
+                solids.add(Layer::Opaque, mesh.clone(), |_| {
+                    Some(Placing {
+                        at: mm,
+                        shade: Shade::Unlit,
+                    })
+                });
+            }
+            gather(&ctx, solids);
+            end(painter);
+        });
+        output.textures_delta.clear();
+        let pass = output
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                Shape::Callback(c) => c.callback.downcast_ref::<Pass>(),
+                _ => None,
+            })
+            .unwrap();
+        for (layer, solids) in pass.solids.layers() {
+            let _ = layer;
+            for solid in solids {
+                for (vertex, &mm) in solid.mesh.vertices.iter().zip(&solid.places) {
+                    assert_eq!(vertex.pos, camera.on_screen(mm));
+                }
+            }
+        }
+    }
 
     #[test]
     fn one_pass_a_frame_where_it_began() {
