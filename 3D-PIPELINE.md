@@ -38,14 +38,15 @@ maintainer runs like these.
 
 ## How the work divides
 
-One agent at a time for the first two tasks; then four in parallel against
-the interface task 1 leaves; then testing and bench together; retirement last.
+T0 is done. T1a opens the crate and plain mode's window alone; then T1b
+(normal mode's window) and T1c (the renderer's device core) run in parallel
+on disjoint files; then the machine's parts, the lamp and the sheets build
+against T1c's interface in parallel; T5 switches the desk over; testing and
+bench together; retirement last.
 
 ```
-T0 ── T1 ──┬─ T2 (geometry)   ─┬─ T6 (tests) ∥ T7 (bench) ── T8 (retire)
-           ├─ T3 (light)      ─┤
-           ├─ T4 (sheets)     ─┤
-           └─ T5 (egui, pick) ─┘
+T0 ── T1a ──┬─ T1b (normal mode's window) ─┬─ T2 ∥ T3 ∥ T4 ── T5 ── T6 ∥ T7 ── T8
+            └─ T1c (renderer device core) ─┘
 ```
 
 Agents own whole files; two agents never edit one file in a wave. Where a
@@ -59,64 +60,104 @@ in parallel in one tree and never commit; between waves the lead runs fmt,
 clippy, tests and snapshots branch-wide, then lands each task's files as its
 own commit. A task may split in two where the diff wants it, but no task
 merges into its neighbour's commit. A wave's done-when is judged after the
-wave's integration, before its commits land.
+wave's integration, before its commits land — T1b ∥ T1c land as two commits
+after their joint integration.
 
 | # | task | commit |
 |---|---|---|
-| 0 | this plan | `docs: the 3d pipeline's plan` |
-| 1 | T0 | `feat: the 3d pipeline's shape, decided and sketched` |
-| 2 | T1 | `feat: the 3d pipeline's spine` |
-| 3 | T2 | `feat: the machine's parts build into the 3d pipeline` |
-| 4 | T3 | `feat: the lamp lights the 3d pipeline` |
-| 5 | T4 | `feat: sheets and print draw in the 3d pipeline` |
-| 6 | T5 | `feat: egui and the click contract over the 3d pipeline` |
-| 7 | T6 | `test: snapshots headless through the 3d pipeline` |
-| 8 | T7 | `test: the bench times the 3d pipeline` |
-| 9 | T8 | `refactor: the old depth pass retires` |
+| 0 | this plan | `docs: the 3d pipeline's plan` — landed |
+| 1 | this restructure | `docs: the pipeline takes its own surface` |
+| 2 | T1a | `feat: the render crate opens plain mode's window` |
+| 3 | T1b | `feat: normal mode moves onto the render crate's window` |
+| 4 | T1c | `feat: the render crate's device core` |
+| 5 | T2 | `feat: the machine's parts build into the render crate` |
+| 6 | T3 | `feat: the lamp lights the render crate` |
+| 7 | T4 | `feat: sheets and print draw in the render crate` |
+| 8 | T5 | `feat: the desk draws through the render crate` |
+| 9 | T6 | `test: snapshots headless through the render crate` |
+| 10 | T7 | `test: the bench times the render crate` |
+| 11 | T8 | `refactor: eframe and the old depth pass retire` |
 
-## T0 — architecture spike, one agent, first
+## T0 — done, decided
 
-Decide how the renderer composes with the window, and write the decision as
-an ADR section at the foot of this file. The candidates:
+The spike put the composition question to two candidates and recommended
+composing through eframe (candidate 1), sketching it as a `render3d` module
+beside `depth/` with an eframe-callback install and a bare-device
+clear-colour test. The maintainer overruled it and decided candidate 2 —
+ADR 1 below records the decision and what carries forward. The skeleton
+sketched the overruled shape and is dropped from the tree. What the spike
+established holds regardless: egui-wgpu 0.36's internals as verified (its
+egui mesh pipeline neither tests nor writes depth; a callback's `paint`
+runs inside its one render pass; `prepare` command buffers submit before it
+and are wiped by its clear) — under our own loop these become facts about a
+component we drive, and the pass order is ours: egui-under meshes, the 3D
+pass, egui-over meshes. Headless reach proved symmetric — both shapes reach
+a device the same way, `depth/gpu.rs`'s rig already running on a bare
+headless device, offscreen target and readback — while the snapshot harness
+reaches the pass with no device and no window at all
+(`TypewriterApp::nowhere` skips `Stage::start`; its door is
+`Stage::snapshot_callback` and the CPU twin). `depth/`'s maths was never in
+question: composition touches none of it.
 
-- **eframe keeps the window and egui; the renderer owns the 3D frame.** One
-  full-window wgpu pass the app drives through eframe's render state, egui
-  paints over it. Least windowing risk; the renderer is still "its own".
-- **Own winit + wgpu renderer, egui-wgpu as a UI layer.** The conventional
-  shape; eframe's conveniences (paint callbacks, tessellation, the depth
-  buffer config) go, egui's text and widgets stay through egui-wgpu.
+## T1a — the crate and plain mode's window, one agent, first
 
-Judged by: how the snapshot and bench harnesses reach the renderer headless,
-how the click contract survives, what plain mode keeps (plain mode draws no
-3D and must not pay for it), and how much of `depth/`'s maths either keeps.
-The spike ends with the chosen shape sketched in code — a skeleton that
-compiles and draws a clear-colour frame through the new path, both modes
-still working the old way beside it.
+`crates/typewriter-render` is born, its module layout stubbed so the later
+tasks own disjoint files: `window/` (the winit loop, the surface), `ui/`
+(egui driven through egui-wgpu), and the renderer core's home (T1c's). The
+loop gets what a window owes both modes: open and close, resize, DPI
+(points-per-point into egui's input), fullscreen both ways — plain mode's
+settings card switches it, and `app/mod.rs` follows the window's state —
+and egui's repaint signal hooked into the loop: the one-instance hand-over
+(`instance.rs`) repaints from a listener thread and must wake it. Input
+maps through egui-winit; plain mode types through it. Done-when: **plain
+mode works end to end on the new window** — its whole UI is egui, no 3D at
+all, and `typewriter-plain` opens through it — while normal mode still runs
+on eframe, the old path building beside it.
 
-## T1 — renderer core, one agent, after T0
+Safety rail for the migration, built here and proved at T1b: we drive
+egui-wgpu's renderer ourselves, so the **old depth pass's paint callback
+keeps working** through it — the desk never disappears.
 
-The pipeline's spine, at whatever module or crate shape T0 chose (candidate:
-a `render3d` module of `typewriter`, or a new `typewriter-render` crate):
+## T1b — normal mode's window, one agent, after T1a
 
-- Device/surface/swapchain or eframe render-state integration per T0's ADR.
-- Pipelines: opaque, decal, shadow-map (2048², `SHADOW_MAP` stays the
-  contract), text-on-surface placeholder.
-- The frame: depth buffer, the camera uniform from `Camera`'s clip rows
-  (`depth::Camera` keeps its maths; `Eye::camera` keeps feeding it — a test
-  pins CPU and GPU to the same projection, as today).
-- **The interface the parallel tasks build against** — deliver it compiling
-  and unit-tested before the wave opens:
-  - scene submission: opaque then decal layers, meshes named and replaceable
-    per frame (today's `Layer`/`Solid`/`Placing`, minus the egui vertex
-    types),
-  - per-solid placement in absolute millimetres, standing solids uploaded
-    once and moved by transform only,
-  - the shadow pass hook lighting's casters register into,
-  - a test-only capture path a headless device can render through.
-- GPU vertex layout in millimetres (the shader projects; the CPU stops
-  re-projecting per frame — that is where today's ~1.8 ms goes).
+The desk's chrome and flat parts on the new loop through egui-wgpu — the
+room's backdrop, the panel's controls, the scale, the flat sheet wrappers —
+while the machine area stays drawn by the **old depth pass** through the
+callback we now drive: that is the incremental migration path. `Stage::start`'s
+install takes a `RenderState` we build from the loop's own device, queue
+and renderer (every field is public — nothing inside egui-wgpu blocks it),
+and the surface carries the depth attachment the pass depth-tests into. The
+viewport commands the app leans on port: fullscreen bookkeeping (the
+Windows inner-size workaround included), the Wayland focus retry after a
+hand-over, close and cancel-close. Done-when: normal mode's desk draws as
+today — snapshots match — and the smoke test is green on xvfb for both
+binaries.
 
-## Wave 2 — four agents in parallel, after T1
+## T1c — the renderer's device core, one agent, parallel with T1b
+
+Disjoint files: T1b owns app wiring in `typewriter`/`typewriter-ui`, T1c
+owns the crate's renderer core. The pipelines registry (opaque, decal,
+shadow-map — 2048², `SHADOW_MAP` stays the contract — and a
+text-on-surface placeholder), the camera uniform from `Camera`'s clip rows
+(`depth::Camera` keeps its maths; `Eye::camera` keeps feeding it — a test
+pins CPU and GPU to the same projection, as today), our own depth buffer,
+the frame's pass order, and the **bare-device tests** beside it all. And
+**the interface the parallel tasks build against** — delivered compiling
+and unit-tested before wave 2 opens:
+
+- scene submission: opaque then decal layers, meshes named and replaceable
+  per frame (today's `Layer`/`Solid`/`Placing`, minus the egui vertex
+  types),
+- per-solid placement in absolute millimetres, standing solids uploaded
+  once and moved by transform only,
+- the shadow pass hook lighting's casters register into,
+- a test-only capture path a headless device can render through — the
+  spike's readback test is its seed, now living in the new crate.
+
+GPU vertex layout in millimetres (the shader projects; the CPU stops
+re-projecting per frame — that is where today's ~1.8 ms goes).
+
+## Wave 2 — three agents in parallel, after T1c's interface
 
 **T2 — geometry, the machine's parts.** `machine/` solid builders
 (body, case, cover, carriage, keyboard, side controls, panel, knobs, levers,
@@ -140,13 +181,18 @@ typing line laid out magnified near the eye, decals (print, edges, glass)
 drawn after opaques with the depth bias as a pipeline constant. Done-when:
 the feeding and typed snapshots match.
 
-**T5 — egui composition, camera, picking.** `stage.rs` hooks,
-`typewriter-ui`'s render modules, `machine/eye.rs`: egui chrome over or under
-the 3D pass per T0's ADR, the flat desk of folders and notes unchanged in
-folder view, and the click contract — parts sensed by `render::CLICK`, click
-rects computed from the same camera the shader reads (CPU picking; GPU
-picking only if the bench says the rects are wrong at depth). Done-when:
-clicks land where the eye sees, keyboard typing works end to end.
+## T5 — the switch and the input contract, one agent, after wave 2
+
+`stage.rs` hooks, `typewriter-ui`'s render modules, `machine/eye.rs`: the
+desk moves off the old depth pass onto the renderer's submission — the
+hooks gather into it, the machine's meshes draw through it, and the old
+callback draws its last frame (T8 deletes it). The click contract verified:
+parts sensed by `render::CLICK`, click rects computed from the same
+`Camera` the shader reads (CPU picking; GPU picking only if the bench says
+the rects are wrong at depth). The flat desk of folders and notes is
+unchanged in folder view. And the clear becomes the room's colour in normal
+mode — the maintainer's call, landed here. Done-when: clicks land where the
+eye sees, keyboard typing works end to end, the snapshots match.
 
 ## Wave 3 — two agents in parallel, after wave 2
 
@@ -168,12 +214,63 @@ branch's perf claim cites the bench.
 
 Delete the old paint-callback path (`depth/mod.rs`'s begin/gather/end, the
 egui-wgpu callback in `depth/gpu.rs`), whatever T6 retired of `raster.rs`,
-dead bench rows; `stage.rs` hooks shrink to the new contract. ROADMAP's
+dead bench rows; `stage.rs` hooks shrink to the new contract. And eframe
+leaves the workspace: the dependency goes from `typewriter-ui` and both
+binaries (whose egui imports come straight from `egui` — egui itself stays,
+egui-wgpu needs it), README's build notes if they mention it;
+`scripts/smoke-test.sh` stays, proving the new window on xvfb. ROADMAP's
 foundations section leaves the file (git history and the release notes keep
 it); README's Controls if anything moved. Done-when: fmt, clippy, tests,
-snapshots pass with no old path in the tree, and the workspace builds both
-modes.
+snapshots pass with no old path and no eframe in the tree, and the
+workspace builds both modes.
 
 ## Decisions log (ADR)
 
-*(T0 writes the composition decision here; later waves append theirs.)*
+### ADR 1 — decided: the renderer takes its own surface — winit + wgpu, egui-wgpu as the UI layer
+
+Decided 2026-10-05, the maintainer's call, overruling T0's recommendation
+of composing through eframe. Candidate 2 of this plan's two: the app gets
+its own winit + wgpu event loop and surface, egui-wgpu drives the UI over
+it, and the renderer lives in a new `typewriter-render` crate under
+`crates/`. eframe goes.
+
+**Why.** The desk's 3D trajectory — scene camera, more machines, someday
+the walkable office — wants surface ownership, pass order and frame pacing
+now, and the windowing cost is accepted and deliberately divided into small
+subtasks: T1a opens the crate and plain mode's window, T1b moves normal
+mode's window over, T1c builds the device core in parallel.
+
+**What the spike found that holds regardless, and what it becomes here.**
+egui-wgpu 0.36, verified in its source: its egui mesh pipeline neither tests
+nor writes the depth attachment (compare `Always`, write off), a paint
+callback's `paint` runs inside its one render pass, and command buffers a
+callback returns from `prepare` are submitted before that pass, wiped by
+its clear. Under eframe these were constraints we lived inside; under our
+own loop they are facts about a component we drive: the pass order is ours
+— egui-under meshes, the 3D pass, egui-over meshes — the clear is ours (the
+room's colour, at T5), and the depth buffer is ours to keep. Headless reach
+proved symmetric — both shapes reach a device the same way, because the
+pipeline's core is device-side (`depth/gpu.rs`'s tests already run on a
+bare headless device, offscreen target and readback, no window) — so T1c's
+core and its tests inherit that shape unchanged. The snapshot harness
+reaches the pass with no device and no window at all
+(`app/snapshot.rs`'s `TypewriterApp::nowhere` skips `Stage::start`; its
+door is `Stage::snapshot_callback` and the CPU twin) — untouched by this
+decision, settled by T6. And `depth/`'s maths was never in question:
+composition touches none of `lighting.rs`'s CPU twins, `depth.wgsl`, the
+decal bias (a `DepthBiasState` constant on the pipeline), or `Eye`/
+`Camera`'s clip rows; the click contract — egui owning `Ui`, `Part`s and
+`render::CLICK` — survives either shape.
+
+**Version rule.** `typewriter-render` depends on wgpu directly, pinned to
+the version egui-wgpu's released pair wants (0.36.2 → wgpu 30.0.1, per
+Cargo.lock), so the renderer's device and pipeline types are the same crate
+egui-wgpu's renderer holds — a second wgpu would be a type mismatch, not a
+version difference. winit rides the same rule: egui-wgpu 0.36.2's own
+`winit` feature pins 0.30.13.
+
+**Settled with it.** The spike's open questions close: the renderer is a
+crate, not a module of `typewriter`; and the clear becomes the room's
+colour in normal mode, landing at T5. The spike's skeleton — `render3d.rs`
+beside `depth/`, the eframe-callback install — sketched the overruled shape
+and is dropped from the tree.
