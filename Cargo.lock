@@ -4203,9 +4203,11 @@ name = "typewriter-render"
 version = "2.0.1"
 dependencies = [
  "anyhow",
+ "bytemuck",
  "egui",
  "egui-wgpu",
  "egui-winit",
+ "glam",
  "pollster 1.0.1",
  "wgpu",
  "winit",
