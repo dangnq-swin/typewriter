@@ -55,6 +55,9 @@ pub struct Shot<'a> {
 pub struct FrameCost {
     /// Mean over the timed frames, `run_ms` plus `tessellate_ms`.
     pub mean_ms: f64,
+    /// Middle of the timed frames, whole: one layout stall rides the mean
+    /// and neither end of the range, so the bench reports it beside them.
+    pub median_ms: f64,
     /// Mean of `ctx.run_ui` alone: deciding what to draw.
     pub run_ms: f64,
     /// Mean of `ctx.tessellate` alone: making it into triangles.
@@ -165,16 +168,20 @@ pub fn time_frames(
     };
     frame();
     let mut sums = [0.0; 3];
+    let mut wholes = Vec::with_capacity(frames);
     let (mut fastest, mut slowest) = (f64::MAX, 0.0f64);
     for _ in 0..frames {
         let (whole, run, tessellate) = frame();
         sums = [sums[0] + whole, sums[1] + run, sums[2] + tessellate];
         fastest = fastest.min(whole);
         slowest = slowest.max(whole);
+        wholes.push(whole);
     }
+    wholes.sort_unstable_by(|a, b| a.total_cmp(b));
     let frames = frames.max(1) as f64;
     FrameCost {
         mean_ms: sums[0] / frames,
+        median_ms: wholes.get(wholes.len() / 2).copied().unwrap_or(0.0),
         run_ms: sums[1] / frames,
         tessellate_ms: sums[2] / frames,
         fastest_ms: fastest,

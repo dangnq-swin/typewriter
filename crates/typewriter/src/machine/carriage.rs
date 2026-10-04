@@ -176,9 +176,9 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
     let front_corner = corner(front_centre, 3.0 * FRAC_PI_2);
     let at_x = |x: f32| move |(y, z): (f32, f32)| Vec3::new(x, y, z);
     let face = |points: &[Vec3], normal: Vec3| {
-        // Culling, not ordering: faces turned away only cost; the depth
-        // buffer hides them anyway. Same for the outlines below.
-        if eye.faces(points[0], normal) {
+        // Culling, not ordering: a face the eye cannot see may still stand
+        // in the lamp's way. Same for the outlines below.
+        if eye.faces_lit(points[0], normal) {
             let lit = matte(CHROME, normal);
             eye.fill(canvas, points, |_| lit);
         }

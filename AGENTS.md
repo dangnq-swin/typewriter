@@ -18,6 +18,10 @@ file. `README.md` is the maintainer's: keep only its *Controls* section current.
   machine, paper, a folder, a copy holder. No search across sheets, no ambient soundtracks.
 - **The plain app's look is settled.** New parts drawn around the paper (levers, the margin rack)
   are for normal mode's desk only.
+- **The desk lamp burns as an area head, never a bare point**: a disc facing the printing point —
+  light wraps past the terminator, glints broaden and dim with the head, shadows open a penumbra
+  that widens the deeper they lie behind a caster, and the light pools nearer the head. The maths
+  lives in `depth.wgsl` and its CPU twins in `depth/lighting.rs`; keep them in step.
 
 ## Working agreement: ask before assuming
 

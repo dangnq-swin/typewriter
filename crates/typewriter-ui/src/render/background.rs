@@ -11,6 +11,7 @@ use eframe::egui::{
 };
 
 use super::feed::convex_mesh;
+use crate::draw::Metrics;
 use crate::settings::{self, Look, PaperTone};
 
 /// Evened out and re-encoded by `build.rs`.
@@ -61,7 +62,7 @@ pub struct Background {
     /// Why the chosen texture isn't showing.
     problem: Option<String>,
     /// A mode's own, behind everything: `fill` is then the sheets'.
-    backdrop: Option<fn(&Painter, Rect)>,
+    backdrop: Option<fn(&Painter, Rect, &Metrics, u16)>,
 }
 
 impl Background {
@@ -70,7 +71,7 @@ impl Background {
     pub fn load(
         ctx: &egui::Context,
         look: &mut Look,
-        backdrop: Option<fn(&Painter, Rect)>,
+        backdrop: Option<fn(&Painter, Rect, &Metrics, u16)>,
     ) -> Self {
         let mut background = Self {
             fill: Fill::Flat(FALLBACK),
@@ -132,9 +133,9 @@ impl Background {
         }
     }
 
-    pub fn paint(&self, painter: &Painter, view: Rect) {
+    pub fn paint(&self, painter: &Painter, view: Rect, metrics: &Metrics, zoom_percent: u16) {
         if let Some(backdrop) = self.backdrop {
-            backdrop(painter, view);
+            backdrop(painter, view, metrics, zoom_percent);
             return;
         }
         match &self.fill {

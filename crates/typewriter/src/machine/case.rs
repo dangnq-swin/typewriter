@@ -44,7 +44,6 @@ const PLINTH_TOP: f32 = -107.0;
 /// Dark enough to read as the machine's insides, light enough for the keys'
 /// shadows to show on.
 const KEY_BED: Color32 = Color32::from_rgb(0x2A, 0x29, 0x26);
-const KEY_BED_FRONT: Color32 = Color32::from_rgb(0x40, 0x3F, 0x3A);
 const PLINTH: Color32 = Color32::from_rgb(0x8C, 0x8A, 0x86);
 
 /// The side walls' top at `y`: easing down from the panel's foot, then
@@ -72,10 +71,17 @@ fn case_side() -> Vec<Vec3> {
         let angle = FRAC_PI_2 * f32::from(i) / 24.0;
         (outer - r + r * angle.cos(), front - r + r * angle.sin())
     });
-    straight
+    let mut side: Vec<Vec3> = straight
         .chain(corner)
         .map(|(x, y)| Vec3::new(x, y, wall_top(y)))
-        .collect()
+        .collect();
+    // The inner walls split their paths at the shelf's back; make it a
+    // vertex of the curve so both surfaces share it exactly.
+    let split = side.partition_point(|p| p.y < SHELF_BACK);
+    if side.get(split).is_some_and(|p| p.y > SHELF_BACK) {
+        side.insert(split, Vec3::new(outer, SHELF_BACK, wall_top(SHELF_BACK)));
+    }
+    side
 }
 
 /// The case's front edge, right to left, round its rounded front corners
@@ -89,20 +95,21 @@ fn case_front_edge() -> Vec<Vec3> {
     corner.iter().copied().chain(left).collect()
 }
 
-/// The top of a well wall's inner face, back to front, `from` to `to` (`y`):
-/// `side` -1 left, +1 right.
-fn inner_edge(side: f32, from: f32, to: f32) -> Vec<Vec3> {
-    (0..=16u8)
-        .map(|i| {
-            let y = lerp(from..=to, f32::from(i) / 16.0);
-            Vec3::new(side * OPENING_HALF, y, wall_top(y))
-        })
+/// The well's inner edge under the walls' tops: the case's outer edge drawn
+/// at the well's half. The wall tops and the inner walls both hang their
+/// inner edge on these very vertices — sampled apart, their chords of the
+/// walls' swoop would part by a hair, and the lamp's ray down the gap would
+/// punch holes in the machine's shadow on the desk.
+fn inner_line() -> Vec<Vec3> {
+    case_side()
+        .into_iter()
+        .map(|p| Vec3::new(OPENING_HALF, p.y, p.z))
         .collect()
 }
 
-/// The well's floor, reaching under the shelf: its rounded lip lets the eye
-/// in past its corner. The machine's insides under the panel's edge, and the
-/// shade at the walls' foot.
+/// The well's floor, reaching under the shelf, and the machine's insides
+/// under the panel's edge: the lamp lights them as they face, and the
+/// panel's edge, the walls and the keys cast on them where they stand.
 pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
     let (y0, z0) = PANEL_BOTTOM;
     let half = OPENING_HALF;
@@ -113,10 +120,8 @@ pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
         Vec3::new(half, NOTCH_FRONT, bed),
         Vec3::new(-half, NOTCH_FRONT, bed),
     ];
-    eye.fill(canvas, &floor, |p| {
-        KEY_BED.lerp_to_gamma(KEY_BED_FRONT, (p.y - y0) / (NOTCH_FRONT - y0))
-    });
-    // The machine's insides under the panel's edge.
+    eye.fill(canvas, &floor, |_| matte(KEY_BED, Vec3::Z));
+    // The machine's insides under the panel's edge, facing the writer.
     let under = z0 - PANEL_EDGE_MM;
     let inside = [
         Vec3::new(-half, y0, under),
@@ -124,44 +129,22 @@ pub(super) fn paint_well(canvas: &Canvas, eye: &Eye) {
         Vec3::new(half, y0, bed),
         Vec3::new(-half, y0, bed),
     ];
-    eye.fill(canvas, &inside, |_| KEY_BED);
-    paint_well_shade(canvas, eye);
-}
-
-/// Shade on the key bed at the foot of the walls and under the panel.
-fn paint_well_shade(canvas: &Canvas, eye: &Eye) {
-    let (y0, _) = PANEL_BOTTOM;
-    let (half, reach, bed) = (OPENING_HALF, 13.0, KEY_BED_Z);
-    let (dark, clear) = (Color32::from_black_alpha(170), Color32::TRANSPARENT);
-    let mut solid = Solid::default();
-    for (a, b, inward) in [
-        ((-half, y0), (half, y0), (0.0, reach)),
-        ((-half, y0), (-half, SHELF_BACK), (reach, 0.0)),
-        ((half, y0), (half, SHELF_BACK), (-reach, 0.0)),
-    ] {
-        let at = |(x, y): (f32, f32)| Vec3::new(x, y, bed);
-        let inside = |(x, y): (f32, f32)| at((x + inward.0, y + inward.1));
-        eye.quad(
-            &mut solid,
-            [
-                (at(a), dark),
-                (at(b), dark),
-                (inside(b), clear),
-                (inside(a), clear),
-            ],
-        );
-    }
-    canvas.mesh(Layer::Decal, solid);
+    eye.fill(canvas, &inside, |_| matte(KEY_BED, Vec3::Y));
 }
 
 /// The walls' inner faces, down to the bed along the well and to the shelf
 /// beside it; the notch's sides down to the bed.
 pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
-    let (y0, _) = PANEL_BOTTOM;
     let half = OPENING_HALF;
     let bed = KEY_BED_Z;
     let mut solid = Solid::default();
     for side in [-1.0, 1.0] {
+        // Mirrored from the one sampled curve the wall tops hang on.
+        let line: Vec<Vec3> = inner_line()
+            .into_iter()
+            .map(|p| Vec3::new(side * p.x, p.y, p.z))
+            .collect();
+        let split = line.partition_point(|p| p.y < SHELF_BACK);
         // The notch's side follows the shelf's edge round its rounded lip.
         let at = |x: f32, y: f32| Vec3::new(x, y, SHELF_Z);
         let notch_side: Vec<Vec3> = std::iter::once(at(side * half, SHELF_BACK))
@@ -173,17 +156,13 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
             ))
             .chain([at(side * NOTCH_HALF, NOTCH_FRONT)])
             .collect();
-        // Each face's path, what it drops to, and its shade at top and foot:
-        // deep down to the bed; only a step down to the shelf; the notch's
-        // sides in the shelf's shade.
-        for (path, bed, [top, foot]) in [
-            (inner_edge(side, y0, SHELF_BACK), bed, [1.0, 0.55]),
-            (
-                inner_edge(side, SHELF_BACK, CASE_FRONT),
-                SHELF_Z,
-                [1.0, 0.9],
-            ),
-            (notch_side, bed, [0.75, 0.38]),
+        // Each face's path and what it drops to: deep down to the bed; only
+        // a step down to the shelf; the notch's sides below that shelf. One
+        // matte face each — what falls dark on them, the lamp's map decides.
+        for (path, bed) in [
+            (line[..=split].to_vec(), bed),
+            (line[split..].to_vec(), SHELF_Z),
+            (notch_side, bed),
         ] {
             for pair in path.windows(2) {
                 let [a, b] = [pair[0], pair[1]];
@@ -194,14 +173,14 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
                 if !Eye::sees(a, facing) {
                     continue;
                 }
-                let [colour, low] = [top, foot].map(|by| matte(brighten(IVORY_SHADE, by), facing));
+                let colour = matte(IVORY_SHADE, facing);
                 eye.quad(
                     &mut solid,
                     [
                         (a, colour),
                         (b, colour),
-                        (Vec3::new(b.x, b.y, bed), low),
-                        (Vec3::new(a.x, a.y, bed), low),
+                        (Vec3::new(b.x, b.y, bed), colour),
+                        (Vec3::new(a.x, a.y, bed), colour),
                     ],
                 );
             }

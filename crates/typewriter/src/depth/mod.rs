@@ -13,7 +13,10 @@
 //! [`Camera`] projects those millimetres into the window: the shader does
 //! the project and the divide, so uv, colour and millimetres blend
 //! perspective-correctly, and lights each fragment from its own millimetres
-//! toward the lamp, so a flat face is not lit evenly. What the screen
+//! toward the lamp, so a flat face is not lit evenly — and the lamp casts:
+//! before the pass, its own [`Shadow`] eye draws the opaque solids into a
+//! map, and a face the map hides from the lamp takes less light, in the
+//! twin's reading and the shader's alike. What the screen
 //! positions are for, the twin fills its triangles by them — so [`end`]
 //! redraws each one from its millimetres before handing the pass out, and a
 //! producer may build solids once and keep them across frames, only placing
@@ -34,7 +37,7 @@ mod raster;
 #[cfg(test)]
 pub use gpu::decal_bias;
 pub use gpu::install;
-pub use lighting::{CHROME_BANDS, Lighting, Shade};
+pub use lighting::{CHROME_BANDS, Lighting, Shade, Shadow};
 #[cfg(test)]
 pub use raster::rasterize;
 pub use solids::{Layer, Placing, Solid, Solids};
@@ -58,6 +61,10 @@ pub const DEPTH_BITS: u8 = 32;
 /// clip rows clamp at, in machine millimetres. `Eye` builds its rows with
 /// this, and `rasterize` clamps with it.
 pub const NEAR_MM: f32 = 25.4;
+
+/// The shadow map's side in texels, as `Lighting::shadow`'s and the GPU's
+/// agree it to be.
+pub const SHADOW_MAP: u32 = 2048;
 
 /// The camera's four clip rows as `vec4`s: as many as the shader's
 /// `r_camera`.

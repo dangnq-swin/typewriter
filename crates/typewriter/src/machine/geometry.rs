@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
-use eframe::egui::{Color32, Mesh, Pos2, Rect, Vec2, vec2};
+use eframe::egui::{Color32, Mesh, Pos2, Rect, vec2};
 use glam::Vec3;
 
 /// Corners `(point, rounding)` of a flat convex polygon, each rounded by a
@@ -129,40 +129,6 @@ pub(super) fn convex_grid(outline: &[Pos2], step: f32) -> Mesh {
                 mesh.add_triangle(indices[0], indices[k], indices[k + 1]);
             }
         }
-    }
-    mesh
-}
-
-/// Convex `inner` in `colour`, fading to nothing `blur` points outside it.
-pub(super) fn soft(inner: &[Pos2], blur: f32, colour: Color32) -> Mesh {
-    let n = inner.len() as u32;
-    let centre = inner.iter().fold(Vec2::ZERO, |sum, p| sum + p.to_vec2()) / n as f32;
-    let outward = |a: Pos2, b: Pos2| {
-        let along = (b - a).normalized();
-        let normal = vec2(along.y, -along.x);
-        if (a.to_vec2() - centre).dot(normal) < 0.0 {
-            -normal
-        } else {
-            normal
-        }
-    };
-    let mut mesh = Mesh::default();
-    for &p in inner {
-        mesh.colored_vertex(p, colour);
-    }
-    for i in 1..n.saturating_sub(1) {
-        mesh.add_triangle(0, i, i + 1);
-    }
-    let len = inner.len();
-    for (i, &p) in inner.iter().enumerate() {
-        let (before, after) = (inner[(i + len - 1) % len], inner[(i + 1) % len]);
-        let normal = (outward(before, p) + outward(p, after)).normalized();
-        mesh.colored_vertex(p + normal * blur, Color32::TRANSPARENT);
-    }
-    for i in 0..n {
-        let j = (i + 1) % n;
-        mesh.add_triangle(i, j, n + j);
-        mesh.add_triangle(i, n + j, n + i);
     }
     mesh
 }

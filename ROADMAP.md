@@ -22,7 +22,7 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
       bends), a moving view is just a new matrix.
 - [x] Desk: text where the sheet comes nearer the eye than the typing line,
       toward its top, is laid out larger to stay as sharp.
-- [ ] Desk: real shadows from the lamp: what the desk hides by hand goes —
+- [x] Desk: real shadows from the lamp: what the desk hides by hand goes —
       `body::paint_deck`, `case::paint_well`, the inner walls' `[top, foot]`,
       the cover's foot and its opening shade, the keys' shadows,
       `panel::cast_on_panel` — and a depth pass from the lamp, or a shadow

@@ -7,10 +7,11 @@
 //!
 //! The machine is drawn in depth, in one pass a frame from [`paint_behind`]
 //! to [`paint_front`]: what stands in front hides what is behind, whatever
-//! the order. Flat are only its shadow on the desk, under it all, and the
-//! panel's controls ([`Panel::paint`]), over it. Its parts are standing
-//! solids, built once and kept ([`standing`]); a frame gathers them, shifted
-//! where the carriage has travelled.
+//! the order; the lamp casts its shadows over the whole of it, the desk's
+//! plane included. Flat are only the panel's controls ([`Panel::paint`]),
+//! over it. Its parts are standing solids, built once and kept
+//! ([`standing`]); a frame gathers them, shifted where the carriage has
+//! travelled.
 
 mod bail;
 mod body;
@@ -31,6 +32,8 @@ mod side_controls;
 mod standing;
 mod support;
 
+pub(crate) use body::DESK_Z;
+pub(crate) use eye::Eye;
 pub use lever::Throw;
 pub use panel::{Control, Panel};
 pub use sheet::{paint_sheets, print_magnify};
@@ -41,7 +44,6 @@ use glam::Vec3;
 
 use crate::depth;
 use canvas::Canvas;
-use eye::Eye;
 use panel::{CONTROLS_Y, INDEX_MARKS, KNOB_RADIUS, on_panel, panel_offset};
 use typewriter_core::carriage::Carriage;
 use typewriter_ui::draw::Metrics;
@@ -93,10 +95,10 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     wanted.min(in_view).max(TYPING_LINE_LEAST)
 }
 
-/// Behind the sheet, before it: the machine's shadow, the body's top under
-/// the carriage, the paper support, and the carriage for the sheet centred
-/// at `carriage_x` with its bail and its return lever, thrown `throw`
-/// (0..=1). Begins the frame's depth pass.
+/// Behind the sheet, before it: the desk plane catching the machine's
+/// shadow, the body's top under the carriage, the paper support, and the
+/// carriage for the sheet centred at `carriage_x` with its bail and its
+/// return lever, thrown `throw` (0..=1). Begins the frame's depth pass.
 ///
 /// All but the support are kept standing solids ([`standing`]): the
 /// carriage's parts travel with `middle`, the lever's steel is keyed to the
@@ -110,10 +112,10 @@ pub fn paint_behind(
     throw: f32,
 ) {
     let eye = Eye::new(view, metrics, typing_y);
-    body::paint_shadow(painter, &eye);
     depth::begin(painter, light::frame(), eye.camera());
     let standing = standing::Standing::of(painter, &eye);
     let canvas = Canvas::depth(painter);
+    canvas.add_solids(standing.desk.clone());
     canvas.add_solids(standing.deck.clone());
     let middle = (carriage_x - eye.origin.x) / eye.ppmm;
     support::paint(&canvas, &eye, metrics, middle);
@@ -192,7 +194,7 @@ pub fn paint_front(painter: &Painter, view: Rect, metrics: &Metrics, typing_y: f
     canvas.add_solids(standing.rod.clone());
     canvas.add_solids(standing.well.clone());
     canvas.add_solids(standing.inner_walls.clone());
-    canvas.add_solids(standing.key_shadows.clone());
+    canvas.add_solids(standing.knob_casters.clone());
     canvas.add_solids(standing.key_levers.clone());
     canvas.add_solids(standing.side_controls.clone());
     canvas.add_solids(standing.panel_edge.clone());

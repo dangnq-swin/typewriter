@@ -1,7 +1,8 @@
 //! The CPU twin of the pass, for the snapshot tool where no wgpu renderer
 //! is installed: [`rasterize`] projects and divides by hand as the shader
 //! does, keeps its own depth buffer through the frame, lifts decals by the
-//! same bias as the pipeline, and lights each pixel through
+//! same bias as the pipeline, casts the lamp's shadow map with [`cast`] as
+//! its lamp pass does, and lights each pixel through
 //! [`lighting`](super::lighting)'s twins of `lit()`.
 
 use eframe::egui::epaint::PaintCallback;
@@ -9,7 +10,71 @@ use eframe::egui::{Mesh, Rect};
 use glam::Vec3;
 
 use super::gpu::{FONTS, decal_bias, texel_scale};
+use super::lighting::Lighting;
+use super::solids::Solids;
 use super::{Layer, NEAR_MM, Pass, Shade};
+
+/// The lamp's map, from the pass's opaque solids: what its eye sees, before
+/// the frame draws. The twin of the GPU's lamp pass — one triangle at a
+/// time, the nearer one holding wherever they both cover a texel. Decals
+/// lay flat and hide nothing; they cast nothing either. Vertices run out
+/// past the map unclamped, as the GPU clips them: only the covered texels
+/// are filled. What stands nearer the head than the map's near plane is
+/// dropped as the GPU's clip would: it keeps the clear, casting nothing.
+pub(crate) fn cast(solids: &Solids, lighting: &Lighting) -> Vec<f32> {
+    let side = lighting.shadow.side;
+    let mut map = vec![1.0; (side * side) as usize];
+    let mut spots = Vec::new();
+    for solid in solids.layers()[0].1 {
+        spots.clear();
+        spots.extend(solid.places.iter().map(|&mm| {
+            let mm = mm.extend(1.0);
+            let [u, v, d] = lighting.shadow.rows.map(|row| row.dot(mm));
+            [(u + 1.0) * 0.5 * side, (1.0 - v) * 0.5 * side, d]
+        }));
+        for triangle in solid.mesh.indices.as_chunks::<3>().0 {
+            let [a, b, c] = triangle.map(|i| spots[i as usize]);
+            let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            if area.abs() < 1e-6 {
+                continue;
+            }
+            let min = [
+                a[0].min(b[0]).min(c[0]).max(0.0) as usize,
+                a[1].min(b[1]).min(c[1]).max(0.0) as usize,
+            ];
+            let max = [
+                (a[0].max(b[0]).max(c[0]).ceil() as usize).min(side as usize),
+                (a[1].max(b[1]).max(c[1]).ceil() as usize).min(side as usize),
+            ];
+            let side = side as usize;
+            for row in min[1]..max[1] {
+                for column in min[0]..max[0] {
+                    let (px, py) = (column as f32 + 0.5 - a[0], row as f32 + 0.5 - a[1]);
+                    // Barycentric weights of b and c: each is the far edge's
+                    // cross with the point, over the triangle's own.
+                    let w1 = (px * (c[1] - a[1]) - py * (c[0] - a[0])) / area;
+                    let w2 = ((b[0] - a[0]) * py - (b[1] - a[1]) * px) / area;
+                    let w0 = 1.0 - w1 - w2;
+                    if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        continue;
+                    }
+                    let d = w0 * a[2] + w1 * b[2] + w2 * c[2];
+                    // The GPU's lamp pass clips a fragment nearer the head
+                    // than the map's near plane (clip z < 0, w = 1): like
+                    // one, a sample before it writes nothing.
+                    if d < 0.0 {
+                        continue;
+                    }
+                    let there = &mut map[row * side + column];
+                    if d < *there {
+                        *there = d;
+                    }
+                }
+            }
+        }
+    }
+    map
+}
 
 /// Fills `callback`'s pass inside `clip` in a snapshot, with a depth buffer
 /// kept through the frame, each pixel lit as the shader lights it.
@@ -33,6 +98,11 @@ pub fn rasterize(
         .take()
         .and_then(|frame| frame.downcast::<Vec<f32>>().ok())
         .map_or_else(|| vec![1.0; width * height], |buffer| *buffer);
+    let map = lighting.shadow.is_on().then(|| cast(solids, lighting));
+    let occlusion = |mm: Vec3| match &map {
+        Some(map) => lighting.shadow.occlusion(map, mm),
+        None => 1.0,
+    };
     for (layer, solids) in solids.layers() {
         for solid in solids {
             let fonts = raster.texture_size(FONTS).unwrap_or([1, 1]);
@@ -98,7 +168,12 @@ pub fn rasterize(
                         / sum
                 };
                 let at = Vec3::new(along(0), along(1), along(2));
-                pixel_shade(&solid.shades, triangle, weights, &inv_w).apply(rgba, lighting, at)
+                pixel_shade(&solid.shades, triangle, weights, &inv_w).apply(
+                    rgba,
+                    lighting,
+                    at,
+                    occlusion(at),
+                )
             };
             raster.fill_projected(&mesh, clip, &inv_w, keep, shade);
         }
@@ -162,6 +237,7 @@ fn pixel_shade(shades: &[Shade], triangle: [u32; 3], weights: [f32; 3], inv_w: &
             sharpness,
         },
         Shade::Chrome(_) => Shade::Chrome(down),
+        Shade::Catcher(_) => Shade::Catcher(spec),
         Shade::Unlit => first,
     }
 }
@@ -171,6 +247,89 @@ mod tests {
     use eframe::egui::{Color32, Mesh, pos2};
 
     use super::*;
+
+    #[test]
+    fn a_caster_nearer_than_the_maps_near_plane_casts_no_shadow() {
+        use super::super::lighting::Shadow;
+        use super::super::solids::Solid;
+
+        // The lamp's eye: a head 1000 mm above the printing point, the map
+        // running from 250 mm off it over 650. The near triangle stands
+        // 200 mm under the head, so every sample there has depth below 0:
+        // the GPU's lamp pass clips those fragments, and the twin must keep
+        // their texels at the clear. The far one is a control that the map
+        // fills where it may.
+        let shadow = Shadow::lamp(
+            Vec3::new(0.0, 0.0, 1000.0),
+            0.0,
+            Vec3::Y,
+            Vec3::ZERO,
+            620.0,
+            250.0,
+            650.0,
+            1.0,
+        );
+        let lighting = Lighting {
+            shadow,
+            ..Default::default()
+        };
+        let side = shadow.side as usize;
+
+        let near = [
+            Vec3::new(-200.0, 0.0, 800.0),
+            Vec3::new(200.0, 0.0, 800.0),
+            Vec3::new(0.0, 200.0, 800.0),
+        ];
+        let far = [
+            Vec3::new(300.0, 0.0, 600.0),
+            Vec3::new(500.0, 0.0, 600.0),
+            Vec3::new(400.0, 200.0, 600.0),
+        ];
+        let mut mesh = Mesh::default();
+        for mm in near.into_iter().chain(far) {
+            mesh.colored_vertex(pos2(mm.x, mm.y), Color32::WHITE);
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(3, 4, 5);
+        let mut solids = Solids::default();
+        solids.push(
+            Layer::Opaque,
+            Solid::unlit(mesh, near.into_iter().chain(far).collect()),
+        );
+
+        let map = cast(&solids, &lighting);
+
+        // The texel `cast` would read for a place standing in the map.
+        let spot = |mm: Vec3| {
+            let [u, v, _] = shadow.rows.map(|row| row.dot(mm.extend(1.0)));
+            (
+                ((u + 1.0) * 0.5 * shadow.side) as usize,
+                ((1.0 - v) * 0.5 * shadow.side) as usize,
+            )
+        };
+        let (column, row) = spot(far.into_iter().sum::<Vec3>() / 3.0);
+        let there = map[row * side + column];
+        assert!(there > 0.0 && there < 1.0, "far caster holds: {there}");
+        // And the near one leaves its whole footprint at the clear.
+        let corners = near.map(spot);
+        let min = (
+            corners.iter().map(|c| c.0).min().unwrap(),
+            corners.iter().map(|c| c.1).min().unwrap(),
+        );
+        let max = (
+            corners.iter().map(|c| c.0).max().unwrap(),
+            corners.iter().map(|c| c.1).max().unwrap(),
+        );
+        for row in min.1..=max.1 {
+            for column in min.0..=max.0 {
+                assert_eq!(
+                    map[row * side + column],
+                    1.0,
+                    "clipped caster cast at {row} {column}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn a_triangles_depth_slope_is_its_steepest_rate_a_pixel() {

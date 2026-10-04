@@ -121,8 +121,9 @@ pub(super) fn paint_bracket(canvas: &Canvas, eye: &Eye, left: f32) {
         Vec3::new(x1, front, bottom),
         Vec3::new(x1, back, bottom),
     ];
-    // Culling, not ordering: turned away only costs; depth hides it anyway.
-    if eye.faces(inner[0], Vec3::X) {
+    // Culling, not ordering: a face the eye cannot see may still stand in
+    // the lamp's way.
+    if eye.faces_lit(inner[0], Vec3::X) {
         eye.fill(canvas, &inner, |_| METAL);
     }
     paint_chrome(canvas, eye, [x0, x1], front, top, top - bottom);
@@ -153,8 +154,9 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: Vec3) {
     for i in 0..n {
         let j = (i + 1) % n;
         let outward = base[i] + base[j] - at * 2.0;
-        // Culling, not ordering: the rim's far side only costs; depth hides it.
-        if eye.faces(base[i], outward) {
+        // Culling, not ordering: the rim's far side may still stand in the
+        // lamp's way.
+        if eye.faces_lit(base[i], outward) {
             eye.fill(canvas, &[face[i], face[j], base[j], base[i]], |_| METAL);
         }
     }

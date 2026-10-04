@@ -57,7 +57,7 @@ impl Stage for Desk {
         typewriter_ui::settings::ZOOM_MIN
     }
 
-    fn backdrop(&self) -> Option<fn(&Painter, Rect)> {
+    fn backdrop(&self) -> Option<fn(&Painter, Rect, &Metrics, u16)> {
         Some(room::paint)
     }
 
@@ -326,10 +326,15 @@ mod tests {
     }
 
     /// Times the typing view's frame — `run_ui` plus `ctx.tessellate` —
-    /// normal against plain, empty page and full, in a
-    /// 1600 × 1000 window at 100 % zoom. Run it
-    /// in debug and release, e.g.
+    /// normal against plain, empty page and full, at three window sizes:
+    /// the desk's 1600 × 1000 at 100 %, a full-HD window, and the wide
+    /// 3000 × 1400 at 200 %. Run it in debug and release, e.g.
     /// `TYPEWRITER_BENCH=50 cargo test -p typewriter --release -- --ignored bench --nocapture`.
+    /// The same env gate runs the depth pass's GPU bench
+    /// (`depth::gpu::tests::gpu_bench`) under the same filter; that wants a
+    /// device and reports per-pass times beside these CPU ones. Add
+    /// `--test-threads=1` so the two benches do not run, and share cores
+    /// with, each other.
     #[test]
     #[ignore]
     fn bench() {
@@ -345,44 +350,60 @@ mod tests {
         } else {
             "release"
         };
+        let shots = [
+            ("1600×1000@100", vec2(1600.0, 1000.0), 100),
+            ("1920×1080@100", vec2(1920.0, 1080.0), 100),
+            ("3000×1400@200", vec2(3000.0, 1400.0), 200),
+        ];
+        println!("{frames} timed frames, {build}: the desk scene's solids and vertices per frame.");
         println!(
-            "{frames} timed frames, 1600 × 1000 at 100 %, {build}: the desk scene's solids and vertices per frame."
-        );
-        println!(
-            "{:<14}{:>9}{:>9}{:>11}{:>9}{:>9}{:>8}{:>10}",
-            "frame", "ms", "run_ui", "tessellate", "fastest", "slowest", "solids", "vertices"
+            "{:<17}{:>21}{:>9}{:>9}{:>9}{:>11}{:>9}{:>9}{:>8}{:>10}",
+            "frame",
+            "shot",
+            "ms",
+            "median",
+            "run_ui",
+            "tessellate",
+            "fastest",
+            "slowest",
+            "solids",
+            "vertices"
         );
         for (what, text) in [("empty", ""), ("full", full.as_str())] {
-            let shot = Shot {
-                size: vec2(1600.0, 1000.0),
-                zoom_percent: 100,
-                text,
-                after_seconds: 5.0,
-            };
-            for (name, plain) in [("Desk", false), ("Plain", true)] {
-                let ctx = egui::Context::default();
-                let stage: Box<dyn Stage> = if plain {
-                    Box::new(typewriter_ui::Plain)
-                } else {
-                    Box::new(Desk)
+            for (shot_name, size, zoom_percent) in shots {
+                let shot = Shot {
+                    size,
+                    zoom_percent,
+                    text,
+                    after_seconds: 5.0,
                 };
-                let time = snapshot::bench(&ctx, stage, &shot, frames).unwrap();
-                // The plain app draws no depth pass: its counts are `-`.
-                let (solids, vertices) = match crate::depth::counts(&ctx) {
-                    Some((solids, vertices)) => (solids.to_string(), vertices.to_string()),
-                    None => ("-".to_string(), "-".to_string()),
-                };
-                println!(
-                    "{:<14}{:>9.1}{:>9.1}{:>11.1}{:>9.1}{:>9.1}{:>8}{:>10}",
-                    format!("{name}, {what}"),
-                    time.mean_ms,
-                    time.run_ms,
-                    time.tessellate_ms,
-                    time.fastest_ms,
-                    time.slowest_ms,
-                    solids,
-                    vertices,
-                );
+                for (name, plain) in [("Desk", false), ("Plain", true)] {
+                    let ctx = egui::Context::default();
+                    let stage: Box<dyn Stage> = if plain {
+                        Box::new(typewriter_ui::Plain)
+                    } else {
+                        Box::new(Desk)
+                    };
+                    let time = snapshot::bench(&ctx, stage, &shot, frames).unwrap();
+                    // The plain app draws no depth pass: its counts are `-`.
+                    let (solids, vertices) = match crate::depth::counts(&ctx) {
+                        Some((solids, vertices)) => (solids.to_string(), vertices.to_string()),
+                        None => ("-".to_string(), "-".to_string()),
+                    };
+                    println!(
+                        "{:<17}{:>21}{:>9.1}{:>9.1}{:>9.1}{:>11.1}{:>9.1}{:>9.1}{:>8}{:>10}",
+                        format!("{name}, {what}"),
+                        shot_name,
+                        time.mean_ms,
+                        time.median_ms,
+                        time.run_ms,
+                        time.tessellate_ms,
+                        time.fastest_ms,
+                        time.slowest_ms,
+                        solids,
+                        vertices,
+                    );
+                }
             }
         }
     }

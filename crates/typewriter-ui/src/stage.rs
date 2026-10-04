@@ -324,8 +324,10 @@ pub trait Stage {
     fn start(&self, _ctx: &Context, _render_state: Option<&RenderState>) {}
 
     /// Behind everything, in place of the chosen background, which then
-    /// shows on the sheets only. `None`: the chosen background.
-    fn backdrop(&self) -> Option<fn(&Painter, Rect)> {
+    /// shows on the sheets only. Gets the machine's metrics and the zoom so
+    /// it can draw in the scene's own millimetres. `None`: the chosen
+    /// background.
+    fn backdrop(&self) -> Option<fn(&Painter, Rect, &Metrics, u16)> {
         None
     }
 

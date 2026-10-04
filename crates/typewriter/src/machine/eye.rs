@@ -9,7 +9,7 @@ use glam::{Vec3, Vec4};
 use super::EDGE;
 use super::canvas::Canvas;
 use super::geometry::convex_grid;
-use super::light::Paint;
+use super::light::{Paint, lamp};
 use crate::depth::{Camera, Layer, NEAR_MM, Placing, Shade, Solid};
 use typewriter_ui::draw::{Metrics, convex_mesh};
 
@@ -37,7 +37,7 @@ pub(super) fn screen_up(p: Vec3) -> f32 {
 
 /// The seated eye, anchored at the printing point.
 #[derive(Clone, Copy)]
-pub(super) struct Eye {
+pub(crate) struct Eye {
     pub(super) origin: Pos2,
     /// Screen points per machine millimetre at the printing point.
     pub(super) ppmm: f32,
@@ -50,7 +50,7 @@ pub(super) struct Eye {
 }
 
 impl Eye {
-    pub(super) fn new(view: Rect, metrics: &Metrics, typing_y: f32) -> Self {
+    pub(crate) fn new(view: Rect, metrics: &Metrics, typing_y: f32) -> Self {
         Self::at_origin(
             pos2(view.center().x, typing_y),
             metrics.points_per_mm(),
@@ -107,6 +107,16 @@ impl Eye {
         (toward_eye() * EYE_MM - p).dot(normal) > 0.0
     }
 
+    /// Whether a face at `p` from the anchor, facing `normal`, is worth
+    /// drawing: turned toward the eye, or not edge-on to the lamp. The
+    /// lamp's map casts by either side of a face, so a skin the eye never
+    /// sees still stands in the lamp's way — cull it and the map leaks a
+    /// bright hole through the desk behind.
+    pub(super) fn faces_lit(&self, p: Vec3, normal: Vec3) -> bool {
+        let at = p + self.anchor;
+        Self::sees(at, normal) || (lamp() - at).dot(normal).abs() > 1e-3
+    }
+
     /// Millimetres from the eye to `p`, along its line of sight.
     pub(super) fn distance(&self, p: Vec3) -> f32 {
         Self::distance_mm(self.absolute(p))
@@ -140,12 +150,29 @@ impl Eye {
     }
 
     /// Where `p` shows on screen.
-    pub(super) fn at(&self, p: Vec3) -> Pos2 {
+    pub(crate) fn at(&self, p: Vec3) -> Pos2 {
         let a = p + self.anchor;
         let (sin, cos) = self.tilt;
         let up = a.z * cos - a.y * sin;
         let scale = self.scale(p);
         self.origin + vec2(a.x * scale, -up * scale)
+    }
+
+    /// The `y` of the horizontal plane `plane_z` that shows at screen
+    /// `screen_y` — `at` run backwards. At or above the horizon the plane
+    /// never shows there, and `FAR_REACH` stands in: as far back as the
+    /// lamp's map reaches, past which its cleared edge holds every shadow
+    /// off anyway.
+    pub(crate) fn plane_y(&self, screen_y: f32, plane_z: f32) -> f32 {
+        const FAR_REACH: f32 = -800.0;
+        let (sin, cos) = self.tilt;
+        let k = self.ppmm * EYE_MM;
+        let dy = self.origin.y - screen_y;
+        let over = k * sin - dy * cos;
+        if over <= 0.0 {
+            return FAR_REACH;
+        }
+        (k * plane_z * cos + dy * (plane_z * sin - EYE_MM)) / over
     }
 
     /// The depth pass's camera: the clip rows that fold the same `at` and
@@ -430,6 +457,21 @@ mod tests {
         let key = Vec3::new(0.0, KEY_ROW.0, KEY_ROW.1);
         assert!(eye.at(key).y > eye.at(on_cover(0.0, COVER_FRONT.0)).y);
         assert!(eye.scale(key) > eye.scale(Vec3::ZERO));
+    }
+
+    #[test]
+    fn the_desk_catcher_stops_at_the_wall() {
+        // The wall stands at a world constant; the screen row it lands on
+        // reads back the same millimetres.
+        let eye = Eye::testing(500.0, 96.0);
+        let wall = crate::room::WALL_Y;
+        assert!(wall < 0.0, "behind the printing point: {wall}");
+        let row = eye.at(Vec3::new(0.0, wall, super::super::body::DESK_Z)).y;
+        let back = eye.plane_y(row, super::super::body::DESK_Z);
+        assert!(
+            (back - wall).abs() < 1.0,
+            "wall {wall}, screen row {row}, read back {back}"
+        );
     }
 
     #[test]

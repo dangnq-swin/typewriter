@@ -330,8 +330,8 @@ fn paint_box(
         ),
     ];
     for (normal, face) in faces {
-        // Hidden faces only cost: the depth buffer hides them anyway.
-        if !eye.faces(face[0], normal) {
+        // A face the eye cannot see may still stand in the lamp's way.
+        if !eye.faces_lit(face[0], normal) {
             continue;
         }
         let lit = matte(colour, normal);

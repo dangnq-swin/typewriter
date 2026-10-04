@@ -1,13 +1,13 @@
 //! The keys, their levers, and the rod the levers rest on.
 
-use eframe::egui::{Align2, Color32, Pos2, Shape, Stroke, pos2};
+use eframe::egui::{Align2, Color32, Shape, Stroke, pos2};
 use glam::Vec3;
 
 use super::canvas::Canvas;
-use super::case::{OPENING_HALF, PANEL_EDGE_MM, wall_top};
+use super::case::{OPENING_HALF, PANEL_EDGE_MM};
 use super::eye::{Eye, FLAT_TEXT, paint_flat_text};
-use super::geometry::{rounded_rect, soft};
-use super::light::{Paint, brighten, matte, paint_steel, polished, toward_light};
+use super::geometry::rounded_rect;
+use super::light::{Paint, brighten, matte, paint_steel, polished};
 use super::panel::PANEL_BOTTOM;
 use super::{METAL_SHINE, SHIFT_CAP, SHIFT_FRONT, STEM, STEM_SHINE};
 use crate::depth::{Layer, Placing, Shade, Solid};
@@ -40,8 +40,6 @@ pub(super) const INTO_MACHINE: f32 = 3.0;
 const ROD_BEHIND: f32 = 9.0;
 const ROD_RADIUS: f32 = 2.0;
 const ROD_GAP: f32 = 1.0;
-/// How far below a key's top its shadow falls, cast by the light.
-const KEY_SHADOW_DROP: f32 = 15.0;
 /// As on a US SM9 De Luxe, far row first: positions in key pitches from
 /// the far row's first key, measured from one.
 pub(super) const KEYS: [&[Key]; 4] = [
@@ -250,70 +248,6 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[Vec3]) {
         );
     }
     canvas.mesh(Layer::Opaque, solid);
-}
-
-/// Every cap's shadow on the key bed, the space bar's too.
-pub(super) fn paint_shadows(canvas: &Canvas, eye: &Eye) {
-    let (space_y, space_z) = SPACE_ROW;
-    let depth = KEY_CAP.1 / 2.0;
-    for (row, keys) in KEYS.iter().enumerate() {
-        let (y, z) = key_row(row as f32);
-        for key in keys.iter() {
-            let half = key.half_width();
-            let x = [key.x() - half, key.x() + half];
-            paint_key_shadow(canvas, eye, x, [y - depth, y + depth], z);
-        }
-    }
-    for (left, right, _) in SPACE_BAR {
-        let span = [space_y - SPACE_HALF_DEPTH, space_y + SPACE_HALF_DEPTH];
-        paint_key_shadow(canvas, eye, [left, right], span, space_z);
-    }
-}
-
-/// A cap's shadow on the key bed below it, over `x` and `y` ranges, its top
-/// at `z`: bending up the well's inner wall where it reaches that far.
-fn paint_key_shadow(
-    canvas: &Canvas,
-    eye: &Eye,
-    [left, right]: [f32; 2],
-    [back, front]: [f32; 2],
-    z: f32,
-) {
-    let light = toward_light();
-    let cast = KEY_SHADOW_DROP / light.z;
-    let (dx, dy) = (-light.x * cast, -light.y * cast);
-    let z = z - KEY_SHADOW_DROP;
-    // The foot's own shape, grown and rounded as the cap's is.
-    let outline: Vec<Pos2> = rounded_rect(
-        [left + dx - KEY_FLARE, right + dx + KEY_FLARE],
-        [back + dy - KEY_FLARE, front + dy + KEY_FLARE],
-        z,
-        3.0 + 2.0 * KEY_FLARE,
-    )
-    .into_iter()
-    .map(|p| pos2(p.x, p.y))
-    .collect();
-    let mesh = soft(&outline, 2.5, Color32::from_black_alpha(150));
-    // Each vertex stands on the plane the shadow is drawn on, bending up
-    // the wall's face where the plane runs past it — the blob keeps its
-    // rounded feather where it reaches the wall. Whatever else comes
-    // through the plane, the caps' own feet, hides the shadow there.
-    let fold = |p: Pos2| -> Vec3 {
-        let over = (p.x.abs() - OPENING_HALF).max(0.0);
-        let top = wall_top(p.y);
-        if over > 0.0 && z < top {
-            Vec3::new(p.x - p.x.signum() * over, p.y, (z + over).min(top))
-        } else {
-            Vec3::new(p.x, p.y, z)
-        }
-    };
-    let on: Vec<Vec3> = mesh.vertices.iter().map(|v| fold(v.pos)).collect();
-    let places = on.iter().map(|&mm| eye.absolute(mm)).collect();
-    let mut solid = Solid::unlit(mesh, places);
-    for (vertex, &mm) in solid.mesh.vertices.iter_mut().zip(&on) {
-        vertex.pos = eye.at(mm);
-    }
-    canvas.mesh(Layer::Decal, solid);
 }
 
 /// Each key's post and its lever, from under its cap in `levers`.

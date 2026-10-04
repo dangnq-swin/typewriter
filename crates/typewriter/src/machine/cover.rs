@@ -9,7 +9,7 @@ use glam::Vec3;
 use super::canvas::Canvas;
 use super::eye::Eye;
 use super::geometry::fillet;
-use super::light::{Paint, brighten, brushed, matte, paint_steel};
+use super::light::{Paint, brushed, matte, paint_steel};
 use super::{IVORY, IVORY_SHADE, METAL, METAL_SHINE};
 use typewriter_ui::draw::{splitmix64, unit};
 
@@ -42,9 +42,8 @@ const TYPE_BAR_REACH: (f32, f32) = (97.0, -48.0);
 // literal: sin(84°) = 0.9945.
 const _: () = assert!(OPENING_BACK.0 - 4.0 + TYPE_BAR_REACH.0 > OPENING_FRONT.0);
 const _: () = assert!(TYPE_BAR_REACH.0 * 0.9945 > OPENING_FRONT.1);
-/// How far the cover's shadow reaches inside the opening.
-pub(super) const OPENING_SHADE_MM: f32 = 8.0;
-const INSIDE: Color32 = Color32::from_rgb(0x16, 0x12, 0x0E);
+/// How dark the inside of the machine reads under the cover.
+pub(super) const INSIDE: Color32 = Color32::from_rgb(0x16, 0x12, 0x0E);
 const TYPE_BAR: Color32 = Color32::from_rgb(0x2E, 0x2B, 0x26);
 const TEAL: Color32 = Color32::from_rgb(0x3A, 0x68, 0x64);
 const TEAL_LIGHT: Color32 = Color32::from_rgb(0x5A, 0x8A, 0x84);
@@ -85,17 +84,6 @@ fn inset_opening(side: f32, front: f32) -> [Vec3; 4] {
     ]
 }
 
-/// Along `opening`'s left side, round its front, `rounding` its front
-/// corners, and up its right side.
-fn round_the_front(opening: [Vec3; 4], rounding: f32) -> Vec<Vec3> {
-    let [bl, br, fr, fl] = opening;
-    std::iter::once(bl)
-        .chain(fillet(bl, fl, fr, rounding))
-        .chain(fillet(fl, fr, br, rounding))
-        .chain([br])
-        .collect()
-}
-
 /// Down through the opening: the dark insides, the type bars and segment in
 /// them, the cover's shadow round its edges.
 pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
@@ -110,9 +98,8 @@ pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
         Vec3::new(wide, front, floor),
         Vec3::new(-wide, front, floor),
     ];
-    eye.fill(canvas, &insides, |_| INSIDE);
+    eye.fill(canvas, &insides, |_| matte(INSIDE, Vec3::Z));
     paint_type_basket(canvas, eye);
-    paint_opening_shade(canvas, eye);
 }
 
 /// The cover: two plates, their tips rounded thick where the opening runs
@@ -185,7 +172,8 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
 }
 
 /// A plate's thickness under its inner `edge`, facing into the opening
-/// (`facing` +1 right, -1 left): lit as it faces.
+/// (`facing` +1 right, -1 left): lit as it faces, the cover's own edge
+/// casting round the opening's rim where the lamp hides it.
 fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[Vec3], facing: f32) {
     let mut solid = Solid::default();
     for pair in edge.windows(2) {
@@ -193,42 +181,19 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[Vec3], facing: f32) {
         // Across the edge, the way it faces: each edge runs back to front.
         let along = b - a;
         let normal = Vec3::new(facing * along.y, -facing * along.x, 0.2);
-        let (colour, foot) = (
-            matte(IVORY_SHADE, normal),
-            matte(brighten(IVORY_SHADE, 0.7), normal),
-        );
+        let colour = matte(IVORY_SHADE, normal);
         let down = |p: Vec3| p - Vec3::Z * PLATE_THICKNESS;
         eye.quad(
             &mut solid,
-            [(a, colour), (b, colour), (down(b), foot), (down(a), foot)],
+            [
+                (a, colour),
+                (b, colour),
+                (down(b), colour),
+                (down(a), colour),
+            ],
         );
     }
     canvas.mesh(Layer::Opaque, solid);
-}
-
-/// The cover's shadow just inside the opening, round its sides and front:
-/// its back is open.
-fn paint_opening_shade(canvas: &Canvas, eye: &Eye) {
-    let reach = OPENING_SHADE_MM;
-    let (dark, clear) = (Color32::from_black_alpha(190), Color32::TRANSPARENT);
-    let edge = round_the_front(opening(), OPENING_CORNER);
-    // A smaller opening inside it, point for point: offsetting each point
-    // instead would fold back round the tight front corners.
-    let inside = round_the_front(
-        inset_opening(reach, 0.6 * reach),
-        OPENING_CORNER - 0.6 * reach,
-    );
-    let mut solid = Solid::default();
-    for i in 0..edge.len() - 1 {
-        let corners = [
-            (edge[i], dark),
-            (edge[i + 1], dark),
-            (inside[i + 1], clear),
-            (inside[i], clear),
-        ];
-        eye.quad(&mut solid, corners);
-    }
-    canvas.mesh(Layer::Decal, solid);
 }
 
 /// The type basket under the cover's opening: the type bars — the arms that

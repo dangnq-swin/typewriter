@@ -1,10 +1,13 @@
 //! The desk's lamp, where a writer would place one: to the left, above and a
 //! little in front, its head out over the keys and clear of the work — usual
-//! enough to be believed, far enough never to be in the way. It burns the
-//! room's own white: what it lights is what is there, brighter where it
-//! turns. The shader lights what stands in depth from it, per fragment;
-//! [`Paint::lit`] is its twin at the machine's middle for the few parts the
-//! CPU still lights, one colour a frame.
+//! enough to be believed, far enough never to be in the way. Its head burns
+//! as a disc, not a bare point: light wraps past the shadows' edge, glints
+//! broaden and dim with it, shadows open a penumbra the deeper they lie
+//! behind a caster, and the lamp pools brighter near the head, thinning off
+//! into the room. It burns the room's own white: what it lights is what is
+//! there, brighter where it turns. The shader lights what stands in depth
+//! from it, per fragment; [`Paint::lit`] is its twin at the machine's middle
+//! for the few parts the CPU still lights, one colour a frame.
 
 use eframe::egui::Color32;
 use glam::Vec3;
@@ -12,7 +15,11 @@ use glam::Vec3;
 use super::canvas::Canvas;
 use super::eye::{Eye, toward_eye};
 use super::{METAL, METAL_SHINE};
-use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Solid};
+use crate::depth::{CHROME_BANDS, Layer, Lighting, Shade, Shadow, Solid};
+
+/// How wide the lamp's head burns, in machine millimetres: a disc about the
+/// span of an open hand, facing back at the printing point.
+const LAMP_HEAD_MM: f32 = 80.0;
 
 /// Where the lamp stands, in machine millimetres from the printing point:
 /// over the desk's left front, its head about 400 mm above the desk's
@@ -29,12 +36,70 @@ pub(super) fn toward_light() -> Vec3 {
     lamp().normalize_or_zero()
 }
 
-/// The frame's lighting: this lamp, this eye, and the room chrome mirrors.
+/// The map's square half-width and centre `x`, in machine millimetres:
+/// `body::DESK` spans these two — the catcher quad's one live link to
+/// the map's size and place.
+pub(super) const SHADOW_HALF: f32 = 620.0;
+pub(super) const SHADOW_CENTRE_X: f32 = 60.0;
+
+/// The lamp's eye for the shadow map: a square `SHADOW_HALF` millimetres
+/// wide about the machine's middle and the desk round it, its depth running
+/// from `SHADOW_NEAR` millimetres off the lamp over `SHADOW_SPAN`. A texel
+/// is half a millimetre; the bias is only a texel's own spread — slanted
+/// faces are kept honest by the map's racing depth, widened where it runs,
+/// so the sheet's curl never stripes itself and the knobs' six millimetres
+/// still cast. The head's radius rides along: a shadow's penumbra opens
+/// wider the deeper its fragment stands behind the caster.
+pub(super) fn shadow() -> Shadow {
+    // Geometry nearer the head than this casts nothing: its fragments
+    // clip out of the GPU's lamp pass and `raster::cast` skips their
+    // samples, so the twin and the shader agree the texel keeps the clear.
+    const SHADOW_NEAR: f32 = 250.0;
+    const SHADOW_SPAN: f32 = 650.0;
+    Shadow::lamp(
+        lamp(),
+        LAMP_HEAD_MM,
+        Vec3::Z,
+        Vec3::new(SHADOW_CENTRE_X, -40.0, -60.0),
+        SHADOW_HALF,
+        SHADOW_NEAR,
+        SHADOW_SPAN,
+        1.0,
+    )
+}
+
+/// `mm`'s across and up place in the map, unclamped: `±1` is its edge,
+/// past which the reading clamps into the map's own border texels. The
+/// rows `shadow()` projects with, applied straight.
+#[cfg(test)]
+fn map_uv(mm: Vec3) -> (f32, f32) {
+    let map = shadow();
+    let mm = mm.extend(1.0);
+    (map.rows[0].dot(mm), map.rows[1].dot(mm))
+}
+
+/// The frame's lighting: this head, this eye, the room chrome mirrors and
+/// the lamp's own eye.
 pub(super) fn frame() -> Lighting {
     Lighting {
         lamp: lamp(),
+        lamp_radius: LAMP_HEAD_MM,
         eye: toward_eye(),
+        // Even at the paper it lies: what stands nearer the head burns
+        // brighter, what lies further off dips toward the room's own.
+        falloff: lamp().length(),
         chrome: chrome_bands(),
+        shadow: shadow(),
+    }
+}
+
+/// The desk's shadow catcher: black, a shade under opaque so the canvas
+/// lays it as a decal — seen only as deep as the shadow it stands in,
+/// hiding and casting nothing of its own.
+pub(super) fn catcher() -> Paint {
+    Paint {
+        colour: Color32::from_black_alpha(254),
+        shade: Shade::Catcher(0.38),
     }
 }
 
@@ -99,12 +164,17 @@ pub(super) fn brushed(colour: Color32, shine: Color32, tangent: Vec3, sharpness:
 /// How bright a thin metal part running along `tangent` catches the light,
 /// 0..=1: brushed and milled metal streaks along its grain (Heidrich–Seidel).
 /// `sharpness` narrows the streak. For parts the CPU lights, one colour a
-/// frame: what stands in depth is [`brushed`] instead.
+/// frame: what stands in depth is [`brushed`] instead. The head's width,
+/// seen from the machine's middle, broadens the lobe and dims its peak —
+/// its share of what a point kept.
 pub(super) fn streak(tangent: Vec3, sharpness: i32) -> f32 {
     let tangent = tangent.normalize_or_zero();
     let (lt, vt) = (toward_light().dot(tangent), toward_eye().dot(tangent));
     let across = (1.0 - lt * lt).max(0.0).sqrt() * (1.0 - vt * vt).max(0.0).sqrt();
-    (across - lt * vt).max(0.0).powi(sharpness)
+    let ang = (LAMP_HEAD_MM / lamp().length()).min(1.0);
+    let sharp = sharpness as f32;
+    let peak = 1.0 / (1.0 + ang * sharp);
+    ((across - lt * vt).max(0.0).powf(sharp * peak) * peak).min(1.0)
 }
 
 /// A steel bar of the machine — key lever or type bar — one width, its hair
@@ -222,7 +292,27 @@ pub(super) fn brighten(colour: Color32, by: f32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::super::IVORY;
+    use super::super::body::{DESK, DESK_Z};
     use super::*;
+
+    #[test]
+    fn the_desk_catcher_lies_wholly_inside_the_shadow_map() {
+        // `body::paint_desk` runs its decal from the wall to the case's
+        // front lip across the map's span. If `SHADOW_HALF`, the map's
+        // centre or `lamp()` moved enough to push a corner of that quad
+        // past the map, the catcher there would read clamped edge texels
+        // and the machine's shadow would cut at low zoom. `map_uv` is
+        // affine in x and y at the desk's height, so the corners bound
+        // the whole of it.
+        let (left, right, front, back) = DESK;
+        for (x, y) in [(left, back), (right, back), (right, front), (left, front)] {
+            let (u, v) = map_uv(Vec3::new(x, y, DESK_Z));
+            assert!(
+                u.abs() < 1.0 && v.abs() < 1.0,
+                "desk corner ({x}, {y}) reads u {u:.3}, v {v:.3}: past the map's edge"
+            );
+        }
+    }
 
     #[test]
     fn one_light_from_the_front_left() {
@@ -242,12 +332,15 @@ mod tests {
         let between = (toward_light() + toward_eye()).normalize_or_zero();
         let aside = Vec3::new(-between.y, between.x, 0.0);
         let at = |normal, sharpness| polished(METAL, METAL_SHINE, normal, sharpness).lit();
-        // Wholly the shine where it turns the light to the eye, and dimmer
-        // turned aside.
-        assert_eq!(at(between, 4.0), METAL_SHINE);
-        assert!(at(aside, 4.0).r() < METAL_SHINE.r());
-        // A narrow highlight only reaches the faces turned nearest: the same
-        // face, half turned, shines broad or not at all.
+        // The head is too wide for the whole shine anywhere: turned between
+        // the light and the eye it reaches the most of it a face can, short
+        // of the bare bulb's answer, and well past what a face turned aside
+        // catches.
+        let turned = at(between, 4.0);
+        assert!(turned.r() < METAL_SHINE.r());
+        assert!(turned.r() > at(aside, 4.0).r());
+        // A narrow highlight still only reaches the faces turned nearest:
+        // the same face, half turned, shines broad or not at all.
         let half = (between + aside).normalize_or_zero();
         assert!(at(half, 30.0).r() < at(half, 2.0).r());
     }
@@ -255,10 +348,12 @@ mod tests {
     #[test]
     fn brushed_metal_streaks_across_its_grain() {
         let at = |tangent| brushed(METAL, METAL_SHINE, tangent, 6.0).lit();
-        // The grain at right angles to both the light and the eye: the whole
-        // streak. Along the light: none of it.
+        // The grain at right angles to both the light and the eye: most of
+        // the shine, though the wide head dims the whole of it; along the
+        // light, none of it.
         let across = toward_light().cross(toward_eye());
-        assert_eq!(at(across), METAL_SHINE);
+        assert!(at(across).r() > METAL.r());
+        assert!(at(across).r() < METAL_SHINE.r());
         assert_eq!(at(toward_light()), METAL);
     }
 

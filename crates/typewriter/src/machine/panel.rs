@@ -8,8 +8,9 @@ use typewriter_core::{EraseMode, LineSpacing};
 use super::canvas::Canvas;
 use super::cover::{COVER_FRONT, COVER_HALF};
 use super::eye::{Eye, paint_flat_text};
-use super::light::{matte, toward_light};
+use super::light::matte;
 use super::{CHROME, ENGRAVED, IVORY, SHIFT_CAP, SHIFT_FRONT};
+use crate::depth::{Layer, Solid};
 use typewriter_ui::draw::{Controls, HIGHLIGHT, Metrics, ruler};
 use typewriter_ui::settings::{ZOOM_NOTCHES, zoom_notch};
 
@@ -86,13 +87,6 @@ pub(super) fn panel_offset(centre: Vec3, radius: f32, turn: f32) -> Vec3 {
     let (sin, cos) = turn.to_radians().sin_cos();
     // Across the panel is [1, 0, 0]; its down is `panel_down`.
     centre + Vec3::new(radius * sin, -radius * cos * down.y, -radius * cos * down.z)
-}
-
-/// Where the light casts `point`, `height` millimetres off the panel, onto it.
-fn cast_on_panel(point: Vec3, height: f32) -> Vec3 {
-    let light = toward_light();
-    let along = height / light.dot(panel_normal());
-    point - light * along
 }
 
 /// A circle on the panel's plane.
@@ -292,8 +286,8 @@ impl Panel {
         eye.fill(canvas, &glint, |_| Color32::from_white_alpha(120));
     }
 
-    /// A short cylinder on the panel at `base`, `height` tall: its shadow,
-    /// ribbed side and top. Returns its top's centre.
+    /// A short cylinder on the panel at `base`, `height` tall: its ribbed
+    /// side and top. Returns its top's centre.
     fn paint_cylinder(
         &self,
         canvas: &Canvas,
@@ -305,8 +299,6 @@ impl Panel {
         let eye = &self.eye;
         let normal = panel_normal();
         let top = base + normal * height;
-        let shadow = circle(cast_on_panel(top, height), KNOB_RADIUS);
-        eye.fill(canvas, &shadow, |_| Color32::from_black_alpha(60));
         // The side: the base's near half, the top's far half.
         let steps = 24u8;
         let at = |centre: Vec3, i: u8| {
@@ -359,6 +351,52 @@ fn notches(count: usize, span: f32) -> Vec<f32> {
         .collect()
 }
 
+/// The knobs' and the save button's cylinders, standing off the panel:
+/// kept standing solids, opaque to the lamp so its map hides them from the
+/// panel's face. What the frame paints of the controls over the pass is
+/// only their readings, marks and pointer; the cylinders stand here, in
+/// depth, unlit and colourless — the parts over them take the look.
+pub(super) fn paint_casters(canvas: &Canvas, eye: &Eye) {
+    let mut solid = Solid::default();
+    let steps = 24u8;
+    for control in Control::ALL {
+        let height = match control {
+            Control::Save => BUTTON_HEIGHT,
+            _ => KNOB_HEIGHT,
+        };
+        let base = on_panel(control.x(), CONTROLS_Y);
+        let top = base + panel_normal() * height;
+        let at = |centre: Vec3, i: u8| {
+            let turn = 360.0 * f32::from(i) / f32::from(steps);
+            panel_offset(centre, KNOB_RADIUS, turn)
+        };
+        for i in 0..steps {
+            let (j, clear) = (i + 1, Color32::TRANSPARENT);
+            eye.quad(
+                &mut solid,
+                [
+                    (at(base, i), clear),
+                    (at(base, j), clear),
+                    (at(top, j), clear),
+                    (at(top, i), clear),
+                ],
+            );
+            // The lid, so the lamp sees the cylinder's crown; the base
+            // needs none, the panel's own face stands fast against it.
+            eye.quad(
+                &mut solid,
+                [
+                    (at(top, i), clear),
+                    (at(top, j), clear),
+                    (top, clear),
+                    (top, clear),
+                ],
+            );
+        }
+    }
+    canvas.mesh(Layer::Opaque, solid);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,14 +420,16 @@ mod tests {
     }
 
     #[test]
-    fn shadows_clear_of_the_lamp_and_labels() {
-        let shadow = |height: f32| {
-            let top = on_panel(0.0, CONTROLS_Y) + panel_normal() * height;
-            cast_on_panel(top, height)
-        };
-        let lamp = on_panel(LAMP_OUT, CONTROLS_Y);
-        let gap = (lamp - shadow(BUTTON_HEIGHT)).length();
-        assert!(gap > KNOB_RADIUS + LAMP_RIM, "{gap}");
-        assert!(shadow(KNOB_HEIGHT).x + KNOB_RADIUS < LABEL_GAP);
+    fn the_casters_stand_clear_of_the_lamp_and_labels() {
+        // The knob's crown reaches furthest out toward the writer; short of
+        // the lamp's bulb and the labels' start, as the cylinders are round.
+        let crown = panel_offset(on_panel(Control::Goal.x(), CONTROLS_Y), KNOB_RADIUS, 90.0)
+            - on_panel(0.0, CONTROLS_Y);
+        assert!(crown.x + KNOB_RADIUS < LABEL_GAP + Control::Goal.label_width());
+        let (save, bulb) = (
+            on_panel(Control::Save.x(), CONTROLS_Y),
+            on_panel(LAMP_OUT, CONTROLS_Y),
+        );
+        assert!((bulb - save).length() > 2.0 * KNOB_RADIUS + LAMP_RIM);
     }
 }

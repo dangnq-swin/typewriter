@@ -23,7 +23,12 @@ impl TypewriterApp {
             .frame(egui::Frame::NONE)
             .show(ui, |ui| {
                 let view = ui.max_rect();
-                self.background.paint(&ui.painter_at(view), view);
+                self.background.paint(
+                    &ui.painter_at(view),
+                    view,
+                    &self.metrics,
+                    self.model.zoom_percent,
+                );
                 match self.model.view {
                     View::Typing => {
                         self.show_typing(ui, now, &mut intents);
