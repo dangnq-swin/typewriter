@@ -13,8 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # rodio's ALSA backend links against libasound.
-      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      # rodio's ALSA backend links against libasound. The render crate's
+      # device tests draw through Vulkan, which a runner only has through
+      # Mesa's software driver, lavapipe.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev mesa-vulkan-drivers
       - uses: actions/cache@v6
         with:
           path: |
@@ -31,7 +33,9 @@ jobs:
 
   windows:
     # Tests only: fmt and clippy read the same code on any OS, and the
-    # 2.0.0 release proved it is the tests that differ by platform.
+    # 2.0.0 release proved it is the tests that differ by platform. The
+    # device tests draw through the runner's own software adapter, the
+    # Basic Render Driver, which wgpu reaches over DX12 without setup.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7

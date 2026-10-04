@@ -58,10 +58,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # rodio's ALSA backend links against libasound; the rest runs the app
-      # on a virtual display, drawn by Mesa's software renderer.
+      # on a virtual display, drawn by Mesa's software renderer. The render
+      # crate's device tests draw through Vulkan offscreen, on Mesa's
+      # software driver, lavapipe; the smoke's window keeps GL, for Xvfb
+      # cannot present Vulkan (no DRI3).
       - run: >-
           sudo apt-get update && sudo apt-get install -y libasound2-dev xvfb xauth
           libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2
+          mesa-vulkan-drivers
       - run: rustup toolchain install
       - run: cargo test --workspace --release --locked
       - name: appimagetool 1.9.1, checked
@@ -86,10 +90,12 @@ jobs:
     env:
       RUSTFLAGS: -C target-feature=-crt-static
     steps:
+      # mesa-vulkan-swrast is Alpine's lavapipe: the render crate's device
+      # tests draw through it. The smoke's window keeps GL, as on glibc.
       - run: >-
           apk add --no-cache build-base pkgconf alsa-lib-dev rustup git github-cli coreutils
           xvfb xvfb-run xauth mesa-dri-gallium mesa-egl mesa-gl libxkbcommon libxkbcommon-x11
-          libxcursor libxi libxrandr
+          libxcursor libxi libxrandr mesa-vulkan-swrast vulkan-loader
       - uses: actions/checkout@v7
       - run: rustup-init -y --no-modify-path --default-toolchain none
       - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
@@ -105,6 +111,8 @@ jobs:
   windows:
     needs: draft
     if: github.event_name == 'push' || contains(fromJSON('["all", "windows"]'), inputs.build)
+    # The device tests draw through the runner's own software adapter, the
+    # Basic Render Driver, which wgpu reaches over DX12 without setup.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
