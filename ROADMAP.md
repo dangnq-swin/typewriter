@@ -27,9 +27,14 @@ at by snapshot (`AGENTS.md`). Perf work is judged on the bench, not on feel.
       the cover's foot and its opening shade, the keys' shadows,
       `panel::cast_on_panel` — and a depth pass from the lamp, or a shadow
       map, casts them instead.
-- [ ] ❓ Desk: whether the depth pass becomes a conventional 3D renderer, its
-      own branch, once the measurements above say so: judged against what is
-      lost — the headless snapshot's CPU twin, egui's free text and windowing.
+- [x] Desk: whether the depth pass becomes a conventional 3D renderer, its own
+      branch: yes — chosen for the 3D work ahead of the desk, not for today's
+      numbers (the pass measures ~1.8 ms a frame CPU-side, flat across window
+      sizes; the two GPU passes fit a 60 fps budget even on software). What is
+      lost — the headless snapshot's CPU twin, egui's free text and windowing —
+      is carried by the plan, not dropped: branch `3d-pipeline`, tasks in
+      [`3D-PIPELINE.md`](3D-PIPELINE.md). The section leaves this file when the
+      branch merges.
 
 ## The desk's machine
 
