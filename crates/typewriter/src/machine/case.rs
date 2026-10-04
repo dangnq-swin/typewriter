@@ -55,7 +55,7 @@ pub(super) fn wall_top(y: f32) -> f32 {
         remap_clamp(y, y0..=start, z0..=WALL_EASE_Z)
     } else {
         let t = remap_clamp(y, start..=end, 0.0..=1.0);
-        WALL_EASE_Z + (SHELF_Z - WALL_EASE_Z) * smoothstep(t)
+        lerp(WALL_EASE_Z..=SHELF_Z, smoothstep(t))
     }
 }
 

@@ -117,6 +117,10 @@ runs.
 - Errors: `thiserror` in the core, `anyhow` at the app boundary.
 - No `unwrap()`/`expect()` outside tests unless the invariant is stated at the call site.
 - Reuse before adding.
+- Graphics and math count double: before hand-rolling a lerp, blend, ease or geometry helper, check
+  `egui`/`emath`, `ecolor` and `glam` first. A hand-rolled color `mix` premultiplied twice and hid the
+  plank tints — blend with `lerp_to_gamma`. Only shader twins (`depth/lighting.rs`) and math with no
+  library counterpart may stay hand-rolled.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
 
 ## Comment style

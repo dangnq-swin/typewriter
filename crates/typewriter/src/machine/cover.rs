@@ -52,7 +52,7 @@ const PALE_RING: Color32 = Color32::from_rgb(0xCC, 0xC6, 0xB2);
 /// A point on the ribbon cover's slope.
 pub(super) fn on_cover(x: f32, y: f32) -> Vec3 {
     let t = (y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
-    Vec3::new(x, y, COVER_BACK.1 + t * (COVER_FRONT.1 - COVER_BACK.1))
+    Vec3::new(x, y, lerp(COVER_BACK.1..=COVER_FRONT.1, t))
 }
 
 /// Out of the cover's slope, square to it, unit length.
