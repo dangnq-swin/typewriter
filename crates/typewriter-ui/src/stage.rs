@@ -323,6 +323,12 @@ pub trait Stage {
     /// pipelines on eframe's wgpu renderer (`None` without one).
     fn start(&self, _ctx: &Context, _render_state: Option<&RenderState>) {}
 
+    /// The render crate's own window opens for this stage, not eframe's.
+    /// Plain mode has it today; the desk moves to it in T1b.
+    fn opens_render_window(&self) -> bool {
+        false
+    }
+
     /// Behind everything, in place of the chosen background, which then
     /// shows on the sheets only. Gets the machine's metrics and the zoom so
     /// it can draw in the scene's own millimetres. `None`: the chosen
@@ -439,6 +445,10 @@ pub trait Stage {
 pub struct Plain;
 
 impl Stage for Plain {
+    fn opens_render_window(&self) -> bool {
+        true
+    }
+
     fn command(&self) -> &'static str {
         "typewriter-plain"
     }

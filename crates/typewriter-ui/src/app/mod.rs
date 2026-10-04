@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Pos2, Rect};
 use typewriter_core::{Constraints, Typewriter};
+use typewriter_render::ui::FrameApp;
 
 use crate::audio::{self, Audio};
 use crate::filing::{self, Filing};
@@ -80,14 +81,15 @@ pub struct TypewriterApp {
 impl TypewriterApp {
     /// `settings`: from [`SettingsFile::load`], before the window opened.
     pub fn new(
-        cc: &eframe::CreationContext<'_>,
+        ctx: &egui::Context,
+        render_state: Option<&eframe::egui_wgpu::RenderState>,
         settings: (settings::Settings, SettingsFile, Option<String>),
         stage: Box<dyn Stage>,
     ) -> anyhow::Result<Self> {
-        fonts::install(&cc.egui_ctx);
-        stage.start(&cc.egui_ctx, cc.wgpu_render_state.as_ref());
+        fonts::install(ctx);
+        stage.start(ctx, render_state);
         // No Ctrl shortcuts, egui's zoom keys included.
-        cc.egui_ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
         let (settings, settings_file, settings_trouble) = settings;
         let opened_fullscreen = settings.look.fullscreen;
         let machines = Machines::load()?;
@@ -105,7 +107,7 @@ impl TypewriterApp {
         let mut model = Model::new(machine, filing, settings, machines, feed_motion);
         model.follow_zoom_min(stage.zoom_min());
         let look = &mut model.settings.look;
-        let background = Background::load(&cc.egui_ctx, look, stage.backdrop());
+        let background = Background::load(ctx, look, stage.backdrop());
         let background_trouble = background.problem().map(str::to_owned);
         if let Some(trouble) = trouble
             .or(settings_trouble)
@@ -136,7 +138,7 @@ impl TypewriterApp {
             quitting: false,
             settings_file,
             running,
-            listening: instance::listen(&cc.egui_ctx),
+            listening: instance::listen(ctx),
             printing: Printing::default(),
         })
     }
@@ -344,8 +346,9 @@ impl TypewriterApp {
     }
 }
 
-impl eframe::App for TypewriterApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+impl TypewriterApp {
+    /// One frame: read the world, draw the model, do what it asked.
+    fn frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let now = ctx.input(|i| i.time);
         self.model.start_frame(now);
@@ -396,7 +399,8 @@ impl eframe::App for TypewriterApp {
         }
     }
 
-    fn on_exit(&mut self) {
+    /// The window is closing for good: put things away.
+    fn put_away(&mut self) {
         if let Err(err) = self.model.put_away() {
             eprintln!("{err}");
         }
@@ -407,6 +411,26 @@ impl eframe::App for TypewriterApp {
         if let Err(err) = self.settings_file.keep(&self.model.settings, 0.0, true) {
             eprintln!("{err}");
         }
+    }
+}
+
+impl eframe::App for TypewriterApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.frame(ui);
+    }
+
+    fn on_exit(&mut self) {
+        self.put_away();
+    }
+}
+
+impl FrameApp for TypewriterApp {
+    fn update(&mut self, ui: &mut egui::Ui) {
+        self.frame(ui);
+    }
+
+    fn on_exit(&mut self) {
+        self.put_away();
     }
 }
 

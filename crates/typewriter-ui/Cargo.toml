@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 typewriter-core.workspace = true
+typewriter-render.workspace = true
 eframe.workspace = true
 emath.workspace = true
 anyhow.workspace = true

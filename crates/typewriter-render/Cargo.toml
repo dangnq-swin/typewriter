@@ -1,0 +1,19 @@
+[package]
+name = "typewriter-render"
+description = "The render crate: the window the app opens and the renderer that draws the desk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+pollster.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+
+[lints]
+workspace = true

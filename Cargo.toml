@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/typewriter-core",
+    "crates/typewriter-render",
     "crates/typewriter-ui",
     "crates/typewriter",
 ]
@@ -17,6 +18,7 @@ publish = false
 
 [workspace.dependencies]
 typewriter-core = { path = "crates/typewriter-core" }
+typewriter-render = { path = "crates/typewriter-render" }
 typewriter-ui = { path = "crates/typewriter-ui" }
 eframe = "0.36"
 anyhow = "1"
@@ -53,6 +55,15 @@ interprocess = "2.4"
 open = "5"
 # Crash-safe writes: temp file, fsync, rename.
 atomic-write-file = "0.3"
+# egui and the window stack under it, one version pair throughout: the
+# render crate drives them directly, at the pair eframe re-exports.
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-winit = { version = "0.36", features = ["accesskit"] }
+wgpu = "30.0"
+# egui-wgpu blocks on its own painter's setup with this.
+pollster = "1.0"
+winit = "0.30"
 
 # Optimise image decoding even in debug: the paper texture is painfully slow
 # to decode and resize otherwise (build script, startup, own textures).
