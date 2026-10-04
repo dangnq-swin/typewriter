@@ -117,10 +117,6 @@ runs.
 - Errors: `thiserror` in the core, `anyhow` at the app boundary.
 - No `unwrap()`/`expect()` outside tests unless the invariant is stated at the call site.
 - Reuse before adding.
-- Unsure what a crate offers — including our own — build the docs instead of guessing:
-  `cargo doc -p <crate> --no-deps` writes HTML under `target/doc/<crate>/`. One page per item, named
-  for it (`fn.*.html`, `struct.*.html`, …), so glob the folder to see the whole API; read a page only
-  when needed, and never a whole one — grep signatures, the HTML would flood the context.
 - Name units: `_seconds`, `_mm`, `_percent`, `half_line`; or say them in the doc comment.
 
 ## Comment style
