@@ -7,7 +7,7 @@
 
 use std::f32::consts::TAU;
 
-use eframe::egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};
+use eframe::egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, lerp, pos2};
 use glam::Vec3;
 use typewriter_ui::draw::{Metrics, splitmix64, unit};
 
@@ -150,7 +150,7 @@ impl Desk {
     fn wood(&self, eye: &Eye, screen_y: f32) -> Color32 {
         let y = eye.plane_y(screen_y, DESK_Z);
         let t = ((y - WALL_Y) / (self.bottom - WALL_Y)).clamp(0.0, 1.0);
-        mix(WOOD_FAR, WOOD_NEAR, t)
+        WOOD_FAR.lerp_to_gamma(WOOD_NEAR, t)
     }
 
     fn paint_grain(&self, eye: &Eye, mesh: &mut Mesh) {
@@ -213,8 +213,13 @@ impl Desk {
         let steps = ((bottom - top) / 8.0).ceil().clamp(1.0, 16.0) as usize;
         for step in 0..steps {
             let (t0, t1) = (step as f32 / steps as f32, (step + 1) as f32 / steps as f32);
-            let quad = band(eye, self.half, a + (b - a) * t1, a + (b - a) * t0);
-            gradient(mesh, quad, mix(far, near, t1), mix(far, near, t0));
+            let quad = band(eye, self.half, lerp(a..=b, t1), lerp(a..=b, t0));
+            gradient(
+                mesh,
+                quad,
+                far.lerp_to_gamma(near, t1),
+                far.lerp_to_gamma(near, t0),
+            );
         }
     }
 }
@@ -276,16 +281,6 @@ fn band(eye: &Eye, half: f32, y_near: f32, y_far: f32) -> [Pos2; 4] {
 
 fn with_alpha(colour: Color32, alpha: u8) -> Color32 {
     Color32::from_rgba_unmultiplied(colour.r(), colour.g(), colour.b(), alpha)
-}
-
-fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
-    let lerp = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgba_unmultiplied(
-        lerp(a.r(), b.r()),
-        lerp(a.g(), b.g()),
-        lerp(a.b(), b.b()),
-        lerp(a.a(), b.a()),
-    )
 }
 
 fn corners(rect: Rect) -> [Pos2; 4] {
