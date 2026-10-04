@@ -65,9 +65,9 @@ pub struct TypewriterApp {
     /// When fullscreen was last switched. Until the window catches up, its
     /// state must not overrule the setting.
     fullscreen_sent: Option<f64>,
-    /// The window opened fullscreen, which asks for no `inner_size` (see
-    /// `crate::run`): the first exit from fullscreen restores a window of
-    /// the default size.
+    /// The window opened fullscreen, which asks for no `windowed_size` (see
+    /// `typewriter_render::window::Options`): the first exit from fullscreen
+    /// restores a window of the default size.
     window_size_pending: bool,
     /// Everything was answered: let the window close.
     quitting: bool,
@@ -281,7 +281,8 @@ impl TypewriterApp {
             self.fullscreen_sent = Some(now);
             if !fullscreen && self.window_size_pending {
                 // The fullscreen launch asked for no window size (see
-                // `crate::run`); the desktop restores whatever winit kept.
+                // `typewriter_render::window::Options`); the desktop
+                // restores whatever winit kept.
                 self.window_size_pending = false;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(crate::DEFAULT_WINDOW));
             }
@@ -411,16 +412,6 @@ impl TypewriterApp {
         if let Err(err) = self.settings_file.keep(&self.model.settings, 0.0, true) {
             eprintln!("{err}");
         }
-    }
-}
-
-impl eframe::App for TypewriterApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.frame(ui);
-    }
-
-    fn on_exit(&mut self) {
-        self.put_away();
     }
 }
 

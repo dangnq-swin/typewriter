@@ -55,14 +55,6 @@ pub fn is_option(arg: &OsStr) -> bool {
     arg.as_encoded_bytes().starts_with(b"-")
 }
 
-/// The window `stage` asks for.
-fn window_options(stage: &impl Stage) -> eframe::NativeOptions {
-    eframe::NativeOptions {
-        depth_buffer: stage.depth_buffer(),
-        ..Default::default()
-    }
-}
-
 /// A windowed launch's size, and what the first exit from a fullscreen
 /// launch restores.
 const DEFAULT_WINDOW: eframe::egui::Vec2 = eframe::egui::Vec2::new(900.0, 1000.0);
@@ -85,44 +77,12 @@ pub fn run(stage: impl Stage + 'static) -> anyhow::Result<()> {
     // Load before the window opens: it must open fullscreen at once.
     let settings = settings::SettingsFile::load();
     let fullscreen = settings.0.look.fullscreen;
-    // The render crate's own window, for the stages that moved onto it.
-    if stage.opens_render_window() {
-        return render_window(stage, settings, fullscreen);
-    }
-    let mut viewport = eframe::egui::ViewportBuilder::default()
-        .with_title(stage.title())
-        .with_app_id(stage.command())
-        .with_fullscreen(fullscreen);
-    // A Windows bug (upstream, eframe 0.36): after the desktop sizes a new
-    // window for fullscreen, eframe re-applies `inner_size` and shrinks the
-    // fullscreen window to it. Ask for a window size only when the window
-    // opens windowed; the app restores it on the first exit from a
-    // fullscreen launch.
-    if !fullscreen {
-        viewport = viewport.with_inner_size(DEFAULT_WINDOW);
-    }
-    let options = eframe::NativeOptions {
-        viewport,
-        ..window_options(&stage)
-    };
-    eframe::run_native(
-        stage.command(),
-        options,
-        Box::new(|cc| {
-            let app = app::TypewriterApp::new(
-                &cc.egui_ctx,
-                cc.wgpu_render_state.as_ref(),
-                settings,
-                Box::new(stage),
-            )?;
-            Ok(Box::new(app))
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("failed to start the GUI: {e}"))
+    render_window(stage, settings, fullscreen)
 }
 
-/// The render crate's own window: the winit loop plain mode runs in, the one
-/// the desk moves to and the renderer grows in.
+/// The winit loop's window, the one every mode runs in and the renderer
+/// grows in. The desk's depth pass paints through it as a callback, so the
+/// surface carries the depth attachment its bits ask for.
 fn render_window(
     stage: impl Stage + 'static,
     settings: (settings::Settings, settings::SettingsFile, Option<String>),
@@ -138,8 +98,8 @@ fn render_window(
             fullscreen,
             windowed_size: Some(DEFAULT_WINDOW),
             clear_color,
-            // No depth attachment yet: plain mode draws no depth pass.
-            depth_stencil: None,
+            // Mapped as eframe mapped `NativeOptions::depth_buffer`.
+            depth_stencil: eframe::egui_wgpu::depth_format_from_bits(stage.depth_buffer(), 0),
         },
         |ctx, render_state| {
             let app = app::TypewriterApp::new(ctx, render_state, settings, Box::new(stage))?;

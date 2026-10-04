@@ -68,8 +68,8 @@ after their joint integration.
 | 0 | this plan | `docs: the 3d pipeline's plan` — landed |
 | 1 | this restructure | `docs: the pipeline takes its own surface` — landed |
 | 2 | T1a | `feat: the render crate opens plain mode's window` — landed |
-| 3 | T1b | `feat: normal mode moves onto the render crate's window` |
-| 4 | T1c | `feat: the render crate's device core` |
+| 3 | T1b | `feat: normal mode moves onto the render crate's window` — landed |
+| 4 | T1c | `feat: the render crate's device core` — landed |
 | 5 | T2 | `feat: the machine's parts build into the render crate` |
 | 6 | T3 | `feat: the lamp lights the render crate` |
 | 7 | T4 | `feat: sheets and print draw in the render crate` |

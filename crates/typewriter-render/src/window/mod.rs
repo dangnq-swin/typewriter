@@ -19,9 +19,10 @@ pub struct Options {
     pub app_id: &'static str,
     /// Opens the window fullscreen at once.
     pub fullscreen: bool,
-    /// The windowed size, asked only on a windowed launch: eframe shrinks a
-    /// fullscreen window when the size is also asked, and the desktop's own
-    /// fullscreen sizing must not be second-guessed.
+    /// The windowed size, asked only on a windowed launch: applying the
+    /// inner size after the desktop sizes for fullscreen shrinks the
+    /// fullscreen window to it, so the desktop's own sizing is never
+    /// second-guessed.
     pub windowed_size: Option<egui::Vec2>,
     /// What the frame clears to before egui paints over it.
     pub clear_color: [f32; 4],
