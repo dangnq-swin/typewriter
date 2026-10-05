@@ -104,6 +104,23 @@ pub fn paint_sheets(
     typing_y: f32,
     sheets: Vec<FlatSheet>,
 ) {
+    depth::gather(
+        painter.ctx(),
+        solids_sheets(painter, view, metrics, typing_y, sheets),
+    );
+}
+
+/// The solids [`paint_sheets`] gathers: `sheets` on their way through the
+/// machine for the typing line at `typing_y`, the paper and its print, built
+/// once for whichever pass draws them. The old depth pass draws them as they
+/// are; the new render path converts them ([`super::draw::convert`]).
+pub(super) fn solids_sheets(
+    painter: &Painter,
+    view: Rect,
+    metrics: &Metrics,
+    typing_y: f32,
+    sheets: Vec<FlatSheet>,
+) -> Solids {
     let eye = Eye::new(view, metrics, typing_y);
     let per_mm = metrics.points_per_mm();
     let place = |at: Pos2| {
@@ -147,7 +164,7 @@ pub fn paint_sheets(
         };
         solids.add_shapes(painter, Layer::Decal, sheet.print, longest, print);
     }
-    depth::gather(painter.ctx(), solids);
+    solids
 }
 
 /// The `paper` quad, corners clockwise from the top left, cut into `rows`
