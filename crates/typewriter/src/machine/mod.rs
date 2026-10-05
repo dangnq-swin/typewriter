@@ -19,6 +19,10 @@ mod canvas;
 mod carriage;
 mod case;
 mod cover;
+// The new render path, built beside the old depth pass until T5 wires it
+// in: nothing calls it yet, so its entry points read as dead until then.
+#[allow(dead_code)]
+mod draw;
 mod eye;
 mod geometry;
 mod keyboard;
