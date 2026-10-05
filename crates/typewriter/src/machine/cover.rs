@@ -59,7 +59,7 @@ pub(super) fn on_cover(x: f32, y: f32) -> Vec3 {
 fn cover_normal() -> Vec3 {
     let dy = COVER_FRONT.0 - COVER_BACK.0;
     let dz = COVER_FRONT.1 - COVER_BACK.1;
-    Vec3::new(0.0, -dz, dy).normalize()
+    Vec3::X.cross(Vec3::new(0.0, dy, dz)).normalize()
 }
 
 /// The opening's corners: the plates' tips at the back, left and right,
@@ -180,7 +180,7 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[Vec3], facing: f32) {
         let [a, b] = [pair[0], pair[1]];
         // Across the edge, the way it faces: each edge runs back to front.
         let along = b - a;
-        let normal = Vec3::new(facing * along.y, -facing * along.x, 0.2);
+        let normal = facing * along.cross(Vec3::Z) + Vec3::Z * 0.2;
         let colour = matte(IVORY_SHADE, normal);
         let down = |p: Vec3| p - Vec3::Z * PLATE_THICKNESS;
         eye.quad(

@@ -3,7 +3,7 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{
-    self, Color32, CornerRadius, Margin, Pos2, Rect, RichText, Shape, Stroke, Ui, UiBuilder, pos2,
+    self, Color32, CornerRadius, Margin, Pos2, Rect, RichText, Shape, Stroke, Ui, UiBuilder, Vec2,
     vec2,
 };
 
@@ -322,10 +322,7 @@ fn gear(centre: Pos2, outer: f32, inner: f32, teeth: u16) -> Vec<Pos2> {
             let angle = TAU * f32::from(i) / f32::from(steps);
             // Two points on the tooth, two in the gap.
             let radius = if i % 4 < 2 { outer } else { inner };
-            pos2(
-                centre.x + radius * angle.cos(),
-                centre.y + radius * angle.sin(),
-            )
+            centre + Vec2::angled(angle) * radius
         })
         .collect()
 }

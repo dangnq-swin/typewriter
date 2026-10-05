@@ -167,7 +167,7 @@ pub(super) fn paint_inner_walls(canvas: &Canvas, eye: &Eye) {
             for pair in path.windows(2) {
                 let [a, b] = [pair[0], pair[1]];
                 let along = b - a;
-                let facing = Vec3::new(-side * along.y, side * along.x, 0.0);
+                let facing = side * Vec3::Z.cross(along);
                 // Culling, not ordering: a face turned away only costs; the
                 // depth buffer hides it anyway.
                 if !Eye::sees(a, facing) {
@@ -290,7 +290,7 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
             let before = front[i.saturating_sub(1)];
             let after = front[(i + 1).min(front.len() - 1)];
             let along = after - before;
-            Vec3::new(along.y, -along.x, 0.0)
+            along.cross(Vec3::Z)
         })
         .collect();
     let mut solid = Solid::default();
@@ -299,7 +299,7 @@ fn paint_case_front(canvas: &Canvas, eye: &Eye) {
         // Round the corners it turns away onto the sides: skip that. Only
         // cost, not ordering: the depth buffer hides a turned face anyway.
         let along = b - a;
-        if !Eye::sees(a, Vec3::new(along.y, -along.x, 0.0)) {
+        if !Eye::sees(a, along.cross(Vec3::Z)) {
             continue;
         }
         let [top_a, top_b] = [i, i + 1].map(|k| matte(IVORY, facing[k]));

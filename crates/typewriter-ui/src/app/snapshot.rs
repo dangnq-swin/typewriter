@@ -242,7 +242,7 @@ fn patch(texture: &mut ColorImage, part: &ColorImage, [x, y]: [usize; 2]) {
 pub type Rgba = [f32; 4];
 
 fn rgba(colour: Color32) -> Rgba {
-    colour.to_array().map(|c| f32::from(c) / 255.0)
+    colour.to_normalized_gamma_f32()
 }
 
 fn rasterize(

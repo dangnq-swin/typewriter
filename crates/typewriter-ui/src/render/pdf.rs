@@ -225,14 +225,16 @@ fn on_white(color: Color32) -> Color {
     over(color, Color32::WHITE)
 }
 
-/// Premultiplied `top` over opaque `below`.
+/// `top` over opaque `below`, both as printed on white.
 fn over(top: Color32, below: Color32) -> Color {
-    let clear = 1.0 - f32::from(top.a()) / 255.0;
-    let channel = |t: u8, b: u8| (f32::from(t) + clear * f32::from(b)).min(255.0) / 255.0;
+    let [r, g, b, _] = Color32::WHITE
+        .blend(below)
+        .blend(top)
+        .to_normalized_gamma_f32();
     Color::Rgb(Rgb {
-        r: channel(top.r(), below.r()),
-        g: channel(top.g(), below.g()),
-        b: channel(top.b(), below.b()),
+        r,
+        g,
+        b,
         icc_profile: None,
     })
 }

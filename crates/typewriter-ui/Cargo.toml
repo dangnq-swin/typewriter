@@ -11,6 +11,7 @@ typewriter-core.workspace = true
 typewriter-render.workspace = true
 eframe.workspace = true
 emath.workspace = true
+rand.workspace = true
 anyhow.workspace = true
 image.workspace = true
 rodio.workspace = true

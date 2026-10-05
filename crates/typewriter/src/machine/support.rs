@@ -192,7 +192,7 @@ mod tests {
         let radius = PLATEN_DIAMETER_MM / 2.0;
         let axis = platen_axis();
         assert!(y < axis.y && z < axis.z, "{y} {z}");
-        let from_axis = ((y - axis.y).powi(2) + (z - axis.z).powi(2)).sqrt();
+        let from_axis = glam::Vec2::new(y - axis.y, z - axis.z).length();
         assert!((from_axis - radius).abs() < 2.5e-3);
     }
 

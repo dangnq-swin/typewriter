@@ -222,7 +222,7 @@ fn paint_ribbon(canvas: &Canvas, eye: &Eye) {
     for pair in ribbon_path().windows(2) {
         let [a, b] = [pair[0], pair[1]];
         // Toward the writer, square to the run.
-        let facing = Vec3::new(a.y - b.y, b.x - a.x, 0.0);
+        let facing = -(b - a).cross(Vec3::Z);
         let facing = if facing.y < 0.0 { -facing } else { facing };
         for (colour, from, to) in [
             (RIBBON_INK, 0.0, width / 2.0),

@@ -4,7 +4,8 @@
 use std::f32::consts::PI;
 
 use eframe::egui::{
-    Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape, Stroke, lerp, pos2, vec2,
+    Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2, lerp, pos2,
+    vec2,
 };
 use typewriter_core::carriage::Carriage;
 use typewriter_core::session::Progress;
@@ -432,10 +433,7 @@ fn left_half_disc(centre: Pos2, radius: f32) -> Vec<Pos2> {
         .map(|i| {
             // Top, round the left, to the bottom.
             let angle = PI / 2.0 + PI * f32::from(i) / f32::from(STEPS);
-            pos2(
-                centre.x + radius * angle.cos(),
-                centre.y - radius * angle.sin(),
-            )
+            centre + Vec2::angled(-angle) * radius
         })
         .collect()
 }

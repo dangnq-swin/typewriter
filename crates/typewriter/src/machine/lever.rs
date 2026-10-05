@@ -10,7 +10,7 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use eframe::egui::{self, Shape, Stroke};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 
 use super::canvas::Canvas;
 use super::eye::Eye;
@@ -163,7 +163,7 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: Vec3) {
     let light = toward_light();
     eye.fill(canvas, &face, |p| {
         let toward = (p - at).normalize_or_zero();
-        let lit = 0.5 + 0.5 * (toward.x * light.x + toward.y * light.y);
+        let lit = 0.5 + 0.5 * toward.truncate().dot(light.truncate());
         brighten(METAL, 0.9).lerp_to_gamma(METAL_SHINE, lit)
     });
     eye.outline(canvas, &face);
@@ -288,14 +288,10 @@ impl Strap {
     /// For the carriage's left end at `left`, thrown `amount`.
     fn new(left: f32, amount: f32) -> Self {
         let swing = (THROW_DEGREES * amount.clamp(0.0, 1.0)).to_radians();
-        let (sin, cos) = swing.sin_cos();
         let pivot = Vec3::new(SCREW.0, SCREW.1, 0.0);
         let shift = Vec3::new(left, 0.0, 0.0);
-        let turn = |p: Vec3| {
-            let d = p - pivot;
-            let turned = Vec3::new(d.x * cos + d.y * sin, d.y * cos - d.x * sin, d.z);
-            turned + pivot + shift
-        };
+        let rotation = Quat::from_rotation_z(-swing);
+        let turn = |p: Vec3| rotation * (p - pivot) + pivot + shift;
         let resting = path();
         let points: Vec<Vec3> = resting.iter().map(|&(p, _)| turn(p)).collect();
         let last = points.len() - 1;
@@ -303,7 +299,7 @@ impl Strap {
             .map(|i| {
                 let (before, after) = (points[i.saturating_sub(1)], points[(i + 1).min(last)]);
                 let along = (after - before).normalize_or_zero();
-                let inward = Vec3::new(along.y, -along.x, 0.0).normalize_or_zero();
+                let inward = along.cross(Vec3::Z).normalize_or_zero();
                 let up = inward.cross(along).normalize_or_zero();
                 let across = profile(resting[i].1).map(|(u, v)| points[i] + inward * u + up * v);
                 Frame {

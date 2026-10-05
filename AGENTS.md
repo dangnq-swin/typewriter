@@ -26,7 +26,7 @@ file. `README.md` is the maintainer's: keep only its *Controls* section current.
 ## Working agreement: ask before assuming
 
 **Ask before proceeding** when a task involves a product or UX decision the code and this file do not settle,
-a new dependency, asset or file format, or a change to the document format or the profile/config schema, or
+an asset or file format, or a change to the document format or the profile/config schema, or
 anything ambiguous where two readings lead to different code. Batch questions, propose a recommended option,
 wait; answers that set a lasting rule go here. Small, mechanical changes need no question round.
 

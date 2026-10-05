@@ -38,8 +38,12 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 quick-xml = "0.42"
 rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
 # The depth pass's machine millimetres, clip rows and shader-ready bytes.
-glam = { version = "0.33", features = ["bytemuck"] }
+glam = { version = "0.34", features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }
+# The shadow map's f16 texels.
+half = "2"
+# A seeded, deterministic generator for the app's noise and chance.
+rand = "0.10"
 # Accented letters as base and accent, from Unicode's own decompositions.
 unicode-normalization = "0.1"
 # The bundled fonts' tables: what they can print, and their metrics.

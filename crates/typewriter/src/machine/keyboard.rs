@@ -380,7 +380,7 @@ pub(super) fn paint_cap(
     let lit: Vec<Paint> = (0..n)
         .map(|i| {
             let along = top[(i + 1) % n] - top[(i + n - 1) % n];
-            let out = Vec3::new(along.y, -along.x, 0.0).normalize_or_zero();
+            let out = along.cross(Vec3::Z).normalize_or_zero();
             matte(
                 front_colour,
                 Vec3::new(out.x * KEY_FRONT, out.y * KEY_FRONT, KEY_FLARE),

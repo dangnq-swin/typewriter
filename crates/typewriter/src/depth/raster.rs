@@ -7,7 +7,7 @@
 
 use eframe::egui::epaint::PaintCallback;
 use eframe::egui::{Mesh, Rect};
-use glam::Vec3;
+use glam::{Mat2, Vec2, Vec3};
 
 use super::gpu::{FONTS, decal_bias, texel_scale};
 use super::lighting::Lighting;
@@ -34,7 +34,8 @@ pub(crate) fn cast(solids: &Solids, lighting: &Lighting) -> Vec<f32> {
         }));
         for triangle in solid.mesh.indices.as_chunks::<3>().0 {
             let [a, b, c] = triangle.map(|i| spots[i as usize]);
-            let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            let area =
+                Vec2::new(b[0] - a[0], b[1] - a[1]).perp_dot(Vec2::new(c[0] - a[0], c[1] - a[1]));
             if area.abs() < 1e-6 {
                 continue;
             }
@@ -186,17 +187,16 @@ pub fn rasterize(
 /// the decal bias. A point is a pixel: snapshots render one a window point.
 fn decal_slope(mesh: &Mesh, depths: &[f32], triangle: [u32; 3]) -> f32 {
     let [a, b, c] = triangle.map(|i| &mesh.vertices[i as usize]);
-    let (ux, uy) = (b.pos.x - a.pos.x, b.pos.y - a.pos.y);
-    let (vx, vy) = (c.pos.x - a.pos.x, c.pos.y - a.pos.y);
-    let area = ux * vy - uy * vx;
-    if area.abs() < 1e-6 {
+    let u = b.pos - a.pos;
+    let v = c.pos - a.pos;
+    let basis = Mat2::from_cols(Vec2::new(u.x, v.x), Vec2::new(u.y, v.y));
+    if basis.determinant().abs() < 1e-6 {
         return 0.0;
     }
     let [za, zb, zc] = triangle.map(|i| depths[i as usize]);
-    let (du, dv) = (zb - za, zc - za);
     // The depth plane through the corners, differentiated.
-    let (dzdx, dzdy) = ((du * vy - dv * uy) / area, (dv * ux - du * vx) / area);
-    dzdx.abs().max(dzdy.abs())
+    let gradient = basis.inverse() * Vec2::new(zb - za, zc - za);
+    gradient.abs().max_element()
 }
 
 /// The shade at a pixel of screen `weights` across `triangle`, as the shader

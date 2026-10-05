@@ -216,7 +216,7 @@ pub(super) fn paint_steel(
 /// in the desk's plane and turned to the writer's left, where the lamp
 /// stands; of an upright bar, straight left.
 fn lit_side(along: Vec3) -> Vec3 {
-    let aside = Vec3::new(-along.y, along.x, 0.0).normalize_or_zero();
+    let aside = Vec3::Z.cross(along).normalize_or_zero();
     if aside.x < 0.0 { aside } else { -Vec3::X }
 }
 
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn polished_metal_shines_turned_between_the_light_and_the_eye() {
         let between = (toward_light() + toward_eye()).normalize_or_zero();
-        let aside = Vec3::new(-between.y, between.x, 0.0);
+        let aside = Vec3::Z.cross(between);
         let at = |normal, sharpness| polished(METAL, METAL_SHINE, normal, sharpness).lit();
         // The head is too wide for the whole shine anywhere: turned between
         // the light and the eye it reaches the most of it a face can, short

@@ -60,10 +60,8 @@ pub fn listen(ctx: &Context) -> Option<Listening> {
 /// have no path to keep.
 #[cfg(unix)]
 fn socket_path() -> Option<PathBuf> {
-    std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .map(|dir| dir.join("typewriter.socket"))
+    let dir = directories::BaseDirs::new()?;
+    Some(dir.runtime_dir()?.join("typewriter.socket"))
 }
 
 #[cfg(not(unix))]

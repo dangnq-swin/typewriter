@@ -69,15 +69,13 @@ pub(super) fn on_panel(x: f32, y: f32) -> Vec3 {
 fn panel_down() -> Vec3 {
     let (y0, z0) = COVER_FRONT;
     let (y1, z1) = PANEL_BOTTOM;
-    let (dy, dz) = (y1 - y0, z1 - z0);
-    let length = (dy * dy + dz * dz).sqrt();
-    Vec3::new(0.0, dy / length, dz / length)
+    Vec3::new(0.0, y1 - y0, z1 - z0).normalize_or_zero()
 }
 
 /// Out of the panel, square to it, unit length.
 fn panel_normal() -> Vec3 {
     let down = panel_down();
-    Vec3::new(0.0, -down.z, down.y)
+    Vec3::X.cross(down)
 }
 
 /// On the panel's plane from `centre`, `radius` millimetres toward `turn`

@@ -4,7 +4,7 @@
 //! which the readback tests hold the GPU to.
 
 use bytemuck::{Pod, Zeroable};
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 
 /// Depth runs from this near the eye, out to far off: the near plane the
 /// clip rows clamp at, in machine millimetres. The rows are built with
@@ -40,13 +40,24 @@ impl Camera {
     /// Where the rows show `mm`, in `points`' units, y down: the shader's
     /// project and divide, by hand.
     pub fn project(&self, mm: Vec3) -> [f32; 2] {
-        let mm = mm.extend(1.0);
-        let row = |i: usize| self.rows[i].dot(mm);
-        let w = row(3).max(NEAR_MM);
+        let clip = self.matrix() * mm.extend(1.0);
+        let w = clip.w.max(NEAR_MM);
         [
-            (row(0) / w + 1.0) * 0.5 * self.points.x,
-            (1.0 - row(1) / w) * 0.5 * self.points.y,
+            (clip.x / w + 1.0) * 0.5 * self.points.x,
+            (1.0 - clip.y / w) * 0.5 * self.points.y,
         ]
+    }
+
+    /// The rows as a matrix for `Mat4`'s multiply: `Mat4` is column-major,
+    /// so the rows arrive transposed.
+    fn matrix(&self) -> Mat4 {
+        let [r0, r1, r2, r3] = self.rows;
+        Mat4::from_cols(
+            Vec4::new(r0.x, r1.x, r2.x, r3.x),
+            Vec4::new(r0.y, r1.y, r2.y, r3.y),
+            Vec4::new(r0.z, r1.z, r2.z, r3.z),
+            Vec4::new(r0.w, r1.w, r2.w, r3.w),
+        )
     }
 
     /// The uniform the shader reads.

@@ -2,7 +2,6 @@
 //! frame brings new texels, each name keeping its handle — a mesh already
 //! named on it keeps drawing what it now holds.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 
 use super::mesh::Texture;
@@ -73,25 +72,13 @@ impl Textures {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        // The upload wants rows a multiple of 256 bytes.
-        let row = width * 4;
-        let stride = row.next_multiple_of(256);
-        let texels: Cow<[u8]> = if stride == row {
-            rgba.into()
-        } else {
-            let mut padded = Vec::with_capacity(stride as usize * height as usize);
-            for row_texels in rgba.chunks(row as usize) {
-                padded.extend_from_slice(row_texels);
-                padded.resize(padded.len() + (stride - row) as usize, 0);
-            }
-            padded.into()
-        };
+        // `write_texture` needs no row alignment, unlike a buffer copy.
         queue.write_texture(
             texture.as_image_copy(),
-            &texels,
+            rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(stride),
+                bytes_per_row: Some(width * 4),
                 rows_per_image: None,
             },
             wgpu::Extent3d {

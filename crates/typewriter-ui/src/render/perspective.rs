@@ -125,7 +125,8 @@ impl<'a> OnDesk<'a> {
             None => (vec2(across, self.size.y / 2.0 - p.y), 0.0),
             Some(lean) => {
                 let up = self.size.y - p.y;
-                let (back, lift) = (up * lean.sin(), up * lean.cos());
+                let turned = Rot2::from_angle(-lean) * vec2(0.0, up);
+                let (back, lift) = (turned.x, turned.y);
                 if shadow {
                     (vec2(across, back + 0.6 * lift), 0.0)
                 } else {
@@ -173,7 +174,8 @@ impl<'a> OnDesk<'a> {
             self.camera.project(plane, lift)
         };
         let half = 0.5 * self.size.x;
-        let (top_back, top_lift) = (self.size.y * lean.sin(), self.size.y * lean.cos());
+        let top = Rot2::from_angle(-lean) * vec2(0.0, self.size.y);
+        let (top_back, top_lift) = (top.x, top.y);
         let foot_back = 2.0 * top_back;
         let base = [
             point(-half, 0.0, 0.0),

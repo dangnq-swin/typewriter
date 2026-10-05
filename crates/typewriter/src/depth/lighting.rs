@@ -6,7 +6,7 @@
 //! keeps the shader itself readable.
 
 use bytemuck::{Pod, Zeroable};
-use eframe::egui::Color32;
+use eframe::egui::{Color32, lerp};
 use glam::{Vec3, Vec4};
 
 /// How many bands chrome's room has.
@@ -178,6 +178,7 @@ impl Shadow {
     /// lamp lying in the plane, whose reach runs off without bound.
     #[cfg(test)]
     pub fn plane_reach(&self, z_mm: f32) -> Option<(f32, f32, f32, f32)> {
+        use glam::{Mat2, Vec2};
         if !self.is_on() {
             return None;
         }
@@ -185,13 +186,15 @@ impl Shadow {
         // `u = a·mm` and `v = b·mm` each hold over `−1..=1`: at the
         // plane's height that is two equations in `(x, y)`, and the
         // bounds of their solution lie at the map's four corners.
-        let det = a.x * b.y - a.y * b.x;
-        if det.abs() < 1e-9 {
+        let coefficients = Mat2::from_cols(Vec2::new(a.x, b.x), Vec2::new(a.y, b.y));
+        if coefficients.determinant().abs() < 1e-9 {
             return None;
         }
+        let inverse = coefficients.inverse();
         let corner = |(u, v)| {
-            let (p, q) = (u - a.z * z_mm - a.w, v - b.z * z_mm - b.w);
-            ((p * b.y - q * a.y) / det, (a.x * q - b.x * p) / det)
+            let rhs = Vec2::new(u - a.z * z_mm - a.w, v - b.z * z_mm - b.w);
+            let solved = inverse * rhs;
+            (solved.x, solved.y)
         };
         let corners = [
             corner((1.0, 1.0)),
@@ -248,6 +251,7 @@ impl Shadow {
     /// lamp, never widen a shadow's own bias.
     #[cfg(test)]
     pub fn occlusion(&self, map: &[f32], mm: Vec3) -> f32 {
+        use typewriter_ui::draw::smoothstep;
         let Some([x, y, d]) = self.spot(mm) else {
             return 1.0;
         };
@@ -296,10 +300,7 @@ impl Shadow {
         let edge = d - bias;
         // WGSL's `smoothstep`, twin for twin: dark a full `soft` behind the
         // bias'd depth, wholly lit at it, ramping between.
-        let lit = |there: f32| {
-            let t = ((there - edge + soft) / soft).clamp(0.0, 1.0);
-            t * t * (3.0 - 2.0 * t)
-        };
+        let lit = |there: f32| smoothstep((there - edge + soft) / soft);
         let clear: f32 = stored.iter().map(|&there| lit(there)).sum();
         clear / stored.len() as f32
     }
@@ -411,10 +412,7 @@ impl Shade {
         // Brightened `by`, then turned toward `shine` by `toward`: as the
         // shader mixes a lit colour with its highlight.
         let lit = |by: f32, shine: [f32; 3], toward: f32| {
-            [0, 1, 2].map(|k| {
-                let base = (gamma[k] * by).min(1.0);
-                base + (shine[k] - base) * toward
-            })
+            [0, 1, 2].map(|k| lerp((gamma[k] * by).min(1.0)..=shine[k], toward))
         };
         let shade = match self {
             Self::Unlit => return rgba,
@@ -524,7 +522,7 @@ fn chrome(bands: &[(f32, Color32); CHROME_BANDS], t: f32) -> [f32; 3] {
         if at <= to.0 {
             let across = (at - from.0) / (to.0 - from.0);
             let (upper, lower) = (gamma_rgb(from.1), gamma_rgb(to.1));
-            return [0, 1, 2].map(|k| upper[k] + (lower[k] - upper[k]) * across);
+            return [0, 1, 2].map(|k| lerp(upper[k]..=lower[k], across));
         }
     }
     gamma_rgb(bands[last].1)

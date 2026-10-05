@@ -5,6 +5,8 @@ use std::io::Cursor;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use rand::rngs::StdRng;
+use rand::{RngExt, SeedableRng};
 use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Source};
 use typewriter_core::profile::Sounds;
@@ -338,32 +340,23 @@ fn seed() -> u64 {
 
 /// Picks sound variants at random, never the same twice in a row.
 struct Variety {
-    state: u64,
+    rng: StdRng,
     last: Option<usize>,
 }
 
 impl Variety {
     fn new(seed: u64) -> Self {
-        // Never zero: xorshift sticks there.
         Self {
-            state: seed | 1,
+            rng: StdRng::seed_from_u64(seed),
             last: None,
         }
-    }
-
-    fn next(&mut self) -> u64 {
-        self.state ^= self.state << 13;
-        self.state ^= self.state >> 7;
-        self.state ^= self.state << 17;
-        self.state
     }
 
     fn index(&mut self, len: usize) -> Option<usize> {
         if len == 0 {
             return None;
         }
-        // Safe cast: the remainder is below `len`.
-        let mut i = (self.next() % len as u64) as usize;
+        let mut i = self.rng.random_range(0..len);
         if Some(i) == self.last {
             i = (i + 1) % len;
         }

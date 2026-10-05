@@ -47,12 +47,9 @@ pub fn decompose(c: char) -> Option<(char, char)> {
 /// The letter `accent` over `base` reads as, if there is one.
 pub fn compose(base: char, accent: char) -> Option<char> {
     let mark = MARKS.iter().find(|(_, s)| *s == accent).map(|&(m, _)| m)?;
-    let decomposed = format!("{base}{mark}");
-    let mut letter = decomposed.nfc();
-    let composed = letter.next()?;
-    // Still two marks: Unicode composes no letter here, so the typewriter
-    // has none either.
-    letter.next().is_none().then_some(composed)
+    // Unicode composes no letter where two marks would pile up, nor where
+    // the base takes no such accent: `None` either way.
+    unicode_normalization::char::compose(base, mark)
 }
 
 #[cfg(test)]

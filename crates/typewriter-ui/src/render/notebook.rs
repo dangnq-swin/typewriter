@@ -5,7 +5,8 @@ use emath::Rot2;
 
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Align, Color32, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke, Ui, Vec2, pos2, vec2,
+    Align, Color32, CornerRadius, FontFamily, FontId, Painter, Pos2, Rect, Shape, Stroke,
+    StrokeKind, Ui, Vec2, pos2, vec2,
 };
 
 use super::{DeskIcon, HIGHLIGHT};
@@ -74,11 +75,23 @@ pub fn desk_icon(ui: &mut Ui, view: Rect, opacity: f32) -> bool {
 pub fn cover(painter: &Painter, size: Vec2, hovered: bool) -> Vec<Shape> {
     let w = size.x;
     let edge = if hovered { HIGHLIGHT } else { KRAFT_EDGE };
-    let mut shapes = vec![Shape::convex_polygon(
-        outline(size),
-        KRAFT,
-        Stroke::new((0.012 * w).min(1.0), edge),
-    )];
+    // Square at the spine (left), rounded at the fore edge (right).
+    let corners = CornerRadius {
+        nw: 0,
+        sw: 0,
+        ne: (CORNER_WIDTHS * w).round() as u8,
+        se: (CORNER_WIDTHS * w).round() as u8,
+    };
+    let bounds = Rect::from_min_size(Pos2::ZERO, size);
+    let mut shapes = vec![
+        Shape::rect_filled(bounds, corners, KRAFT),
+        Shape::rect_stroke(
+            bounds,
+            corners,
+            Stroke::new((0.012 * w).min(1.0), edge),
+            StrokeKind::Middle,
+        ),
+    ];
     for (from, to) in [(0.09, 0.15), (0.47, 0.53), (0.85, 0.91)] {
         let staple = Rect::from_min_max(pos2(0.0, from * size.y), pos2(0.014 * w, to * size.y));
         shapes.push(Shape::rect_filled(staple, 0.0, STAPLE));
@@ -171,7 +184,7 @@ pub fn outline(size: Vec2) -> Vec<Pos2> {
     let arc = |centre: Pos2, start_degrees: f32| {
         (0..=STEPS).map(move |i| {
             let a = (start_degrees + 90.0 * i as f32 / STEPS as f32).to_radians();
-            centre + radius * vec2(a.cos(), a.sin())
+            centre + Vec2::angled(a) * radius
         })
     };
     let mut points = vec![Pos2::ZERO];

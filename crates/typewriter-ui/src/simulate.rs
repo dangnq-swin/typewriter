@@ -6,11 +6,11 @@
 
 use jiff::ToSpan;
 use jiff::civil::{Date, date};
+use rand::rngs::StdRng;
+use rand::{RngExt, SeedableRng};
 use typewriter_core::page::Shift;
 use typewriter_core::retype::{self, Typist};
 use typewriter_core::{Command, Constraints, EraseMode, Profile, Typewriter};
-
-use crate::render::splitmix64;
 
 const WORDS: &[&str] = &[
     "the",
@@ -195,17 +195,16 @@ fn first_day() -> Date {
 }
 
 /// A seeded source of chance.
-struct Dice(u64);
+struct Dice(StdRng);
 
 impl Dice {
-    fn roll(&mut self) -> u64 {
-        self.0 = splitmix64(self.0);
-        self.0
+    fn new(seed: u64) -> Self {
+        Self(StdRng::seed_from_u64(seed))
     }
 
     /// 0 to `n` - 1.
     fn below(&mut self, n: usize) -> usize {
-        (self.roll() % n.max(1) as u64) as usize
+        self.0.random_range(0..n.max(1))
     }
 
     fn one_in(&mut self, n: usize) -> bool {
@@ -219,7 +218,7 @@ impl Dice {
 
 /// About `words` words of seeded prose, in paragraphs.
 pub fn prose(words: usize, seed: u64) -> Vec<String> {
-    let mut dice = Dice(seed);
+    let mut dice = Dice::new(seed);
     let mut paragraphs = Vec::new();
     let mut written = 0;
     while written < words {
@@ -284,7 +283,7 @@ pub fn write(paragraphs: &[impl AsRef<str>], seed: u64) -> Typewriter {
     let profile =
         Profile::from_toml_str(include_str!("../../../profiles/olympia-sm9.toml")).unwrap();
     let mut machine = Typewriter::new(profile, Constraints::default()).unwrap();
-    let mut dice = Dice(seed ^ 0x7772_6974_6572);
+    let mut dice = Dice::new(seed ^ 0x7772_6974_6572);
     let width = retype::line_width(&machine);
     let lines = retype::lines(paragraphs, width);
 

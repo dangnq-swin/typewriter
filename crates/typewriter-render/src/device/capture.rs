@@ -98,8 +98,8 @@ impl Rig {
     /// The target's pixels, top row first, read back: what was drawn.
     pub fn pixels(&self) -> Vec<[u8; 4]> {
         let [width, height] = self.size;
-        // The copy wants rows a multiple of 256 bytes.
-        let row_bytes = (width * 4).next_multiple_of(256);
+        // The copy wants rows a multiple of the copy alignment.
+        let row_bytes = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("capture_readback"),
             size: u64::from(row_bytes) * u64::from(height),
@@ -188,7 +188,7 @@ impl Rig {
             .as_chunks::<2>()
             .0
             .iter()
-            .map(|texel| half(u16::from_le_bytes(*texel)))
+            .map(|texel| half_to_f32(u16::from_le_bytes(*texel)))
             .collect();
         drop(mapped);
         readback.unmap();
@@ -213,20 +213,8 @@ fn mapped(device: &wgpu::Device, buffer: &wgpu::Buffer) -> wgpu::BufferView {
 }
 
 /// An f16 texel's value.
-fn half(bits: u16) -> f32 {
-    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exponent = ((bits >> 10) & 0x1F) as i32;
-    let mantissa = (bits & 0x3FF) as f32;
-    let value = match exponent {
-        // Subnormal: a fraction of 2^-14.
-        0 => mantissa / (1 << 10) as f32 * (1.0 / (1 << 14) as f32),
-        31 => f32::INFINITY,
-        exponent => {
-            (1.0 + mantissa / (1 << 10) as f32)
-                * f32::from_bits(((exponent - 15 + 127) as u32) << 23)
-        }
-    };
-    sign * value
+fn half_to_f32(bits: u16) -> f32 {
+    half::f16::from_bits(bits).to_f32()
 }
 
 /// A seated eye, rows by hand, as `Eye::camera` builds them: the eye 600
