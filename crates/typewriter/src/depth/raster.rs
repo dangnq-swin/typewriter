@@ -7,7 +7,7 @@
 
 use eframe::egui::epaint::PaintCallback;
 use eframe::egui::{Mesh, Rect};
-use glam::{Mat2, Vec2, Vec3};
+use glam::{Mat2, Vec2, Vec3, Vec3A};
 
 use super::gpu::{FONTS, decal_bias, texel_scale};
 use super::lighting::Lighting;
@@ -23,43 +23,38 @@ use super::{Layer, NEAR_MM, Pass, Shade};
 /// dropped as the GPU's clip would: it keeps the clear, casting nothing.
 pub(crate) fn cast(solids: &Solids, lighting: &Lighting) -> Vec<f32> {
     let side = lighting.shadow.side;
+    let mut spots = vec![];
     let mut map = vec![1.0; (side * side) as usize];
-    let mut spots = Vec::new();
     for solid in solids.layers()[0].1 {
-        spots.clear();
+        spots.clear(); // Mutating is better since heap size is allocated
         spots.extend(solid.places.iter().map(|&mm| {
             let mm = mm.extend(1.0);
             let [u, v, d] = lighting.shadow.rows.map(|row| row.dot(mm));
-            [(u + 1.0) * 0.5 * side, (1.0 - v) * 0.5 * side, d]
+            Vec3A::new((u + 1.0) * 0.5 * side, (1.0 - v) * 0.5 * side, d)
         }));
-        for triangle in solid.mesh.indices.as_chunks::<3>().0 {
+        for triangle in solid.mesh.triangles() {
             let [a, b, c] = triangle.map(|i| spots[i as usize]);
-            let area =
-                Vec2::new(b[0] - a[0], b[1] - a[1]).perp_dot(Vec2::new(c[0] - a[0], c[1] - a[1]));
+            let (a2d, b2d, c2d) = (a.truncate(), b.truncate(), c.truncate());
+            let area = (b2d - a2d).perp_dot(c2d - a2d);
             if area.abs() < 1e-6 {
                 continue;
             }
-            let min = [
-                a[0].min(b[0]).min(c[0]).max(0.0) as usize,
-                a[1].min(b[1]).min(c[1]).max(0.0) as usize,
-            ];
-            let max = [
-                (a[0].max(b[0]).max(c[0]).ceil() as usize).min(side as usize),
-                (a[1].max(b[1]).max(c[1]).ceil() as usize).min(side as usize),
-            ];
+            // The texels the triangle can cover: its box, clamped to the map.
+            let min = a.min(b).min(c).truncate().max(Vec2::ZERO);
+            let max = a.max(b).max(c).truncate().ceil().min(Vec2::splat(side));
             let side = side as usize;
-            for row in min[1]..max[1] {
-                for column in min[0]..max[0] {
-                    let (px, py) = (column as f32 + 0.5 - a[0], row as f32 + 0.5 - a[1]);
+            for row in min.y as usize..max.y as usize {
+                for column in min.x as usize..max.x as usize {
+                    let p = Vec2::new(column as f32 + 0.5, row as f32 + 0.5);
                     // Barycentric weights of b and c: each is the far edge's
                     // cross with the point, over the triangle's own.
-                    let w1 = (px * (c[1] - a[1]) - py * (c[0] - a[0])) / area;
-                    let w2 = ((b[0] - a[0]) * py - (b[1] - a[1]) * px) / area;
+                    let w1 = (p - a2d).perp_dot(c2d - a2d) / area;
+                    let w2 = (p - a2d).perp_dot(a2d - b2d) / area;
                     let w0 = 1.0 - w1 - w2;
                     if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
                         continue;
                     }
-                    let d = w0 * a[2] + w1 * b[2] + w2 * c[2];
+                    let d = (a * w0 + b * w1 + c * w2).z;
                     // The GPU's lamp pass clips a fragment nearer the head
                     // than the map's near plane (clip z < 0, w = 1): like
                     // one, a sample before it writes nothing.

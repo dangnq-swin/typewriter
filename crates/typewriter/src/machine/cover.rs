@@ -30,6 +30,9 @@ const OPENING_FRONT: (f32, f32) = (58.0, 79.0);
 const PLATE_TIP: f32 = 9.0;
 const OPENING_CORNER: f32 = 10.0;
 const PLATE_THICKNESS: f32 = 8.0;
+/// How round the cover's outer back corners are. The body under it insets
+/// to this so its square ends stay behind them.
+pub(super) const COVER_CORNER: f32 = 6.0;
 /// The type segment, a half disc straight edge back along the ribbon's foot:
 /// its teal plate's and silver rim's radii, its height; how far its type
 /// bars reach from its centre, past the opening's edges, and how low.
@@ -137,12 +140,12 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     }
     // One slope, one normal: the lamp washes it the way the gradient faked.
     let lit = |_| matte(IVORY, cover_normal());
-    let left: Vec<Vec3> = fillet(fl, bl, tip_l, 6.0)
+    let left: Vec<Vec3> = fillet(fl, bl, tip_l, COVER_CORNER)
         .into_iter()
         .chain(left_edge.iter().copied())
         .chain([fl])
         .collect();
-    let right: Vec<Vec3> = fillet(fr, br, tip_r, 6.0)
+    let right: Vec<Vec3> = fillet(fr, br, tip_r, COVER_CORNER)
         .into_iter()
         .chain(right_edge.iter().copied())
         .chain([fr])
@@ -163,8 +166,8 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
         eye.line(canvas, edge, 1.0, Color32::from_white_alpha(150));
     }
     let outline = [
-        fillet(fl, bl, br, 6.0),
-        fillet(bl, br, fr, 6.0),
+        fillet(fl, bl, br, COVER_CORNER),
+        fillet(bl, br, fr, COVER_CORNER),
         vec![fr, fl],
     ]
     .concat();

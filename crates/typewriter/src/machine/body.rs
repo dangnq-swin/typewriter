@@ -6,7 +6,7 @@ use glam::Vec3;
 use super::IVORY_SHADE;
 use super::canvas::Canvas;
 use super::case::CASE_FRONT;
-use super::cover::{COVER_BACK, COVER_HALF, INSIDE};
+use super::cover::{COVER_BACK, COVER_CORNER, COVER_HALF, INSIDE};
 use super::eye::Eye;
 use super::light::{SHADOW_CENTRE_X, SHADOW_HALF, catcher, matte};
 
@@ -67,10 +67,12 @@ pub(super) fn paint_deck(canvas: &Canvas, eye: &Eye) {
     ];
     eye.fill(canvas, &deck, |_| matte(IVORY_SHADE, Vec3::Z));
 
-    // From the deck's front edge up to the cover's back foot, both as wide
-    // as the cover's back; dark, as it reads as the machine's inside if any
-    // sight line ever finds it.
+    // From the deck's front edge up to the cover's back foot, dark, as it
+    // reads as the machine's inside if any sight line ever finds it. Its
+    // ends stop short of the cover's own, which round away there: square to
+    // the corner, its ends would bare themselves past the cover's fillet.
     let (foot_y, foot_z) = COVER_BACK;
+    let half = half - COVER_CORNER;
     let riser = [
         Vec3::new(-half, front, DECK_Z),
         Vec3::new(half, front, DECK_Z),
