@@ -260,6 +260,16 @@ pub(crate) fn wall(centre: Vec3, half: f32, color: [u8; 4]) -> Mesh {
     mesh
 }
 
+/// A wall as [`wall`], its faces unlit: for the tests that read exact
+/// vertex colours rather than the lamp's light.
+pub(crate) fn unlit_wall(centre: Vec3, half: f32, color: [u8; 4]) -> Mesh {
+    let mut mesh = wall(centre, half, color);
+    for vertex in &mut mesh.vertices {
+        *vertex = Vertex::placed(vertex.at, vertex.uv, vertex.color, Shade::Unlit);
+    }
+    mesh
+}
+
 /// A slab lying along the desk: in the plane `z = centre.z`, `half`
 /// millimetres each way of `centre` along x and y.
 pub(crate) fn slab(centre: Vec3, half: f32, color: [u8; 4]) -> Mesh {
@@ -302,4 +312,105 @@ pub(crate) fn scene_of<'a>(name: &str, mesh: &'a Mesh, placing: Placing) -> Scen
     let mut scene = Scene::default();
     scene.opaque(name, mesh, placing);
     scene
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The lamp's pass records what casts: the caster's own depth stands in
+    /// the map where it is, and the map stays clear where it is not.
+    #[test]
+    fn the_lamp_records_a_caster_in_the_shadow_map() {
+        let mut rig = Rig::new([64, 64]);
+        let caster = slab(Vec3::new(0.0, 0.0, 150.0), 20.0, [0xFF; 4]);
+        let scene = scene_of("caster", &caster, Placing::at(Vec3::ZERO));
+        rig.draw(&scene, &camera(), &downward(), wgpu::Color::BLACK);
+        let map = rig.shadow_map();
+        // `downward`: across maps x and y over ±150, depth runs 0 at the
+        // lamp (z 300) to 1 at the floor (z 0).
+        let texel = |x_mm: f32, y_mm: f32| {
+            let side = SHADOW_MAP as usize;
+            let column = ((1.0 + x_mm / 150.0) * 0.5 * SHADOW_MAP as f32) as usize;
+            let row = ((1.0 - y_mm / 150.0) * 0.5 * SHADOW_MAP as f32) as usize;
+            map[row * side + column]
+        };
+        assert!(
+            (texel(0.0, 0.0) - 0.5).abs() < 1e-3,
+            "the caster's own depth, {}",
+            texel(0.0, 0.0)
+        );
+        assert!(
+            (texel(100.0, 0.0) - 1.0).abs() < 1e-6,
+            "clear where it does not stand, {}",
+            texel(100.0, 0.0)
+        );
+    }
+
+    /// A lit face darkens where a caster hides it and brightens toward the
+    /// lamp's spot: the diffuse term follows the way to the head, and the
+    /// shadow map takes the lamp's own light away where the caster stands.
+    #[test]
+    fn a_lit_face_darkens_in_shadow_and_brightens_toward_the_lamp() {
+        let mut rig = Rig::new([64, 64]);
+        let camera = camera();
+        // The lit wall at the printing point's plane, casting nothing, so
+        // the map holds only the caster above it.
+        let wall = wall(Vec3::ZERO, 60.0, [0x80, 0x80, 0x80, 0xFF]);
+        let caster = slab(Vec3::new(0.0, 0.0, 150.0), 20.0, [0xFF; 4]);
+        let mut scene = Scene::default();
+        scene.opaque("wall", &wall, Placing::at(Vec3::ZERO).casting(false));
+        scene.opaque("caster", &caster, Placing::at(Vec3::ZERO));
+        rig.draw(&scene, &camera, &downward(), wgpu::Color::BLACK);
+        // The eye looks along −y: x runs across the target, z up. The
+        // caster's footprint is x, y ∈ ±20; the wall is x, z ∈ ±60.
+        let shadowed = rig.pixel(32, 32); // world (0, 0, 0): under the caster
+        let lit = rig.pixel(52, 32); // world (25, 0, 0): clear of it
+        assert!(
+            shadowed[0] + 10 < lit[0],
+            "shadowed {shadowed:?} against lit {lit:?}"
+        );
+        assert!(shadowed[0] < 110, "the ambient floor alone: {shadowed:?}");
+        assert!(lit[0] > 110, "the lamp's own light: {lit:?}");
+    }
+
+    /// A slab lit by a head above it is brighter where it stands nearer the
+    /// head: the diffuse term falls off across the face as the way to the
+    /// lamp turns away.
+    #[test]
+    fn a_lit_slab_brightens_toward_the_lamp() {
+        let mut rig = Rig::new([64, 64]);
+        // A head 40 above the slab, straight down, no shadows: the look
+        // depends on the way to the head alone.
+        let mut lit = downward();
+        lit.lamp = Vec4::new(0.0, 0.0, 40.0, 0.0);
+        lit.eye = Vec4::new(0.0, 0.0, 1.0, 0.0);
+        lit.params.y = 0.0;
+        let slab = slab(Vec3::ZERO, 30.0, [0x80, 0x80, 0x80, 0xFF]);
+        let scene = scene_of("slab", &slab, Placing::at(Vec3::ZERO));
+        rig.draw(&scene, &top_down(), &lit, wgpu::Color::BLACK);
+        // The eye looks straight down: x across, y up the target. The
+        // slab's centre sits under the head; its edge 25 mm out turns away.
+        let under = rig.pixel(32, 32); // world (0, 0, 0)
+        let edge = rig.pixel(52, 32); // world (25, 0, 0)
+        assert!(
+            edge[0] + 4 < under[0],
+            "edge {edge:?} against under {under:?}"
+        );
+    }
+
+    /// A camera above the origin looking straight down: x across the
+    /// target, y up it, the view 40 mm wide a 64-point side (0.8 points a
+    /// millimetre), the eye 600 above the slab plane.
+    fn top_down() -> Camera {
+        Camera {
+            rows: [
+                Vec4::new(15.0, 0.0, 0.0, 0.0),
+                Vec4::new(0.0, 15.0, 0.0, 0.0),
+                Vec4::new(0.0, 0.0, -1.0, 0.0),
+                Vec4::new(0.0, 0.0, -1.0, 600.0),
+            ],
+            points: Vec2::splat(64.0),
+        }
+    }
 }

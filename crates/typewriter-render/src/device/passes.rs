@@ -428,10 +428,10 @@ mod tests {
     fn opaque_hides_what_is_behind_and_what_lies_on_shows_over() {
         let mut rig = Rig::new([64, 64]);
         let camera = capture::camera();
-        let room = capture::wall(Vec3::new(0.0, -300.0, 0.0), 30.0, GREEN);
-        let near = capture::wall(Vec3::ZERO, 10.0, RED);
-        let print = capture::wall(Vec3::ZERO, 6.0, BLUE);
-        let glyph = capture::wall(Vec3::ZERO, 6.0, YELLOW);
+        let room = capture::unlit_wall(Vec3::new(0.0, -300.0, 0.0), 30.0, GREEN);
+        let near = capture::unlit_wall(Vec3::ZERO, 10.0, RED);
+        let print = capture::unlit_wall(Vec3::ZERO, 6.0, BLUE);
+        let glyph = capture::unlit_wall(Vec3::ZERO, 6.0, YELLOW);
         let mut scene = Scene::default();
         // The room behind, then the near wall: the nearer hides it.
         scene.opaque("room", &room, Placing::at(Vec3::ZERO));
@@ -505,7 +505,7 @@ mod tests {
         let camera = capture::camera();
         let lit = LightingUniform::default();
         let clear = wgpu::Color::BLACK;
-        let wall = capture::wall(Vec3::ZERO, 10.0, [0xFF; 4]);
+        let wall = capture::unlit_wall(Vec3::ZERO, 10.0, [0xFF; 4]);
         let scene = capture::scene_of("wall", &wall, Placing::at(Vec3::new(-25.0, 0.0, 0.0)));
         rig.draw(&scene, &camera, &lit, clear);
         assert_eq!(rig.core.uploads.get(), 1, "the standing solid, uploaded");
@@ -515,7 +515,7 @@ mod tests {
         assert_eq!(rig.core.uploads.get(), 1, "moved by transform alone");
         assert_eq!(rig.pixel(52, 32), [0xFF; 4]);
         // Replaced under the same name: one re-upload, and what draws.
-        let replaced_mesh = capture::wall(Vec3::ZERO, 5.0, RED);
+        let replaced_mesh = capture::unlit_wall(Vec3::ZERO, 5.0, RED);
         let replaced = capture::scene_of(
             "wall",
             &replaced_mesh,
@@ -536,8 +536,8 @@ mod tests {
         let lit = LightingUniform::default();
         let clear = wgpu::Color::BLACK;
         let red = rig.core.texture("red", [1, 1], &RED);
-        let white = capture::wall(Vec3::ZERO, 10.0, [0xFF; 4]);
-        let mut red_wall = capture::wall(Vec3::ZERO, 10.0, [0xFF; 4]);
+        let white = capture::unlit_wall(Vec3::ZERO, 10.0, [0xFF; 4]);
+        let mut red_wall = capture::unlit_wall(Vec3::ZERO, 10.0, [0xFF; 4]);
         red_wall.texture = red;
         let mut scene = Scene::default();
         scene.opaque("white", &white, Placing::at(Vec3::new(-25.0, 0.0, 0.0)));

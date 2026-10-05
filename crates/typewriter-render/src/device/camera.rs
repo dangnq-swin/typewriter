@@ -136,7 +136,7 @@ mod tests {
     fn a_placement_moves_the_mesh_it_stands_in() {
         let mut rig = Rig::new([64, 64]);
         let camera = capture::camera();
-        let mesh = capture::wall(Vec3::ZERO, 10.0, [0xFF; 4]);
+        let mesh = capture::unlit_wall(Vec3::ZERO, 10.0, [0xFF; 4]);
         let clear = wgpu::Color::BLACK;
         let lit = LightingUniform::default();
         // A hand's width left of the printing point, then the same right.
