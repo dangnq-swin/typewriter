@@ -39,13 +39,13 @@ pub struct Camera {
 impl Camera {
     /// Where the rows show `mm`, in `points`' units, y down: the shader's
     /// project and divide, by hand.
-    pub fn project(&self, mm: Vec3) -> [f32; 2] {
+    pub fn project(&self, mm: Vec3) -> Vec2 {
         let clip = self.matrix() * mm.extend(1.0);
         let w = clip.w.max(NEAR_MM);
-        [
+        Vec2::new(
             (clip.x / w + 1.0) * 0.5 * self.points.x,
             (1.0 - clip.y / w) * 0.5 * self.points.y,
-        ]
+        )
     }
 
     /// The rows as a matrix for `Mat4`'s multiply: `Mat4` is column-major,
@@ -112,8 +112,8 @@ mod tests {
             })
             .collect();
         assert!(drawn.len() > 100, "the triangle drew {}", drawn.len());
-        let (min_x, max_x) = bounds(at.iter().map(|&mm| camera.project(mm)[0]));
-        let (min_y, max_y) = bounds(at.iter().map(|&mm| camera.project(mm)[1]));
+        let (min_x, max_x) = bounds(at.iter().map(|&mm| camera.project(mm).x));
+        let (min_y, max_y) = bounds(at.iter().map(|&mm| camera.project(mm).y));
         let ((gx0, gx1), (gy0, gy1)) = (
             bounds(drawn.iter().map(|at| at[0] as f32)),
             bounds(drawn.iter().map(|at| at[1] as f32)),

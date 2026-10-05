@@ -49,8 +49,10 @@ unicode-normalization = "0.1"
 # The bundled fonts' tables: what they can print, and their metrics.
 ttf-parser = "0.25"
 # egui's own maths crate, kept in step with it: the rotation and easing
-# primitives egui does not re-export.
-emath = "0.36"
+# primitives egui does not re-export. Its bytemuck feature makes `Vec2` share
+# bytes with glam's, so the app can reach for glam's geometry where emath has
+# none.
+emath = { version = "0.36", features = ["bytemuck"] }
 # The desktop's folders for our config, data and drafts.
 directories = "6"
 # Handing a project to the open app, on sockets and named pipes alike.

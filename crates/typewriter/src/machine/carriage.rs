@@ -4,7 +4,7 @@
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use eframe::egui::Color32;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use super::bail;
 use super::canvas::Canvas;
@@ -61,7 +61,7 @@ pub(super) fn ends(middle: f32) -> [f32; 2] {
 
 /// The platen's axis from the printing point.
 pub(super) fn platen_axis() -> Vec3 {
-    let (sin, cos) = STRIKE_DEGREES.to_radians().sin_cos();
+    let Vec2 { x: cos, y: sin } = Vec2::from_angle(STRIKE_DEGREES.to_radians());
     let radius = PLATEN_DIAMETER_MM / 2.0;
     Vec3::new(0.0, -radius * cos, -radius * sin)
 }
@@ -74,13 +74,13 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
     let (axis_y, axis_z) = (axis.y, axis.z);
     let radius = PLATEN_DIAMETER_MM / 2.0;
     let mut solid = Solid::default();
-    let back = (axis_y + CARRIAGE_BACK.0, axis_z + CARRIAGE_BACK.1);
+    let back = Vec2::new(axis_y + CARRIAGE_BACK.0, axis_z + CARRIAGE_BACK.1);
     let rod = ([left, right], back, CARRIAGE_BACK_RADIUS);
     cylinder(eye, &mut solid, rod, 2 * ROLLER_BANDS, [METAL, CHROME]);
     let (inner_left, inner_right) = (left + SIDE_PLATE_MM, right - SIDE_PLATE_MM);
     let end = PLATEN_END_MM;
     let rubber = [inner_left + end, inner_right - end];
-    let axis = (axis_y, axis_z);
+    let axis = Vec2::new(axis_y, axis_z);
     let under = radius - PAPER_THICKNESS_MM;
     let bands = PLATEN_BANDS;
     cylinder(
@@ -112,15 +112,15 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
 pub(super) fn cylinder(
     eye: &Eye,
     solid: &mut Solid,
-    ([left, right], (y, z), radius): ([f32; 2], (f32, f32), f32),
+    ([left, right], axis, radius): ([f32; 2], Vec2, f32),
     bands: u16,
     [shade, shine]: [Color32; 2],
 ) {
     let at = |i: u16, x: f32| {
         // From the top round the front, the bottom and the back.
         let around = TAU * f32::from(i) / f32::from(bands);
-        let (sin, cos) = around.sin_cos();
-        let p = Vec3::new(x, y + radius * sin, z + radius * cos);
+        let Vec2 { x: cos, y: sin } = Vec2::from_angle(around);
+        let p = Vec3::new(x, axis.x + radius * sin, axis.y + radius * cos);
         (
             p,
             polished(shade, shine, Vec3::new(0.0, sin, cos), ROLLER_SHARPNESS),
@@ -162,19 +162,21 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
     let r = POCKET_ROUNDING;
     // The pocket's rounded corners, `(y, z)`: its back's, from its back down
     // to its floor; its front's, from its floor up to its front.
-    let corner = |centre: (f32, f32), from: f32| -> Vec<(f32, f32)> {
+    let corner = |centre: Vec2, from: f32| -> Vec<Vec2> {
         (0..=POCKET_STEPS)
             .map(|i| {
                 let angle = from + FRAC_PI_2 * f32::from(i) / f32::from(POCKET_STEPS);
-                let (sin, cos) = angle.sin_cos();
-                (centre.0 + r * cos, centre.1 + r * sin)
+                centre + r * Vec2::from_angle(angle)
             })
             .collect()
     };
-    let (back_centre, front_centre) = ((pocket_back + r, floor + r), (pocket_front - r, floor + r));
+    let (back_centre, front_centre) = (
+        Vec2::new(pocket_back + r, floor + r),
+        Vec2::new(pocket_front - r, floor + r),
+    );
     let back_corner = corner(back_centre, PI);
     let front_corner = corner(front_centre, 3.0 * FRAC_PI_2);
-    let at_x = |x: f32| move |(y, z): (f32, f32)| Vec3::new(x, y, z);
+    let at_x = |x: f32| move |at: Vec2| Vec3::new(x, at.x, at.y);
     let face = |points: &[Vec3], normal: Vec3| {
         // Culling, not ordering: a face the eye cannot see may still stand
         // in the lamp's way. Same for the outlines below.
@@ -189,7 +191,13 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
         }
     };
     let in_plane = |x: f32, [y0, y1]: [f32; 2], [z0, z1]: [f32; 2]| {
-        [(y0, z1), (y1, z1), (y1, z0), (y0, z0)].map(at_x(x))
+        [
+            Vec2::new(y0, z1),
+            Vec2::new(y1, z1),
+            Vec2::new(y1, z0),
+            Vec2::new(y0, z0),
+        ]
+        .map(at_x(x))
     };
     let (out, inn) = (-Vec3::X * inward, Vec3::X * inward);
     let whole = in_plane(x_o, [back, front], [foot, top]);
@@ -204,51 +212,68 @@ fn paint_side_plate(canvas: &Canvas, eye: &Eye, outer: f32, inward: f32) {
         inn,
     );
     for (arc, solid) in [
-        (&back_corner, (pocket_back, floor)),
-        (&front_corner, (pocket_front, floor)),
+        (&back_corner, Vec2::new(pocket_back, floor)),
+        (&front_corner, Vec2::new(pocket_front, floor)),
     ] {
         for pair in arc.windows(2) {
             face(&[solid, pair[0], pair[1]].map(at_x(x_i)), inn);
         }
     }
-    let rim: Vec<(f32, f32)> = [(pocket_back, top)]
+    let rim: Vec<Vec2> = [Vec2::new(pocket_back, top)]
         .into_iter()
         .chain(back_corner.iter().copied())
         .chain(front_corner.iter().copied())
-        .chain([(pocket_front, top)])
+        .chain([Vec2::new(pocket_front, top)])
         .collect();
-    let inner_outline: Vec<Vec3> = [(back, top), (back, foot), (front, foot), (front, top)]
-        .into_iter()
-        .chain(rim.iter().rev().copied())
-        .map(at_x(x_i))
-        .collect();
+    let inner_outline: Vec<Vec3> = [
+        Vec2::new(back, top),
+        Vec2::new(back, foot),
+        Vec2::new(front, foot),
+        Vec2::new(front, top),
+    ]
+    .into_iter()
+    .chain(rim.iter().rev().copied())
+    .map(at_x(x_i))
+    .collect();
     outline(&inner_outline, inn);
     // The pocket: its skin, its back, floor and front, and its corners.
     let skin: Vec<Vec3> = rim.iter().copied().map(at_x(x_n)).collect();
     face(&skin, inn);
     outline(&skin, inn);
-    let across = |(y, z): (f32, f32), (y1, z1): (f32, f32)| {
+    let across = |from: Vec2, to: Vec2| {
         [
-            Vec3::new(x_n, y, z),
-            Vec3::new(x_i, y, z),
-            Vec3::new(x_i, y1, z1),
-            Vec3::new(x_n, y1, z1),
+            Vec3::new(x_n, from.x, from.y),
+            Vec3::new(x_i, from.x, from.y),
+            Vec3::new(x_i, to.x, to.y),
+            Vec3::new(x_n, to.x, to.y),
         ]
     };
     let walls = [
-        ((pocket_back, top), (pocket_back, floor + r), Vec3::Y),
-        ((pocket_back + r, floor), (pocket_front - r, floor), Vec3::Z),
-        ((pocket_front, floor + r), (pocket_front, top), -Vec3::Y),
+        (
+            Vec2::new(pocket_back, top),
+            Vec2::new(pocket_back, floor + r),
+            Vec3::Y,
+        ),
+        (
+            Vec2::new(pocket_back + r, floor),
+            Vec2::new(pocket_front - r, floor),
+            Vec3::Z,
+        ),
+        (
+            Vec2::new(pocket_front, floor + r),
+            Vec2::new(pocket_front, top),
+            -Vec3::Y,
+        ),
     ];
     for (from, to, normal) in walls {
         face(&across(from, to), normal);
     }
     for (arc, centre) in [(&back_corner, back_centre), (&front_corner, front_centre)] {
         for pair in arc.windows(2) {
-            let mid = ((pair[0].0 + pair[1].0) / 2.0, (pair[0].1 + pair[1].1) / 2.0);
+            let mid = (pair[0] + pair[1]) / 2.0;
             face(
                 &across(pair[0], pair[1]),
-                Vec3::new(0.0, centre.0 - mid.0, centre.1 - mid.1),
+                Vec3::new(0.0, centre.x - mid.x, centre.y - mid.y),
             );
         }
     }

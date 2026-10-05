@@ -336,6 +336,6 @@ mod tests {
     #[test]
     fn the_ribbon_runs_under_the_cover_to_its_spools() {
         let [end, ..] = ribbon_path();
-        assert!(end.z < on_cover(end.x, end.y).z);
+        assert!(end.z < on_cover(glam::Vec2::new(end.x, end.y)).z);
     }
 }

@@ -455,7 +455,7 @@ mod tests {
         assert!((eye.scale(Vec3::ZERO) - 96.0 / 25.4).abs() < 2.5e-3);
         // Nearer the writer: lower on screen, and larger.
         let key = Vec3::new(0.0, KEY_ROW.0, KEY_ROW.1);
-        assert!(eye.at(key).y > eye.at(on_cover(0.0, COVER_FRONT.0)).y);
+        assert!(eye.at(key).y > eye.at(on_cover(glam::Vec2::new(0.0, COVER_FRONT.0))).y);
         assert!(eye.scale(key) > eye.scale(Vec3::ZERO));
     }
 

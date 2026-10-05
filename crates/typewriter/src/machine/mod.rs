@@ -88,7 +88,11 @@ pub fn typing_line_height(view: Rect, metrics: &Metrics, zoom_percent: u16) -> f
     let eye = Eye::new(view, metrics, 0.0);
     let reach = KNOB_RADIUS * INDEX_MARKS.1 + 3.0;
     let readings = eye
-        .at(panel_offset(on_panel(0.0, CONTROLS_Y), reach, 180.0))
+        .at(panel_offset(
+            on_panel(glam::Vec2::new(0.0, CONTROLS_Y)),
+            reach,
+            180.0,
+        ))
         .y;
     let height = view.height().max(1.0);
     let in_view = (height - readings - CONTROLS_ROOM) / height;

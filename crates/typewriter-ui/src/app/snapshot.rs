@@ -24,6 +24,7 @@ use crate::filing::Filing;
 use crate::input::Action;
 use crate::machines::Machines;
 use crate::render::feed::FeedMotion;
+use crate::render::perp_dot;
 use crate::settings::Settings;
 
 /// Past the first sheet's feed.
@@ -401,7 +402,7 @@ impl Raster<'_> {
 }
 
 fn edge(a: Pos2, b: Pos2, p: Pos2) -> f32 {
-    (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+    perp_dot(b - a, p - a)
 }
 
 /// Bilinear, clamped at the edges.
@@ -415,8 +416,8 @@ fn sample(texture: &ColorImage, uv: Vec2) -> Rgba {
     let at = |x: usize, y: usize| rgba(texture.pixels[y * width + x]);
     let (p00, p10, p01, p11) = (at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1));
     [0, 1, 2, 3].map(|k| {
-        let top = p00[k] + (p10[k] - p00[k]) * fx;
-        let bottom = p01[k] + (p11[k] - p01[k]) * fx;
-        top + (bottom - top) * fy
+        let top = egui::lerp(p00[k]..=p10[k], fx);
+        let bottom = egui::lerp(p01[k]..=p11[k], fx);
+        egui::lerp(top..=bottom, fy)
     })
 }

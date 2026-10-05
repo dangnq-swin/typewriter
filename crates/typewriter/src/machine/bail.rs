@@ -8,7 +8,7 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::Color32;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use typewriter_core::carriage::Carriage;
 use typewriter_ui::draw::ruler::{self, Scale};
 
@@ -64,7 +64,7 @@ const BAR_LOW: Color32 = Color32::from_rgb(0xAE, 0xB0, 0xAC);
 
 /// The bar's axis `(y, z)`: its disc's pocket closed by the plate ahead of
 /// it, its back on the leaning paper.
-fn axis() -> (f32, f32) {
+fn axis() -> Vec2 {
     let y = plate_front() - AHEAD_OF_POCKET - POCKET_MARGIN - DISC_RADIUS;
     // The paper leans back as it rises: up until it is that far back.
     let back = y - DEPTH / 2.0;
@@ -77,13 +77,13 @@ fn axis() -> (f32, f32) {
             high = mid;
         }
     }
-    (y, high)
+    Vec2::new(y, high)
 }
 
 /// The bar's front's `y`, top and foot `z`.
 fn front() -> (f32, [f32; 2]) {
-    let (y, z) = axis();
-    (y + DEPTH / 2.0, [z + HALF_HEIGHT, z - HALF_HEIGHT])
+    let at = axis();
+    (at.x + DEPTH / 2.0, [at.y + HALF_HEIGHT, at.y - HALF_HEIGHT])
 }
 
 /// The pocket in a side plate's top beside the disc, open at the top: its
@@ -97,13 +97,13 @@ pub(super) struct Pocket {
 }
 
 pub(super) fn pocket() -> Pocket {
-    let (y, z) = axis();
+    let at = axis();
     let reach = DISC_RADIUS + POCKET_MARGIN;
     Pocket {
-        back: y - reach,
-        front: y + reach,
-        floor: z - reach,
-        top: z + DISC_RADIUS,
+        back: at.x - reach,
+        front: at.x + reach,
+        floor: at.y - reach,
+        top: at.y + DISC_RADIUS,
     }
 }
 
@@ -174,18 +174,18 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye, middle: f32) {
         );
     }
     canvas.mesh(Layer::Opaque, solid);
-    let (y, z) = axis();
+    let at = axis();
     for end in [left, right] {
         paint_disc(canvas, eye, end);
-        let stem = [y - STEM_HALF.0, y + STEM_HALF.0];
-        let flat = [z - STEM_HALF.1, z + STEM_HALF.1];
+        let stem = [at.x - STEM_HALF.0, at.x + STEM_HALF.0];
+        let flat = [at.y - STEM_HALF.1, at.y + STEM_HALF.1];
         paint_box(canvas, eye, [end.stem(), stem, flat], CHROME);
         // From behind the plate, outside it.
-        let rod = [platen_axis().y + SIDE_PLATE_BACK, y - STEM_HALF.0];
+        let rod = [platen_axis().y + SIDE_PLATE_BACK, at.x - STEM_HALF.0];
         paint_box(
             canvas,
             eye,
-            [end.rod(), rod, [z - ROD_HALF, z + ROD_HALF]],
+            [end.rod(), rod, [at.y - ROD_HALF, at.y + ROD_HALF]],
             CHROME,
         );
     }
@@ -232,11 +232,11 @@ fn paint_bar(canvas: &Canvas, eye: &Eye, [x0, x1]: [f32; 2]) {
 
 /// The circle round the bar's axis at `x`, `radius` millimetres.
 fn round_axis(x: f32, radius: f32) -> Vec<Vec3> {
-    let (y, z) = axis();
+    let at = axis();
     (0..ROUND)
         .map(|i| {
-            let (sin, cos) = (TAU * f32::from(i) / f32::from(ROUND)).sin_cos();
-            Vec3::new(x, y + radius * sin, z + radius * cos)
+            let Vec2 { x: cos, y: sin } = Vec2::from_angle(TAU * f32::from(i) / f32::from(ROUND));
+            Vec3::new(x, at.x + radius * sin, at.y + radius * cos)
         })
         .collect()
 }
@@ -252,10 +252,10 @@ fn paint_disc(canvas: &Canvas, eye: &Eye, end: End) {
         let lit = matte(CHROME, Vec3::X * out);
         eye.fill(canvas, &round_axis(x, DISC_RADIUS), |_| lit);
     }
-    let (y, z) = axis();
+    let at = axis();
     for knurl in 0..KNURLS {
-        let (sin, cos) = (TAU * f32::from(knurl) / f32::from(KNURLS)).sin_cos();
-        let (ky, kz) = (y + DISC_RADIUS * sin, z + DISC_RADIUS * cos);
+        let Vec2 { x: cos, y: sin } = Vec2::from_angle(TAU * f32::from(knurl) / f32::from(KNURLS));
+        let (ky, kz) = (at.x + DISC_RADIUS * sin, at.y + DISC_RADIUS * cos);
         let colour = matte(METAL, Vec3::new(0.0, sin, cos)).lit();
         eye.line(
             canvas,
@@ -375,19 +375,19 @@ mod tests {
 
     #[test]
     fn the_bar_presses_the_paper_behind_the_plates_its_rollers_clear_of_the_guide() {
-        let (y, z) = axis();
+        let at = axis();
         let (front, _) = front();
-        assert!((front - DEPTH - face_y(z)).abs() < 2.5e-3);
+        assert!((front - DEPTH - face_y(at.y)).abs() < 2.5e-3);
         assert!(plate_front() > front, "behind the plates' fronts");
         // Clear on screen too, the guide's glass whole under them.
         let guide = screen_up(guide_top());
         let lowest = (0..36)
-            .map(|i| (i as f32 * 10.0).to_radians().sin_cos())
-            .map(|(sin, cos)| {
+            .map(|i| Vec2::from_angle((i as f32 * 10.0).to_radians()))
+            .map(|d| {
                 screen_up(Vec3::new(
                     0.0,
-                    y + ROLLER_RADIUS * sin,
-                    z + ROLLER_RADIUS * cos,
+                    at.x + ROLLER_RADIUS * d.y,
+                    at.y + ROLLER_RADIUS * d.x,
                 ))
             })
             .fold(f32::INFINITY, f32::min);
@@ -404,14 +404,18 @@ mod tests {
             floor,
             top,
         } = pocket();
-        let (y, z) = axis();
+        let at = axis();
         // Inside the plate's top round the disc, the plate whole ahead of it.
         assert!(axis_y + SIDE_PLATE_BACK < pocket_back);
         assert!((plate_front() - pocket_front - AHEAD_OF_POCKET).abs() < 2.5e-5);
-        assert!(pocket_back < y - DISC_RADIUS && y + DISC_RADIUS < pocket_front);
-        assert!(floor < z - DISC_RADIUS && top > z);
+        assert!(pocket_back < at.x - DISC_RADIUS && at.x + DISC_RADIUS < pocket_front);
+        assert!(floor < at.y - DISC_RADIUS && top > at.y);
         // The rod clear over the platen's end.
-        assert!(z - ROD_HALF - axis_z > PLATEN_DIAMETER_MM / 2.0, "{z}");
+        assert!(
+            at.y - ROD_HALF - axis_z > PLATEN_DIAMETER_MM / 2.0,
+            "{}",
+            at.y
+        );
         for end in plate_ends(0.0) {
             let inside = |x: f32| (x - end.x) * end.inward;
             // The rod outside the plate, the disc beyond it, the stem between.
@@ -445,7 +449,7 @@ mod tests {
         assert!((stop.top() - eye.at(Vec3::new(0.0, front, top)).y).abs() < 1e-3);
         // Nearer than the sheet, so wider on screen: the same millimetres out
         // on the bar as on the sheet are the same column.
-        let on_bar = printed.column_at(eye.at(Vec3::new(51.0, front, axis().1)).x);
+        let on_bar = printed.column_at(eye.at(Vec3::new(51.0, front, axis().y)).x);
         let on_sheet = scale.column_at(eye.origin.x + 2.0 * metrics.points_per_inch);
         assert_eq!(on_bar, on_sheet);
     }

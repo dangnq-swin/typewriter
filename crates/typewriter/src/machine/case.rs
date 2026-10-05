@@ -226,7 +226,7 @@ fn paint_wall_tops(canvas: &Canvas, eye: &Eye, outline: &[Vec3]) {
     for side in [-1.0, 1.0] {
         for pair in outline.windows(2) {
             let [a, b] = [pair[0], pair[1]];
-            let colour = matte(IVORY, Vec3::new(0.0, a.z - b.z, b.y - a.y));
+            let colour = matte(IVORY, Vec3::X.cross(b - a));
             let (outer_a, outer_b) = (
                 Vec3::new(side * a.x, a.y, a.z),
                 Vec3::new(side * b.x, b.y, b.z),
@@ -337,8 +337,8 @@ mod tests {
     fn the_walls_stand_above_the_keys_and_the_shelf_holds_the_bar() {
         let eye = Eye::testing(300.0, 48.0);
         for row in 0..4 {
-            let (y, z) = key_row(row as f32);
-            assert!(wall_top(y) > z + 5.0, "row {row}");
+            let at = key_row(row as f32);
+            assert!(wall_top(at.x) > at.y + 5.0, "row {row}");
         }
         // The walls meet the shelf at the case's front corners, above it before.
         assert!((wall_top(CASE_FRONT) - SHELF_Z).abs() < 2.5e-3);
@@ -354,7 +354,7 @@ mod tests {
         let bar = eye.at(Vec3::new(0.0, space_y + 5.0, space_z)).y;
         let shelf = eye.at(Vec3::new(0.0, CASE_FRONT, SHELF_Z)).y;
         assert!(bar < shelf, "{bar} {shelf}");
-        assert!(key_row(3.0).0 + KEY_CAP.1 / 2.0 < SHELF_BACK);
+        assert!(key_row(3.0).x + KEY_CAP.1 / 2.0 < SHELF_BACK);
     }
 
     #[test]

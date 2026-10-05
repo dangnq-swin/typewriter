@@ -9,7 +9,7 @@
 use std::f32::consts::PI;
 
 use eframe::egui::{Align2, Color32, Rect};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use super::canvas::Canvas;
 use super::carriage::{PLATEN_DIAMETER_MM, STRIKE_DEGREES, platen_axis};
@@ -60,26 +60,29 @@ pub(super) fn wrap_mm() -> f32 {
 }
 
 /// The paper's front's normal behind the platen, `(y, z)`.
-pub(super) fn facing() -> [f32; 2] {
-    let (sin, cos) = LEAN_DEGREES.to_radians().sin_cos();
-    [cos, sin]
+pub(super) fn facing() -> Vec2 {
+    let Vec2 { x: cos, y: sin } = Vec2::from_angle(LEAN_DEGREES.to_radians());
+    Vec2::new(cos, sin)
 }
 
 /// The point `along` the way, `(y, z)`: it leaves the platen where a line
 /// leaning back touches it.
-pub(super) fn way(along: f32) -> [f32; 2] {
-    let (sin, cos) = LEAN_DEGREES.to_radians().sin_cos();
+pub(super) fn way(along: f32) -> Vec2 {
+    let Vec2 { x: cos, y: sin } = Vec2::from_angle(LEAN_DEGREES.to_radians());
     let radius = PLATEN_DIAMETER_MM / 2.0;
-    let normal = facing();
     let axis = platen_axis();
-    let leaves = [axis.y - radius * normal[0], axis.z - radius * normal[1]];
-    [leaves[0] - along * sin, leaves[1] + along * cos]
+    let leaves = Vec2::new(axis.y, axis.z) - radius * facing();
+    leaves + along * Vec2::new(-sin, cos)
 }
 
 /// `across` millimetres from `middle`, `along` the way, `behind` the paper.
 fn on_way(middle: f32, across: f32, along: f32, behind: f32) -> Vec3 {
-    let ([y, z], [ny, nz]) = (way(along), facing());
-    Vec3::new(middle + across, y - behind * ny, z - behind * nz)
+    let (point, normal) = (way(along), facing());
+    Vec3::new(
+        middle + across,
+        point.x - behind * normal.x,
+        point.y - behind * normal.y,
+    )
 }
 
 /// Along the way where it shows at screen height `y`, in the carriage's
@@ -109,8 +112,8 @@ pub fn paper_table(view: Rect, metrics: &Metrics, typing_y: f32) -> PaperTable {
 /// The support centred `middle` millimetres across, its scale for a sheet
 /// `metrics` long: the sleeve, the strip out of it, the scale and the tab.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye, metrics: &Metrics, middle: f32) {
-    let [ny, nz] = facing();
-    let normal = Vec3::new(0.0, ny, nz);
+    let normal = facing();
+    let normal = Vec3::new(0.0, normal.x, normal.y);
     let per_mm = metrics.points_per_mm();
     let length = metrics.paper_size.y / per_mm;
     let line = (metrics.cell_offset(2, 0).y - metrics.cell_offset(0, 0).y) / per_mm;
@@ -188,11 +191,11 @@ mod tests {
 
     #[test]
     fn the_way_leaves_the_platen_behind_and_below_its_top() {
-        let [y, z] = way(0.0);
+        let at = way(0.0);
         let radius = PLATEN_DIAMETER_MM / 2.0;
         let axis = platen_axis();
-        assert!(y < axis.y && z < axis.z, "{y} {z}");
-        let from_axis = glam::Vec2::new(y - axis.y, z - axis.z).length();
+        assert!(at.x < axis.y && at.y < axis.z, "{} {}", at.x, at.y);
+        let from_axis = glam::Vec2::new(at.x - axis.y, at.y - axis.z).length();
         assert!((from_axis - radius).abs() < 2.5e-3);
     }
 

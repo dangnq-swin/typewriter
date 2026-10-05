@@ -60,13 +60,13 @@ const MARK_EDGE: Color32 = Color32::from_rgb(0x30, 0x2C, 0x26);
 /// colour selector at its setting. Each selector's paddle stands up level
 /// with its marks on the wall.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
-    let (y, z) = key_row(0.0);
+    let row = key_row(0.0);
     paint_lock(
         canvas,
         eye,
-        Vec3::new(-LOCK_X, y - LOCK_BACK, z + LOCK_RISE),
+        Vec3::new(-LOCK_X, row.x - LOCK_BACK, row.y + LOCK_RISE),
     );
-    let (y, _) = key_row(2.0);
+    let y = key_row(2.0).x;
     let ribbon = y + RIBBON_ALONG[RIBBON_SET];
     for (x, paddle_y) in [(-SELECTOR_X, y), (SELECTOR_X, ribbon)] {
         let top = wall_top(paddle_y) - PADDLE_BELOW_WALL;
@@ -79,7 +79,7 @@ pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
 /// small rounded square standing proud of the case, outlined dark.
 pub(super) fn paint_marks(canvas: &Canvas, eye: &Eye) {
     let on_wall = (OPENING_HALF + PANEL_HALF_BOTTOM) / 2.0;
-    let (y, _) = key_row(2.0);
+    let y = key_row(2.0).x;
     let (along, half, stroke) = TOUCH_MARKS;
     let bar = |centre: f32, upright: bool| {
         let (dx, dy) = if upright { (0.0, half) } else { (half, 0.0) };
@@ -193,12 +193,12 @@ mod tests {
     #[test]
     fn the_lock_stands_above_the_keys_and_the_selectors_by_their_marks() {
         // At least half the lock's cap above the far row's tops.
-        let (_, row_top) = key_row(0.0);
+        let row_top = key_row(0.0).y;
         let cap_top = row_top + LOCK_RISE;
         assert!(cap_top - row_top >= row_top - (cap_top - KEY_FRONT));
         // The ribbon selector beside the blue mark, level with it.
         let eye = Eye::testing(300.0, 48.0);
-        let (y, _) = key_row(2.0);
+        let y = key_row(2.0).x;
         let mark_y = y + RIBBON_ALONG[RIBBON_SET];
         let mark = eye.at(Vec3::new(SELECTOR_X, mark_y, wall_top(mark_y))).y;
         let paddle = eye
@@ -216,9 +216,9 @@ mod tests {
 
     #[test]
     fn the_selectors_rods_run_well_under_the_locks() {
-        let (_, row_top) = key_row(0.0);
+        let row_top = key_row(0.0).y;
         let lock_rod = row_top + LOCK_RISE - KEY_FRONT - LOCK_DROP;
-        let (y, _) = key_row(2.0);
+        let y = key_row(2.0).x;
         let touch_rod = wall_top(y) - PADDLE_BELOW_WALL - PADDLE.1 - SELECTOR_DROP;
         assert!(touch_rod < lock_rod - 8.0, "{touch_rod} {lock_rod}");
         // Both above the key bed.

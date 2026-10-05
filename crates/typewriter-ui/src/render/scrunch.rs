@@ -2,7 +2,7 @@
 
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, Vec2, lerp, vec2};
 
-use super::{SHADOW, SHEET, SHEET_EDGE, smoothstep, splitmix64, unit};
+use super::{SHADOW, SHEET, SHEET_EDGE, perp_dot, smoothstep, splitmix64, unit};
 
 /// Keep equal to the crumple sound's length.
 pub const SECONDS: f64 = 0.9;
@@ -77,13 +77,13 @@ fn distance_to_edge(quad: &[Pos2; 4], from: Pos2, direction: Vec2) -> f32 {
         .filter_map(|i| {
             let (a, b) = (quad[i], quad[(i + 1) % 4]);
             let edge = b - a;
-            let denominator = direction.x * edge.y - direction.y * edge.x;
+            let denominator = perp_dot(direction, edge);
             if denominator.abs() < 1e-6 {
                 return None;
             }
             let to_a = a - from;
-            let along_ray = (to_a.x * edge.y - to_a.y * edge.x) / denominator;
-            let along_edge = (to_a.x * direction.y - to_a.y * direction.x) / denominator;
+            let along_ray = perp_dot(to_a, edge) / denominator;
+            let along_edge = perp_dot(to_a, direction) / denominator;
             ((0.0..=1.0).contains(&along_edge) && along_ray > 0.0).then_some(along_ray)
         })
         .fold(f32::INFINITY, f32::min)

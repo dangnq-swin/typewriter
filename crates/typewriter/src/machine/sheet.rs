@@ -6,7 +6,7 @@
 
 use eframe::egui::epaint::Vertex;
 use eframe::egui::{Mesh, Painter, Pos2, Rect};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use typewriter_ui::draw::{FlatSheet, Metrics};
 
 use super::carriage::{PLATEN_DIAMETER_MM, STRIKE_DEGREES, platen_axis};
@@ -23,28 +23,26 @@ const WAY_STEP_MM: f32 = 1.27;
 const WAY_COLUMNS: u16 = 8;
 
 /// The point `along` the way, `(y, z)`, and its printed side's normal.
-fn way(along: f32) -> ([f32; 2], [f32; 2]) {
+fn way(along: f32) -> (Vec2, Vec2) {
     let strike = STRIKE_DEGREES.to_radians();
     let lean = support::LEAN_DEGREES.to_radians();
     if along >= 0.0 {
         // Its lean back from upright, from the platen's slope to the support's.
         let bend = BEND_MM * (strike - lean);
         let tilt = strike - along.min(bend) / BEND_MM;
-        let y = BEND_MM * (strike.cos() - tilt.cos());
-        let z = BEND_MM * (strike.sin() - tilt.sin());
+        let offset = BEND_MM * (Vec2::from_angle(strike) - Vec2::from_angle(tilt));
         let straight = (along - bend).max(0.0);
-        let (sin, cos) = tilt.sin_cos();
-        return ([y - straight * sin, z + straight * cos], [cos, sin]);
+        let normal = Vec2::from_angle(tilt);
+        return (offset + straight * Vec2::new(-normal.y, normal.x), normal);
     }
     let wrap = support::wrap_mm();
     if along >= -wrap {
         let radius = PLATEN_DIAMETER_MM / 2.0;
         let axis = platen_axis();
-        let (sin, cos) = (strike + along / radius).sin_cos();
-        return ([axis.y + radius * cos, axis.z + radius * sin], [cos, sin]);
+        let normal = Vec2::from_angle(strike + along / radius);
+        return (Vec2::new(axis.y, axis.z) + radius * normal, normal);
     }
-    let [ny, nz] = support::facing();
-    (support::way(-along - wrap), [-ny, -nz])
+    (support::way(-along - wrap), -support::facing())
 }
 
 /// How far forward the sheet's printed face is at height `z` before the
@@ -69,8 +67,8 @@ pub(super) fn face_y(z: f32) -> f32 {
 
 /// The top of the sheet's front edge on screen, `along` millimetres up it.
 pub(super) fn front_at(eye: &Eye, along: f32) -> f32 {
-    let ([y, z], _) = way(along.max(0.0));
-    eye.at(Vec3::new(0.0, y, z)).y
+    let (point, _) = way(along.max(0.0));
+    eye.at(Vec3::new(0.0, point.x, point.y)).y
 }
 
 /// How much larger print shows at `along` millimetres up the way from the
@@ -78,8 +76,8 @@ pub(super) fn front_at(eye: &Eye, along: f32) -> f32 {
 /// Below the point the platen turns it away again, and nothing wants
 /// shrinking: 1.0 answers there.
 pub fn print_magnify(along: f32) -> f32 {
-    let ([y, z], _) = way(along.max(0.0));
-    Eye::magnified(Vec3::new(0.0, y, z))
+    let (point, _) = way(along.max(0.0));
+    Eye::magnified(Vec3::new(0.0, point.x, point.y))
 }
 
 /// A point of a sheet on its way.
@@ -109,9 +107,9 @@ pub fn paint_sheets(
     let eye = Eye::new(view, metrics, typing_y);
     let per_mm = metrics.points_per_mm();
     let place = |at: Pos2| {
-        let ([y, z], [ny, nz]) = way((typing_y - at.y) / per_mm);
-        let p = Vec3::new((at.x - eye.origin.x) / per_mm, y, z);
-        let normal = Vec3::new(0.0, ny, nz);
+        let (point, facing) = way((typing_y - at.y) / per_mm);
+        let p = Vec3::new((at.x - eye.origin.x) / per_mm, point.x, point.y);
+        let normal = Vec3::new(0.0, facing.x, facing.y);
         let facing = Eye::sees(p, normal);
         let seen = if facing { normal } else { -normal };
         Placed {
@@ -199,7 +197,7 @@ mod tests {
         let mut along = -200.0;
         while along < 200.0 {
             let ((a, _), (b, _)) = (way(along), way(along + step));
-            let gap = (a[0] - b[0]).hypot(a[1] - b[1]);
+            let gap = a.distance(b);
             assert!((gap - step).abs() < 0.0025, "{along}: {gap}");
             along += step;
         }
@@ -210,8 +208,13 @@ mod tests {
         // From near the platen's bottom, up past the bend.
         let mut along = -33.0;
         while along < 51.0 {
-            let ([y, z], _) = way(along);
-            assert!((face_y(z) - y).abs() < 0.0025, "{along}: {} {y}", face_y(z));
+            let (point, _) = way(along);
+            assert!(
+                (face_y(point.y) - point.x).abs() < 0.0025,
+                "{along}: {} {}",
+                face_y(point.y),
+                point.x
+            );
             along += 0.25;
         }
     }
@@ -238,8 +241,8 @@ mod tests {
     fn print_rises_toward_the_eye_as_its_magnify_grows() {
         let eye = Eye::testing(500.0, 96.0);
         for along in [0.0, 25.4, 101.6, 203.2, 297.0] {
-            let ([y, z], _) = way(along);
-            let scale = eye.scale(Vec3::new(0.0, y, z)) / eye.ppmm;
+            let (point, _) = way(along);
+            let scale = eye.scale(Vec3::new(0.0, point.x, point.y)) / eye.ppmm;
             assert!(
                 (print_magnify(along) - scale.max(1.0)).abs() < 1e-6,
                 "{along}"
@@ -252,12 +255,12 @@ mod tests {
 
     #[test]
     fn the_printing_point_faces_the_eye_and_the_back_turns_away() {
-        let ([y, z], [ny, nz]) = way(0.0);
-        assert!(y.abs() < 2.5e-5 && z.abs() < 2.5e-5);
+        let (point, normal) = way(0.0);
+        assert!(point.x.abs() < 2.5e-5 && point.y.abs() < 2.5e-5);
         let eye = toward_eye();
-        assert!((ny - eye.y).abs() < 1e-5 && (nz - eye.z).abs() < 1e-5);
+        assert!((normal.x - eye.y).abs() < 1e-5 && (normal.y - eye.z).abs() < 1e-5);
         let behind = -support::wrap_mm() - 51.0;
         let (_, normal) = way(behind);
-        assert!(normal[0] < 0.0, "{normal:?}");
+        assert!(normal.x < 0.0, "{normal:?}");
     }
 }

@@ -2,7 +2,7 @@
 //! maker's badge would be: spacing, zoom, correction, goal and save.
 
 use eframe::egui::{Align2, Color32, Painter, Rect, Shape, Stroke, remap};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use typewriter_core::{EraseMode, LineSpacing};
 
 use super::canvas::Canvas;
@@ -59,10 +59,10 @@ pub(super) fn paint_face(canvas: &Canvas, eye: &Eye) {
 }
 
 /// A point on the front panel's slope.
-pub(super) fn on_panel(x: f32, y: f32) -> Vec3 {
+pub(super) fn on_panel(xy: Vec2) -> Vec3 {
     let (y0, z0) = COVER_FRONT;
     let (y1, z1) = PANEL_BOTTOM;
-    Vec3::new(x, y, remap(y, y0..=y1, z0..=z1))
+    Vec3::new(xy.x, xy.y, remap(xy.y, y0..=y1, z0..=z1))
 }
 
 /// Down the panel's slope, toward the writer, unit length.
@@ -82,7 +82,7 @@ fn panel_normal() -> Vec3 {
 /// degrees clockwise from the top, the top being up the slope.
 pub(super) fn panel_offset(centre: Vec3, radius: f32, turn: f32) -> Vec3 {
     let down = panel_down();
-    let (sin, cos) = turn.to_radians().sin_cos();
+    let Vec2 { x: cos, y: sin } = Vec2::from_angle(turn.to_radians());
     // Across the panel is [1, 0, 0]; its down is `panel_down`.
     centre + Vec3::new(radius * sin, -radius * cos * down.y, -radius * cos * down.z)
 }
@@ -177,7 +177,7 @@ impl Panel {
             KNOB_RADIUS * INDEX_MARKS.1,
         );
         let right = control.label_x() + control.label_width();
-        let [left, right] = [left, right].map(|x| on_panel(x, CONTROLS_Y));
+        let [left, right] = [left, right].map(|x| on_panel(Vec2::new(x, CONTROLS_Y)));
         let corners = [
             panel_offset(left, reach, 0.0),
             panel_offset(right, reach, 0.0),
@@ -255,7 +255,7 @@ impl Panel {
     /// clockwise from the top, index marks engraved round it at `marks`.
     fn paint_knob(&self, canvas: &Canvas, control: Control, lit: bool, turn: f32, marks: &[f32]) {
         let eye = &self.eye;
-        let centre = on_panel(control.x(), CONTROLS_Y);
+        let centre = on_panel(Vec2::new(control.x(), CONTROLS_Y));
         for &mark in marks {
             let [inner, outer] =
                 [INDEX_MARKS.0, INDEX_MARKS.1].map(|r| panel_offset(centre, KNOB_RADIUS * r, mark));
@@ -270,9 +270,9 @@ impl Panel {
     /// colour, dark if `None`.
     fn paint_button(&self, canvas: &Canvas, control: Control, lit: bool, lamp: Option<Color32>) {
         let eye = &self.eye;
-        let centre = on_panel(control.x(), CONTROLS_Y);
+        let centre = on_panel(Vec2::new(control.x(), CONTROLS_Y));
         self.paint_cylinder(canvas, centre, BUTTON_HEIGHT, lit, [SHIFT_CAP, SHIFT_FRONT]);
-        let bulb = on_panel(control.x() + LAMP_OUT, CONTROLS_Y);
+        let bulb = on_panel(Vec2::new(control.x() + LAMP_OUT, CONTROLS_Y));
         let rim = circle(bulb, LAMP_RIM);
         eye.fill(canvas, &rim, |_| CHROME);
         let glass = circle(bulb, LAMP_RADIUS);
@@ -328,7 +328,7 @@ impl Panel {
         let (name_y, reading_y) = LABEL_LINES;
         // On the panel's slope, like the knobs.
         let on = |line: f32| {
-            let start = on_panel(control.label_x(), CONTROLS_Y + line);
+            let start = on_panel(Vec2::new(control.label_x(), CONTROLS_Y + line));
             move |across: f32, down: f32| {
                 start + Vec3::new(across, 0.0, 0.0) + panel_offset(Vec3::ZERO, down, 180.0)
             }
@@ -362,7 +362,7 @@ pub(super) fn paint_casters(canvas: &Canvas, eye: &Eye) {
             Control::Save => BUTTON_HEIGHT,
             _ => KNOB_HEIGHT,
         };
-        let base = on_panel(control.x(), CONTROLS_Y);
+        let base = on_panel(Vec2::new(control.x(), CONTROLS_Y));
         let top = base + panel_normal() * height;
         let at = |centre: Vec3, i: u8| {
             let turn = 360.0 * f32::from(i) / f32::from(steps);
@@ -421,12 +421,15 @@ mod tests {
     fn the_casters_stand_clear_of_the_lamp_and_labels() {
         // The knob's crown reaches furthest out toward the writer; short of
         // the lamp's bulb and the labels' start, as the cylinders are round.
-        let crown = panel_offset(on_panel(Control::Goal.x(), CONTROLS_Y), KNOB_RADIUS, 90.0)
-            - on_panel(0.0, CONTROLS_Y);
+        let crown = panel_offset(
+            on_panel(Vec2::new(Control::Goal.x(), CONTROLS_Y)),
+            KNOB_RADIUS,
+            90.0,
+        ) - on_panel(Vec2::new(0.0, CONTROLS_Y));
         assert!(crown.x + KNOB_RADIUS < LABEL_GAP + Control::Goal.label_width());
         let (save, bulb) = (
-            on_panel(Control::Save.x(), CONTROLS_Y),
-            on_panel(LAMP_OUT, CONTROLS_Y),
+            on_panel(Vec2::new(Control::Save.x(), CONTROLS_Y)),
+            on_panel(Vec2::new(LAMP_OUT, CONTROLS_Y)),
         );
         assert!((bulb - save).length() > 2.0 * KNOB_RADIUS + LAMP_RIM);
     }

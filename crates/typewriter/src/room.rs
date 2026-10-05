@@ -133,8 +133,8 @@ impl Desk {
     fn paint_wood(&self, eye: &Eye, mesh: &mut Mesh, view: Rect) {
         let top = self.junction.max(view.top());
         for shade in 0..SHADES {
-            let y0 = top + (view.bottom() - top) * shade as f32 / SHADES as f32;
-            let y1 = top + (view.bottom() - top) * (shade + 1) as f32 / SHADES as f32;
+            let y0 = lerp(top..=view.bottom(), shade as f32 / SHADES as f32);
+            let y1 = lerp(top..=view.bottom(), (shade + 1) as f32 / SHADES as f32);
             let quad = [
                 Pos2::new(view.left(), y1),
                 Pos2::new(view.right(), y1),

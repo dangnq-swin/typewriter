@@ -1,7 +1,7 @@
 //! The keys, their levers, and the rod the levers rest on.
 
 use eframe::egui::{Align2, Color32, Shape, Stroke, pos2};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use super::canvas::Canvas;
 use super::case::{OPENING_HALF, PANEL_EDGE_MM};
@@ -161,8 +161,8 @@ impl Key {
 }
 
 /// Where a row's key tops are: `(y, z)`, far row 0.
-pub(super) fn key_row(row: f32) -> (f32, f32) {
-    (
+pub(super) fn key_row(row: f32) -> Vec2 {
+    Vec2::new(
         KEY_ROW.0 + row * KEY_ROW_STEP.0,
         KEY_ROW.1 + row * KEY_ROW_STEP.1,
     )
@@ -173,9 +173,9 @@ pub(super) fn key_row(row: f32) -> (f32, f32) {
 pub(super) fn key_levers() -> Vec<Vec3> {
     let (space_y, space_z) = SPACE_ROW;
     let keys = KEYS.iter().enumerate().flat_map(|(row, keys)| {
-        let (y, z) = key_row(row as f32);
+        let at = key_row(row as f32);
         keys.iter()
-            .map(move |key| Vec3::new(key.x(), y - 3.0, z - KEY_FRONT))
+            .map(move |key| Vec3::new(key.x(), at.x - 3.0, at.y - KEY_FRONT))
     });
     let space =
         [-101.0, -46.0, 46.0, 99.0].map(|x| Vec3::new(x, space_y - 3.0, space_z - KEY_FRONT));
@@ -217,7 +217,7 @@ fn rod_axis(y: f32, levers: &[Vec3]) -> Option<f32> {
 /// the `levers` crossing there: a cylinder lit round its curve, its top in
 /// the light, a highlight where it turns toward it, its underside in shade.
 pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[Vec3]) {
-    let y = key_row(0.0).0 - ROD_BEHIND;
+    let y = key_row(0.0).x - ROD_BEHIND;
     let Some(z) = rod_axis(y, levers) else {
         return;
     };
@@ -227,9 +227,10 @@ pub(super) fn paint_rod(canvas: &Canvas, eye: &Eye, levers: &[Vec3]) {
     let around: Vec<(Vec3, Paint)> = (0..=bands)
         .map(|i| {
             let angle = (-60.0 + 190.0 * f32::from(i) / f32::from(bands)).to_radians();
-            let normal = Vec3::new(0.0, angle.sin(), angle.cos());
+            let d = Vec2::from_angle(angle);
+            let normal = Vec3::new(0.0, d.y, d.x);
             let polish = polished(ROD, METAL_SHINE, normal, 24.0);
-            let offset = Vec3::new(0.0, ROD_RADIUS * angle.sin(), ROD_RADIUS * angle.cos());
+            let offset = Vec3::new(0.0, ROD_RADIUS * d.y, ROD_RADIUS * d.x);
             (Vec3::new(0.0, y, z) + offset, polish)
         })
         .collect();
@@ -287,9 +288,9 @@ fn paint_lever(canvas: &Canvas, eye: &Eye, under_cap: Vec3) {
 pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
     let (space_y, space_z) = SPACE_ROW;
     for (row, keys) in KEYS.iter().enumerate() {
-        let (y, z) = key_row(row as f32);
+        let at = key_row(row as f32);
         for key in keys.iter() {
-            paint_cap_geometry(canvas, eye, key, Vec3::new(key.x(), y, z));
+            paint_cap_geometry(canvas, eye, key, Vec3::new(key.x(), at.x, at.y));
         }
     }
     for (left, right, _) in SPACE_BAR {
@@ -308,7 +309,7 @@ pub(super) fn paint_caps(canvas: &Canvas, eye: &Eye) {
 /// Every key's legends, and the space bar's.
 pub(super) fn paint_legends(canvas: &Canvas, eye: &Eye) {
     for (row, keys) in KEYS.iter().enumerate() {
-        let (y, z) = key_row(row as f32);
+        let at = key_row(row as f32);
         for key in keys.iter() {
             let size = if key.legend.chars().count() > 1 {
                 0.6
@@ -318,7 +319,7 @@ pub(super) fn paint_legends(canvas: &Canvas, eye: &Eye) {
             legend(
                 canvas,
                 eye,
-                Vec3::new(key.x(), y, z),
+                Vec3::new(key.x(), at.x, at.y),
                 key.legend,
                 key.shifted,
                 size,
@@ -483,14 +484,14 @@ mod tests {
     #[test]
     fn the_rod_lies_under_every_lever_and_below_the_far_caps() {
         let levers = key_levers();
-        let y = key_row(0.0).0 - ROD_BEHIND;
+        let y = key_row(0.0).x - ROD_BEHIND;
         let axis = rod_axis(y, &levers).unwrap();
         // Every lever runs back over it.
         for lever in &levers {
             let over = lever_at(*lever, y).unwrap();
             assert!(over.z > axis + ROD_RADIUS, "{lever:?}");
         }
-        assert!(axis + ROD_RADIUS < key_row(0.0).1 - KEY_FRONT);
+        assert!(axis + ROD_RADIUS < key_row(0.0).y - KEY_FRONT);
         assert!(axis - ROD_RADIUS > KEY_BED_Z);
     }
 }

@@ -8,7 +8,7 @@ use eframe::egui::epaint::{TessellationOptions, Tessellator};
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
 use emath::Rot2;
 
-use super::SHADOW;
+use super::{SHADOW, perp_dot};
 
 const TILT_DEGREES: f32 = 38.0;
 
@@ -207,7 +207,7 @@ pub fn corners(rect: Rect) -> [Pos2; 4] {
 
 /// `p` lies inside the convex `quad`.
 pub fn contains(quad: &[Pos2; 4], p: Pos2) -> bool {
-    let side = |a: Pos2, b: Pos2| (b - a).x * (p - a).y - (b - a).y * (p - a).x;
+    let side = |a: Pos2, b: Pos2| perp_dot(b - a, p - a);
     let signs = [
         side(quad[0], quad[1]),
         side(quad[1], quad[2]),

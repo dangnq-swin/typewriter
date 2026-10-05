@@ -72,10 +72,10 @@ pub(super) fn shadow() -> Shadow {
 /// past which the reading clamps into the map's own border texels. The
 /// rows `shadow()` projects with, applied straight.
 #[cfg(test)]
-fn map_uv(mm: Vec3) -> (f32, f32) {
+fn map_uv(mm: Vec3) -> glam::Vec2 {
     let map = shadow();
     let mm = mm.extend(1.0);
-    (map.rows[0].dot(mm), map.rows[1].dot(mm))
+    glam::Vec2::new(map.rows[0].dot(mm), map.rows[1].dot(mm))
 }
 
 /// The frame's lighting: this head, this eye, the room chrome mirrors and
@@ -306,10 +306,12 @@ mod tests {
         // the whole of it.
         let (left, right, front, back) = DESK;
         for (x, y) in [(left, back), (right, back), (right, front), (left, front)] {
-            let (u, v) = map_uv(Vec3::new(x, y, DESK_Z));
+            let uv = map_uv(Vec3::new(x, y, DESK_Z));
             assert!(
-                u.abs() < 1.0 && v.abs() < 1.0,
-                "desk corner ({x}, {y}) reads u {u:.3}, v {v:.3}: past the map's edge"
+                uv.x.abs() < 1.0 && uv.y.abs() < 1.0,
+                "desk corner ({x}, {y}) reads u {:.3}, v {:.3}: past the map's edge",
+                uv.x,
+                uv.y
             );
         }
     }
@@ -322,7 +324,7 @@ mod tests {
         assert!(lit(Vec3::Z).r() > lit(-Vec3::Z).r());
         for angle in 0..36 {
             let turn = (10.0 * angle as f32).to_radians();
-            let shine = streak(Vec3::new(turn.cos(), turn.sin(), 0.0), 6);
+            let shine = streak(glam::Vec2::from_angle(turn).extend(0.0), 6);
             assert!((0.0..=1.0).contains(&shine));
         }
     }

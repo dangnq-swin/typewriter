@@ -10,7 +10,7 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use eframe::egui::{self, Shape, Stroke};
-use glam::{Quat, Vec3};
+use glam::{Quat, Vec2, Vec3};
 
 use super::canvas::Canvas;
 use super::eye::Eye;
@@ -144,7 +144,7 @@ fn paint_screw(canvas: &Canvas, eye: &Eye, at: Vec3) {
         (0..SCREW_STEPS)
             .map(|step| {
                 let turn = std::f32::consts::TAU * f32::from(step) / f32::from(SCREW_STEPS);
-                let (sin, cos) = turn.sin_cos();
+                let Vec2 { x: cos, y: sin } = Vec2::from_angle(turn);
                 at + Vec3::new(SCREW_RADIUS * cos, SCREW_RADIUS * sin, z)
             })
             .collect()
@@ -223,7 +223,8 @@ fn profile(formed: f32) -> [(f32, f32); ACROSS] {
     let mut next = 2;
     let mut walk = |turn: f32, length: f32, at: &mut (f32, f32), heading: &mut f32| {
         *heading += turn / 2.0;
-        *at = (at.0 + length * heading.cos(), at.1 + length * heading.sin());
+        let step = Vec2::from_angle(*heading) * length;
+        *at = (at.0 + step.x, at.1 + step.y);
         *heading += turn / 2.0;
         points[next] = *at;
         next += 1;

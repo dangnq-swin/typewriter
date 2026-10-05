@@ -4,7 +4,13 @@ use std::collections::HashMap;
 
 use eframe::egui::epaint::{Vertex, WHITE_UV};
 use eframe::egui::{Color32, Mesh, Pos2, Rect, vec2};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
+
+/// The 2D cross product from `a` through `b` to `p`: positive one side of
+/// `a`-`b`, negative the other. emath's `Pos2` has no `perp_dot`; glam's does.
+fn turn(a: Pos2, b: Pos2, p: Pos2) -> f32 {
+    Vec2::new(b.x - a.x, b.y - a.y).perp_dot(Vec2::new(p.x - a.x, p.y - a.y))
+}
 
 /// Corners `(point, rounding)` of a flat convex polygon, each rounded by a
 /// curve tangent to both sides.
@@ -67,7 +73,6 @@ pub(super) fn convex_grid(outline: &[Pos2], step: f32) -> Mesh {
     }
     let n = outline.len();
     let edges: Vec<(Pos2, Pos2)> = (0..n).map(|i| (outline[i], outline[(i + 1) % n])).collect();
-    let turn = |a: Pos2, b: Pos2, p: Pos2| (b - a).x * (p - a).y - (b - a).y * (p - a).x;
     // Which side of each edge is inside, whichever way round it runs.
     let winding = edges
         .iter()
@@ -156,7 +161,7 @@ mod tests {
             .iter()
             .map(|t| {
                 let [a, b, c] = t.map(|i| mesh.vertices[i as usize].pos);
-                ((b - a).x * (c - a).y - (b - a).y * (c - a).x).abs() / 2.0
+                turn(a, b, c).abs() / 2.0
             })
             .sum();
         let corner_cut = 4.0 * (0.2 * 0.2 - std::f32::consts::FRAC_PI_4 * 0.2 * 0.2);

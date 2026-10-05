@@ -4,7 +4,7 @@ use std::f32::consts::PI;
 
 use crate::depth::{Layer, Placing, Shade, Solid};
 use eframe::egui::{Color32, Shape, lerp};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use super::canvas::Canvas;
 use super::eye::Eye;
@@ -53,9 +53,9 @@ const TEAL_LIGHT: Color32 = Color32::from_rgb(0x5A, 0x8A, 0x84);
 const PALE_RING: Color32 = Color32::from_rgb(0xCC, 0xC6, 0xB2);
 
 /// A point on the ribbon cover's slope.
-pub(super) fn on_cover(x: f32, y: f32) -> Vec3 {
-    let t = (y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
-    Vec3::new(x, y, lerp(COVER_BACK.1..=COVER_FRONT.1, t))
+pub(super) fn on_cover(xy: Vec2) -> Vec3 {
+    let t = (xy.y - COVER_BACK.0) / (COVER_FRONT.0 - COVER_BACK.0);
+    Vec3::new(xy.x, xy.y, lerp(COVER_BACK.1..=COVER_FRONT.1, t))
 }
 
 /// Out of the cover's slope, square to it, unit length.
@@ -80,10 +80,10 @@ fn inset_opening(side: f32, front: f32) -> [Vec3; 4] {
     let t = (front_y - ob.0) / (of.0 - ob.0);
     let (back_half, front_half) = (ob.1 - side, lerp(ob.1..=of.1, t) - side);
     [
-        on_cover(-back_half, ob.0),
-        on_cover(back_half, ob.0),
-        on_cover(front_half, front_y),
-        on_cover(-front_half, front_y),
+        on_cover(Vec2::new(-back_half, ob.0)),
+        on_cover(Vec2::new(back_half, ob.0)),
+        on_cover(Vec2::new(front_half, front_y)),
+        on_cover(Vec2::new(-front_half, front_y)),
     ]
 }
 
@@ -110,10 +110,13 @@ pub(super) fn paint_opening(canvas: &Canvas, eye: &Eye) {
 /// drop into the opening.
 pub(super) fn paint(canvas: &Canvas, eye: &Eye) {
     let (back, front) = COVER_HALF;
-    let (bl, br) = (on_cover(-back, COVER_BACK.0), on_cover(back, COVER_BACK.0));
+    let (bl, br) = (
+        on_cover(Vec2::new(-back, COVER_BACK.0)),
+        on_cover(Vec2::new(back, COVER_BACK.0)),
+    );
     let (fl, fr) = (
-        on_cover(-front, COVER_FRONT.0),
-        on_cover(front, COVER_FRONT.0),
+        on_cover(Vec2::new(-front, COVER_FRONT.0)),
+        on_cover(Vec2::new(front, COVER_FRONT.0)),
     );
     let [tip_l, tip_r, ofr, ofl] = opening();
 
@@ -207,7 +210,8 @@ fn paint_plate_wall(canvas: &Canvas, eye: &Eye, edge: &[Vec3], facing: f32) {
 fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
     let centre = OPENING_BACK.0 - 4.0;
     let at = |angle: f32, radius: f32, z: f32| {
-        Vec3::new(radius * angle.sin(), centre + radius * angle.cos(), z)
+        let d = Vec2::from_angle(angle);
+        Vec3::new(radius * d.y, centre + radius * d.x, z)
     };
     let bars = 53u16;
     let (reach, low) = TYPE_BAR_REACH;
@@ -228,7 +232,7 @@ fn paint_type_basket(canvas: &Canvas, eye: &Eye) {
             brushed(
                 METAL,
                 METAL_SHINE,
-                Vec3::new(angle.cos(), -angle.sin(), 0.0),
+                Vec2::from_angle(-angle).extend(0.0),
                 6.0,
             )
         },
@@ -261,11 +265,8 @@ fn ring<P: Into<Paint>>(
     colour: impl Fn(f32, f32) -> P,
 ) {
     let at = |angle: f32, radius: f32| {
-        Vec3::new(
-            radius * angle.sin(),
-            centre_y + radius * angle.cos(),
-            SEGMENT_Z,
-        )
+        let d = Vec2::from_angle(angle);
+        Vec3::new(radius * d.y, centre_y + radius * d.x, SEGMENT_Z)
     };
     let steps = 40u8;
     let mut solid = Solid::default();

@@ -4220,9 +4220,11 @@ version = "2.0.1"
 dependencies = [
  "anyhow",
  "atomic-write-file",
+ "bytemuck",
  "directories",
  "eframe",
  "emath",
+ "glam",
  "image",
  "interprocess",
  "jiff",

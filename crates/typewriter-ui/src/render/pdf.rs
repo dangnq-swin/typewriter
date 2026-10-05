@@ -2,7 +2,7 @@
 //! same marks as the screen.
 
 use anyhow::Context as _;
-use eframe::egui::{Color32, Pos2, Vec2, vec2};
+use eframe::egui::{Color32, Pos2, Vec2};
 use printpdf::{
     Color, LinePoint, Mm, Op, PaintMode, ParsedFont, PdfDocument, PdfFontHandle, PdfPage,
     PdfSaveOptions, Point, Polygon, PolygonRing, Pt, Rgb, TextItem, TextMatrix, WindingOrder,
@@ -143,7 +143,7 @@ impl Page {
                 color,
             } => {
                 let along = (to - from).normalized();
-                let across = vec2(-along.y, along.x) * (width / 2.0);
+                let across = -along.rot90() * (width / 2.0);
                 let corners = [from + across, to + across, to - across, from - across];
                 self.fill(ops, &corners, on_white(color));
             }
@@ -211,11 +211,11 @@ fn text(
     ]);
 }
 
-fn ellipse(centre: Pos2, radius: Vec2) -> Vec<Pos2> {
+fn ellipse(centre: Pos2, radii: Vec2) -> Vec<Pos2> {
     (0..ELLIPSE_POINTS)
         .map(|i| {
             let angle = std::f32::consts::TAU * f32::from(i) / f32::from(ELLIPSE_POINTS);
-            centre + vec2(angle.cos() * radius.x, angle.sin() * radius.y)
+            centre + Vec2::angled(angle) * radii
         })
         .collect()
 }

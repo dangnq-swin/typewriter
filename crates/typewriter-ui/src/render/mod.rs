@@ -190,6 +190,11 @@ pub fn points_per_inch(zoom_percent: u16) -> f32 {
     POINTS_PER_INCH * f32::from(zoom_percent) / 100.0
 }
 
+/// The 2D cross product emath has no name for: glam's, over the same bytes.
+pub fn perp_dot(a: Vec2, b: Vec2) -> f32 {
+    bytemuck::cast::<Vec2, glam::Vec2>(a).perp_dot(bytemuck::cast(b))
+}
+
 /// Eases 0..=1 in and out. Clamps `t`.
 pub fn smoothstep(t: f32) -> f32 {
     emath::ease_in_ease_out(t)

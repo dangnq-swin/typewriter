@@ -11,6 +11,9 @@ typewriter-core.workspace = true
 typewriter-render.workspace = true
 eframe.workspace = true
 emath.workspace = true
+# egui's maths lacks 2D cross products: glam's, on the same bytes.
+glam.workspace = true
+bytemuck.workspace = true
 rand.workspace = true
 anyhow.workspace = true
 image.workspace = true

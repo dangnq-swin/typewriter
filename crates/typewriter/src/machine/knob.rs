@@ -5,7 +5,7 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{Color32, Rect};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use super::canvas::Canvas;
 use super::carriage::cylinder;
@@ -71,7 +71,7 @@ impl Knob {
 fn circle(x: f32, radius: f32) -> Vec<Vec3> {
     (0..BANDS)
         .map(|i| {
-            let (sin, cos) = (TAU * f32::from(i) / f32::from(BANDS)).sin_cos();
+            let Vec2 { x: cos, y: sin } = Vec2::from_angle(TAU * f32::from(i) / f32::from(BANDS));
             Vec3::new(x, radius * sin, radius * cos)
         })
         .collect()
@@ -115,7 +115,7 @@ pub(super) fn grips(eye: &Eye, ends: [f32; 2]) -> [Rect; 2] {
 pub(super) fn paint_bodies(canvas: &Canvas, eye: &Eye, ends: [f32; 2]) {
     for knob in knobs(ends) {
         let mut solid = Solid::default();
-        let round = |x, radius| (x, (0.0, 0.0), radius);
+        let round = |x, radius| (x, Vec2::ZERO, radius);
         let cream = [CREAM, CREAM_SHINE];
         cylinder(
             eye,
@@ -157,7 +157,7 @@ pub(super) fn paint_ribs(canvas: &Canvas, eye: &Eye, ends: [f32; 2], turned: f32
         for rib in 0..RIBS {
             // From the top round the front: rising at the front, it turns back.
             let around = TAU * f32::from(rib) / f32::from(RIBS) - turned;
-            let (sin, cos) = around.sin_cos();
+            let Vec2 { x: cos, y: sin } = Vec2::from_angle(around);
             let (y, z) = (DISC.1 * sin, DISC.1 * cos);
             let colour = matte(RIB, Vec3::new(0.0, sin, cos)).lit();
             eye.line(
